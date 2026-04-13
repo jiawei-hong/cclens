@@ -66,24 +66,57 @@ function MarkdownText({ children }: { children: string }) {
   )
 }
 
+// ── Directory walker (File System Access API) ─────────────────────────────────
+
+async function collectJsonlFiles(dir: FileSystemDirectoryHandle, files: File[] = []): Promise<File[]> {
+  for await (const [, handle] of dir) {
+    if (handle.kind === 'directory') {
+      await collectJsonlFiles(handle as FileSystemDirectoryHandle, files)
+    } else if (handle.name.endsWith('.jsonl')) {
+      files.push(await (handle as FileSystemFileHandle).getFile())
+    }
+  }
+  return files
+}
+
 // ── Upload Screen ─────────────────────────────────────────────────────────────
 
 function UploadScreen({ onLoad }: { onLoad: (sessions: Session[]) => void }) {
   const [dragging, setDragging] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [loadingMsg, setLoadingMsg] = useState('')
   const [error, setError] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const hasFolderPicker = typeof window !== 'undefined' && 'showDirectoryPicker' in window
+
+  const process = async (files: File[]) => {
+    setLoadingMsg(`Parsing ${files.length} files…`)
+    const sessions = await parseSessionFiles(files)
+    if (sessions.length === 0) throw new Error('No valid sessions found.')
+    onLoad(sessions)
+  }
+
+  const pickFolder = async () => {
+    setError(null)
+    setLoading(true)
+    try {
+      const dir = await window.showDirectoryPicker({ mode: 'read' })
+      setLoadingMsg('Scanning for .jsonl files…')
+      const files = await collectJsonlFiles(dir)
+      if (files.length === 0) throw new Error('No .jsonl files found in the selected folder.')
+      await process(files)
+    } catch (e: unknown) {
+      if (e instanceof Error && e.name !== 'AbortError') setError(e.message)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const handleFiles = async (files: FileList | File[]) => {
     setLoading(true)
     setError(null)
     try {
-      const sessions = await parseSessionFiles(files)
-      if (sessions.length === 0) {
-        setError('No valid sessions found. Make sure you selected .jsonl files.')
-      } else {
-        onLoad(sessions)
-      }
+      await process(Array.from(files))
     } catch (e) {
       setError(String(e))
     } finally {
@@ -104,44 +137,60 @@ function UploadScreen({ onLoad }: { onLoad: (sessions: Session[]) => void }) {
         <p className="text-gray-500 mt-2">Insights & search across your Claude Code sessions</p>
       </div>
 
-      <div
-        onDragOver={e => { e.preventDefault(); setDragging(true) }}
-        onDragLeave={() => setDragging(false)}
-        onDrop={onDrop}
-        onClick={() => inputRef.current?.click()}
-        className={`w-full max-w-lg border-2 border-dashed rounded-2xl p-12 flex flex-col items-center gap-4 cursor-pointer transition-colors
-          ${dragging ? 'border-indigo-400 bg-indigo-500/10' : 'border-gray-700 hover:border-gray-500 hover:bg-gray-900'}`}
-      >
-        <div className="text-4xl">{loading ? '⏳' : '📂'}</div>
-        {loading ? (
-          <p className="text-gray-400">Parsing sessions...</p>
-        ) : (
-          <>
-            <p className="text-gray-300 font-medium">Drop your .jsonl files here</p>
-            <p className="text-gray-600 text-sm text-center">or click to browse · select multiple files at once</p>
-          </>
-        )}
-        <input ref={inputRef} type="file" accept=".jsonl" multiple className="hidden"
-          onChange={e => e.target.files && handleFiles(e.target.files)} />
-      </div>
+      {loading ? (
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+          <p className="text-gray-400 text-sm">{loadingMsg}</p>
+        </div>
+      ) : (
+        <div className="w-full max-w-lg flex flex-col gap-3">
+          {/* Primary: folder picker */}
+          {hasFolderPicker && (
+            <button
+              onClick={pickFolder}
+              className="w-full flex items-center justify-center gap-3 py-4 bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white rounded-2xl font-medium transition-all"
+            >
+              <span className="text-xl">📁</span>
+              Select .claude/projects folder
+            </button>
+          )}
 
-      {error && <p className="text-rose-400 text-sm">{error}</p>}
+          {/* Divider */}
+          <div className="flex items-center gap-3">
+            <div className="flex-1 h-px bg-gray-800" />
+            <span className="text-xs text-gray-600">{hasFolderPicker ? 'or' : 'drop files below'}</span>
+            <div className="flex-1 h-px bg-gray-800" />
+          </div>
 
-      <div className="w-full max-w-lg bg-gray-900 rounded-2xl p-5 flex flex-col gap-3">
-        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Where to find your files</p>
-        <code className="text-sm text-indigo-300 bg-gray-950 rounded-lg px-3 py-2 block">
-          ~/.claude/projects/&lt;project&gt;/*.jsonl
-        </code>
-        <p className="text-xs text-gray-600">
-          Each <code className="text-gray-500">.jsonl</code> file is one session. Select files from multiple projects at once.
-        </p>
-        <div className="border-t border-gray-800 pt-3">
-          <p className="text-xs text-gray-600 font-medium mb-1">Open the folder in Finder:</p>
-          <code className="text-xs text-gray-500 bg-gray-950 rounded-lg px-3 py-2 block select-all">
+          {/* Fallback: file drop / pick */}
+          <div
+            onDragOver={e => { e.preventDefault(); setDragging(true) }}
+            onDragLeave={() => setDragging(false)}
+            onDrop={onDrop}
+            onClick={() => inputRef.current?.click()}
+            className={`w-full border-2 border-dashed rounded-2xl p-8 flex flex-col items-center gap-2 cursor-pointer transition-colors
+              ${dragging ? 'border-indigo-400 bg-indigo-500/10' : 'border-gray-700 hover:border-gray-600 hover:bg-gray-900'}`}
+          >
+            <p className="text-sm text-gray-400">Drop <code className="text-gray-500">.jsonl</code> files here, or click to browse</p>
+            <p className="text-xs text-gray-600">Multiple files supported</p>
+            <input ref={inputRef} type="file" accept=".jsonl" multiple className="hidden"
+              onChange={e => e.target.files && handleFiles(e.target.files)} />
+          </div>
+        </div>
+      )}
+
+      {error && <p className="text-rose-400 text-sm text-center max-w-sm">{error}</p>}
+
+      {!loading && (
+        <div className="w-full max-w-lg bg-gray-900 rounded-2xl p-4 flex flex-col gap-2">
+          <p className="text-xs text-gray-600">
+            Sessions are at <code className="text-gray-500">~/.claude/projects/</code>
+          </p>
+          <code className="text-xs text-gray-500 bg-gray-950 rounded-lg px-3 py-2 select-all">
             open ~/.claude/projects
           </code>
         </div>
-      </div>
+      )}
     </div>
   )
 }
