@@ -133,7 +133,7 @@ function UploadScreen({ onLoad }: { onLoad: (sessions: Session[]) => void }) {
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-8 gap-8">
       <div className="text-center">
-        <h1 className="text-3xl font-bold text-gray-100">claude-lens</h1>
+        <h1 className="text-3xl font-bold text-gray-100">Claude Lens</h1>
         <p className="text-gray-500 mt-2">Insights & search across your Claude Code sessions</p>
       </div>
 
@@ -589,7 +589,7 @@ function App() {
     <div className="min-h-screen flex flex-col">
       <header className="flex items-center gap-4 px-6 py-4 border-b border-gray-800">
         <div className="flex items-center gap-2 mr-4">
-          <span className="text-lg font-bold text-gray-100">claude-lens</span>
+          <span className="text-lg font-bold text-gray-100">Claude Lens</span>
           <span className="text-xs text-gray-600">{sessions.length} sessions loaded</span>
         </div>
         <NavTab label="Insights" active={tab === 'insights'} onClick={() => setTab('insights')} />
