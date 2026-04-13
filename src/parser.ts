@@ -100,8 +100,8 @@ export async function parseSession(projectDir: string, filename: string): Promis
   if (turns.length === 0) return null
 
   const timestamps = turns.map(t => t.timestamp).sort()
-  const startedAt = timestamps[0]
-  const endedAt = timestamps[timestamps.length - 1]
+  const startedAt = timestamps[0] ?? new Date().toISOString()
+  const endedAt = timestamps[timestamps.length - 1] ?? startedAt
   const durationMs = new Date(endedAt).getTime() - new Date(startedAt).getTime()
 
   // Stats

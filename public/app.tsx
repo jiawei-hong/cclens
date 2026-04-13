@@ -95,11 +95,11 @@ function NavTab({ label, active, onClick }: { label: string; active: boolean; on
 
 // ── Insights Tab ─────────────────────────────────────────────────────────────
 
-function InsightsTab() {
+function InsightsTab({ onOpenSession }: { onOpenSession: (id: string) => void }) {
   const [data, setData] = useState<Insights | null>(null)
 
   useEffect(() => {
-    fetch('/api/insights').then(r => r.json()).then(setData)
+    fetch('/api/insights').then(r => r.json() as Promise<Insights>).then(setData)
   }, [])
 
   if (!data) return <div className="text-gray-500 p-8">Loading...</div>
@@ -141,49 +141,196 @@ function InsightsTab() {
         {/* Activity heatmap (simple bar) */}
         <div className="bg-gray-900 rounded-2xl p-5">
           <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-4">Daily Activity</h3>
-          <div className="flex items-end gap-1 h-32">
-            {data.activityByDay.slice(-30).map(d => (
-              <div key={d.date} className="flex-1 flex flex-col items-center gap-1 group relative">
-                <div
-                  className="w-full bg-indigo-500/70 rounded-sm hover:bg-indigo-400 transition-colors cursor-default"
-                  style={{ height: `${Math.max(4, (d.count / maxActivity) * 100)}%` }}
-                />
-                <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-gray-800 text-xs text-gray-300 px-2 py-1 rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-10">
-                  {d.date}: {d.count} sessions
+          <div className="relative h-32 flex items-end gap-1">
+            {data.activityByDay.slice(-30).map(d => {
+              const heightPx = Math.max(4, Math.round((d.count / maxActivity) * 128))
+              return (
+                <div key={d.date} className="group relative flex-1">
+                  <div
+                    className="w-full bg-indigo-500/70 rounded-sm hover:bg-indigo-400 transition-colors cursor-default"
+                    style={{ height: `${heightPx}px` }}
+                  />
+                  <div className="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 bg-gray-800 text-xs text-gray-300 px-2 py-1 rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-10">
+                    {d.date}: {d.count}
+                  </div>
                 </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
           <p className="text-xs text-gray-600 mt-2">Last 30 days</p>
         </div>
       </div>
 
-      {/* Per-project breakdown */}
+      {/* Per-project breakdown grouped by parent dir */}
       <div className="bg-gray-900 rounded-2xl p-5">
         <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-4">Projects</h3>
-        <div className="flex flex-col gap-2">
-          {data.projects.map(p => (
-            <div key={p.project} className="flex items-center gap-4 py-2.5 px-3 rounded-xl hover:bg-gray-800 transition-colors">
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-gray-100 truncate">{p.project}</p>
-                <p className="text-xs text-gray-500 truncate">{p.projectPath}</p>
-              </div>
-              <div className="flex items-center gap-3 shrink-0">
-                <span className="text-xs text-gray-400">{p.sessionCount} sessions</span>
-                <span className="text-xs text-gray-400">{p.totalToolCalls} calls</span>
-                <div className="flex gap-1">
-                  {p.topTools.slice(0, 3).map(t => (
-                    <span key={t.name} className={`text-xs px-1.5 py-0.5 rounded font-mono ${toolColor(t.name)}`}>
-                      {t.name}
-                    </span>
-                  ))}
-                </div>
-                <span className="text-xs text-gray-600">{fmt(p.lastActiveAt)}</span>
-              </div>
-            </div>
-          ))}
-        </div>
+        <ProjectTree projects={data.projects} onOpenSession={onOpenSession} />
       </div>
+    </div>
+  )
+}
+
+type ProjectSummaryItem = Insights['projects'][number]
+
+type ProjectGroup = {
+  parentDir: string   // e.g. "/Users/wei/Developers"
+  parentLabel: string // e.g. "Developers"
+  projects: ProjectSummaryItem[]
+  totalSessions: number
+  totalToolCalls: number
+}
+
+function groupByParent(projects: ProjectSummaryItem[]): ProjectGroup[] {
+  const map = new Map<string, ProjectGroup>()
+
+  for (const p of projects) {
+    const parts = p.projectPath.split('/').filter(Boolean)
+    // parent = everything except last segment
+    const parentParts = parts.slice(0, -1)
+    const parentDir = '/' + parentParts.join('/')
+    const parentLabel = parentParts[parentParts.length - 1] ?? '/'
+
+    const existing = map.get(parentDir)
+    if (existing) {
+      existing.projects.push(p)
+      existing.totalSessions += p.sessionCount
+      existing.totalToolCalls += p.totalToolCalls
+    } else {
+      map.set(parentDir, {
+        parentDir,
+        parentLabel,
+        projects: [p],
+        totalSessions: p.sessionCount,
+        totalToolCalls: p.totalToolCalls,
+      })
+    }
+  }
+
+  return [...map.values()].sort((a, b) => b.totalSessions - a.totalSessions)
+}
+
+function ProjectTree({ projects, onOpenSession }: { projects: ProjectSummaryItem[]; onOpenSession: (id: string) => void }) {
+  const groups = groupByParent(projects)
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
+  const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set())
+  const [projectSessions, setProjectSessions] = useState<Record<string, SessionMeta[]>>({})
+  const [loadingProject, setLoadingProject] = useState<string | null>(null)
+
+  const toggleGroup = (dir: string) => {
+    setCollapsedGroups(prev => {
+      const next = new Set(prev)
+      next.has(dir) ? next.delete(dir) : next.add(dir)
+      return next
+    })
+  }
+
+  const toggleProject = async (projectName: string) => {
+    const isExpanded = expandedProjects.has(projectName)
+    setExpandedProjects(prev => {
+      const next = new Set(prev)
+      isExpanded ? next.delete(projectName) : next.add(projectName)
+      return next
+    })
+
+    // Fetch sessions for this project if not already loaded
+    if (!isExpanded && !projectSessions[projectName]) {
+      setLoadingProject(projectName)
+      const all = await fetch('/api/sessions').then(r => r.json() as Promise<SessionMeta[]>)
+      const filtered = all.filter(s => s.project === projectName)
+      setProjectSessions(prev => ({ ...prev, [projectName]: filtered }))
+      setLoadingProject(null)
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-1">
+      {groups.map(group => {
+        const isCollapsed = collapsedGroups.has(group.parentDir)
+        return (
+          <div key={group.parentDir}>
+            {/* Group header */}
+            <button
+              onClick={() => toggleGroup(group.parentDir)}
+              className="w-full flex items-center gap-2 px-3 py-2 rounded-xl hover:bg-gray-800 transition-colors text-left"
+            >
+              <span className="text-gray-500 text-xs w-3 shrink-0">{isCollapsed ? '▶' : '▼'}</span>
+              <span className="text-sm font-medium text-gray-300">{group.parentLabel}</span>
+              <span className="text-xs text-gray-600 truncate">{group.parentDir}</span>
+              <div className="ml-auto flex items-center gap-3 shrink-0">
+                <span className="text-xs text-gray-500">{group.projects.length} projects</span>
+                <span className="text-xs text-gray-500">{group.totalSessions} sessions</span>
+                <span className="text-xs text-gray-500">{group.totalToolCalls} calls</span>
+              </div>
+            </button>
+
+            {/* Project rows */}
+            {!isCollapsed && (
+              <div className="flex flex-col gap-0.5 ml-5 pl-3 border-l border-gray-800">
+                {group.projects.map(p => {
+                  const isExpanded = expandedProjects.has(p.project)
+                  const sessions = projectSessions[p.project] ?? []
+                  const isLoading = loadingProject === p.project
+                  return (
+                    <div key={p.project}>
+                      {/* Project row */}
+                      <button
+                        onClick={() => toggleProject(p.project)}
+                        className="w-full flex items-center gap-4 py-2 px-3 rounded-xl hover:bg-gray-800 transition-colors text-left"
+                      >
+                        <span className="text-gray-600 text-xs w-3 shrink-0">{isExpanded ? '▼' : '▶'}</span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-gray-200 truncate">{p.project}</p>
+                        </div>
+                        <div className="flex items-center gap-3 shrink-0">
+                          <span className="text-xs text-gray-500">{p.sessionCount} sessions</span>
+                          <span className="text-xs text-gray-500">{p.totalToolCalls} calls</span>
+                          <div className="flex gap-1">
+                            {p.topTools.slice(0, 3).map(t => (
+                              <span key={t.name} className={`text-xs px-1.5 py-0.5 rounded font-mono ${toolColor(t.name)}`}>
+                                {t.name}
+                              </span>
+                            ))}
+                          </div>
+                          <span className="text-xs text-gray-600">{fmt(p.lastActiveAt)}</span>
+                        </div>
+                      </button>
+
+                      {/* Session list */}
+                      {isExpanded && (
+                        <div className="ml-5 pl-3 border-l border-gray-800/60 flex flex-col gap-0.5 mb-1">
+                          {isLoading && (
+                            <div className="flex items-center gap-2 px-3 py-2 text-xs text-gray-600">
+                              <div className="w-3 h-3 border border-gray-600 border-t-indigo-500 rounded-full animate-spin" />
+                              Loading...
+                            </div>
+                          )}
+                          {sessions.map(s => (
+                            <button
+                              key={s.id}
+                              onClick={() => onOpenSession(s.id)}
+                              className="flex items-center gap-3 px-3 py-1.5 rounded-lg hover:bg-indigo-600/10 hover:text-indigo-300 transition-colors text-left group"
+                            >
+                              <span className="text-xs text-gray-500 group-hover:text-indigo-400">{fmt(s.startedAt)}</span>
+                              <span className="text-xs text-gray-600">·</span>
+                              <span className="text-xs text-gray-500">{s.stats.toolCallCount} calls</span>
+                              <span className="text-xs text-gray-600">·</span>
+                              <span className="text-xs text-gray-500">{fmtDuration(s.durationMs)}</span>
+                              <span className="ml-auto text-xs text-gray-700 group-hover:text-indigo-500">→</span>
+                            </button>
+                          ))}
+                          {!isLoading && sessions.length === 0 && (
+                            <p className="px-3 py-2 text-xs text-gray-700">No sessions found</p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        )
+      })}
     </div>
   )
 }
@@ -199,23 +346,28 @@ function StatCard({ label, value }: { label: string; value: number }) {
 
 // ── Sessions Tab ──────────────────────────────────────────────────────────────
 
-function SessionsTab() {
+function SessionsTab({ initialSessionId }: { initialSessionId: string | null }) {
   const [sessions, setSessions] = useState<SessionMeta[]>([])
   const [selected, setSelected] = useState<SessionDetail | null>(null)
   const [filter, setFilter] = useState('')
 
   useEffect(() => {
-    fetch('/api/sessions').then(r => r.json()).then(setSessions)
+    fetch('/api/sessions').then(r => r.json() as Promise<SessionMeta[]>).then(setSessions)
   }, [])
+
+  const loadSession = useCallback(async (id: string) => {
+    const data = await fetch(`/api/sessions/${id}`).then(r => r.json() as Promise<SessionDetail>)
+    setSelected(data)
+  }, [])
+
+  // Auto-load when navigated from Insights
+  useEffect(() => {
+    if (initialSessionId) loadSession(initialSessionId)
+  }, [initialSessionId, loadSession])
 
   const filtered = sessions.filter(s =>
     !filter || s.project.toLowerCase().includes(filter.toLowerCase())
   )
-
-  const loadSession = async (id: string) => {
-    const data = await fetch(`/api/sessions/${id}`).then(r => r.json())
-    setSelected(data)
-  }
 
   return (
     <div className="flex gap-4 h-[calc(100vh-140px)]">
@@ -225,7 +377,7 @@ function SessionsTab() {
           type="text"
           placeholder="Filter by project..."
           value={filter}
-          onChange={e => setFilter(e.target.value)}
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFilter(e.target.value)}
           className="w-full bg-gray-800 text-gray-100 text-sm px-3 py-2 rounded-xl border border-gray-700 focus:outline-none focus:border-indigo-500 placeholder:text-gray-600"
         />
         <div className="flex-1 overflow-y-auto flex flex-col gap-1.5 pr-1">
@@ -347,7 +499,7 @@ function SessionDetailView({ session }: { session: SessionDetail }) {
 
 // ── Search Tab ────────────────────────────────────────────────────────────────
 
-function SearchTab() {
+function SearchTab({ onOpenSession }: { onOpenSession: (id: string) => void }) {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<SearchResult[]>([])
   const [loading, setLoading] = useState(false)
@@ -355,7 +507,7 @@ function SearchTab() {
   const doSearch = useCallback(async (q: string) => {
     if (!q.trim()) { setResults([]); return }
     setLoading(true)
-    const data = await fetch(`/api/search?q=${encodeURIComponent(q)}`).then(r => r.json())
+    const data = await fetch(`/api/search?q=${encodeURIComponent(q)}`).then(r => r.json() as Promise<SearchResult[]>)
     setResults(data)
     setLoading(false)
   }, [])
@@ -386,7 +538,7 @@ function SearchTab() {
           type="text"
           placeholder="Search across all sessions..."
           value={query}
-          onChange={e => setQuery(e.target.value)}
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) => setQuery(e.target.value)}
           autoFocus
           className="w-full bg-gray-900 text-gray-100 text-base px-10 py-3 rounded-2xl border border-gray-700 focus:outline-none focus:border-indigo-500 placeholder:text-gray-600"
         />
@@ -401,7 +553,11 @@ function SearchTab() {
 
       <div className="flex flex-col gap-3">
         {results.map((r, i) => (
-          <div key={i} className="bg-gray-900 rounded-2xl p-4 flex flex-col gap-2">
+          <button
+            key={i}
+            onClick={() => onOpenSession(r.sessionId)}
+            className="bg-gray-900 rounded-2xl p-4 flex flex-col gap-2 text-left hover:bg-gray-800 transition-colors w-full group"
+          >
             <div className="flex items-center gap-2">
               <span className="text-xs font-medium text-indigo-400">{r.project}</span>
               <span className="text-gray-700">·</span>
@@ -410,11 +566,12 @@ function SearchTab() {
               </span>
               <span className="text-gray-700">·</span>
               <span className="text-xs text-gray-600">{fmt(r.timestamp)}</span>
+              <span className="ml-auto text-xs text-gray-700 group-hover:text-indigo-400 transition-colors">Open session →</span>
             </div>
             <p className="text-sm text-gray-300 leading-relaxed font-mono bg-gray-950 rounded-xl px-3 py-2 whitespace-pre-wrap">
               {highlight(r.snippet, query)}
             </p>
-          </div>
+          </button>
         ))}
 
         {query && !loading && results.length === 0 && (
@@ -431,6 +588,12 @@ type Tab = 'insights' | 'sessions' | 'search'
 
 function App() {
   const [tab, setTab] = useState<Tab>('insights')
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
+
+  const openSession = (id: string) => {
+    setSelectedSessionId(id)
+    setTab('sessions')
+  }
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -455,9 +618,9 @@ function App() {
 
       {/* Content */}
       <main className="flex-1 px-6 py-6 max-w-6xl w-full mx-auto">
-        {tab === 'insights' && <InsightsTab />}
-        {tab === 'sessions' && <SessionsTab />}
-        {tab === 'search' && <SearchTab />}
+        {tab === 'insights' && <InsightsTab onOpenSession={openSession} />}
+        {tab === 'sessions' && <SessionsTab initialSessionId={selectedSessionId} />}
+        {tab === 'search' && <SearchTab onOpenSession={openSession} />}
       </main>
     </div>
   )
