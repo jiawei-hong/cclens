@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react'
 import { createRoot } from 'react-dom/client'
 import Markdown from 'react-markdown'
 import { parseSessionFiles } from './lib/parser'
-import { summarizeProjects, globalToolStats, activityByDay } from '../src/analyzer'
+import { summarizeProjects, globalToolStats, activityByDay, activityByHour, sessionDepthStats } from '../src/analyzer'
 import { search as searchSessions } from '../src/searcher'
 import type { Session, ProjectSummary, SearchResult } from '../src/types'
 
@@ -211,8 +211,11 @@ function NavTab({ label, active, onClick }: { label: string; active: boolean; on
 function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; onOpenSession: (id: string) => void }) {
   const topTools = globalToolStats(sessions)
   const activity = activityByDay(sessions)
+  const hourActivity = activityByHour(sessions)
+  const depth = sessionDepthStats(sessions)
   const projects = summarizeProjects(sessions)
   const maxActivity = Math.max(...activity.map(d => d.count), 1)
+  const maxHour = Math.max(...hourActivity.map(h => h.count), 1)
   const maxTool = Math.max(...topTools.map(t => t.count), 1)
 
   return (
@@ -221,6 +224,35 @@ function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; onOpenS
         <StatCard label="Total Sessions" value={sessions.length} />
         <StatCard label="Projects" value={projects.length} />
         <StatCard label="Total Tool Calls" value={topTools.reduce((s, t) => s + t.count, 0)} />
+      </div>
+
+      {/* Depth stats */}
+      <div className="grid grid-cols-3 gap-4">
+        <div className="bg-gray-900 rounded-2xl p-5">
+          <p className="text-xs text-gray-500 uppercase tracking-wide">Avg Duration</p>
+          <p className="text-2xl font-bold text-gray-100 mt-1">{fmtDuration(depth.avgDurationMs)}</p>
+          {depth.longestSession && (
+            <button onClick={() => onOpenSession(depth.longestSession!.id)}
+              className="text-xs text-indigo-400 hover:text-indigo-300 mt-2 text-left">
+              Longest: {fmtDuration(depth.longestSession.durationMs)} →
+            </button>
+          )}
+        </div>
+        <div className="bg-gray-900 rounded-2xl p-5">
+          <p className="text-xs text-gray-500 uppercase tracking-wide">Avg Tool Calls</p>
+          <p className="text-2xl font-bold text-gray-100 mt-1">{depth.avgToolCalls.toFixed(1)}</p>
+          <p className="text-xs text-gray-600 mt-2">per session</p>
+        </div>
+        <div className="bg-gray-900 rounded-2xl p-5">
+          <p className="text-xs text-gray-500 uppercase tracking-wide">Avg Turns</p>
+          <p className="text-2xl font-bold text-gray-100 mt-1">{depth.avgTurns.toFixed(1)}</p>
+          {depth.deepestSession && (
+            <button onClick={() => onOpenSession(depth.deepestSession!.id)}
+              className="text-xs text-indigo-400 hover:text-indigo-300 mt-2 text-left">
+              Deepest: {depth.deepestSession.turns.length} turns →
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="grid grid-cols-2 gap-6">
@@ -239,23 +271,49 @@ function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; onOpenS
           </div>
         </div>
 
-        <div className="bg-gray-900 rounded-2xl p-5">
-          <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-4">Daily Activity</h3>
-          <div className="relative h-32 flex items-end gap-1">
-            {activity.slice(-30).map(d => {
-              const heightPx = Math.max(4, Math.round((d.count / maxActivity) * 128))
-              return (
-                <div key={d.date} className="group relative flex-1">
-                  <div className="w-full bg-indigo-500/70 rounded-sm hover:bg-indigo-400 transition-colors cursor-default"
-                    style={{ height: `${heightPx}px` }} />
-                  <div className="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 bg-gray-800 text-xs text-gray-300 px-2 py-1 rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-10">
-                    {d.date}: {d.count}
+        <div className="flex flex-col gap-6">
+          <div className="bg-gray-900 rounded-2xl p-5">
+            <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-4">Daily Activity</h3>
+            <div className="relative h-24 flex items-end gap-1">
+              {activity.slice(-30).map(d => {
+                const heightPx = Math.max(4, Math.round((d.count / maxActivity) * 96))
+                return (
+                  <div key={d.date} className="group relative flex-1">
+                    <div className="w-full bg-indigo-500/70 rounded-sm hover:bg-indigo-400 transition-colors cursor-default"
+                      style={{ height: `${heightPx}px` }} />
+                    <div className="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 bg-gray-800 text-xs text-gray-300 px-2 py-1 rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-10">
+                      {d.date}: {d.count}
+                    </div>
                   </div>
-                </div>
-              )
-            })}
+                )
+              })}
+            </div>
+            <p className="text-xs text-gray-600 mt-2">Last 30 days</p>
           </div>
-          <p className="text-xs text-gray-600 mt-2">Last 30 days</p>
+
+          <div className="bg-gray-900 rounded-2xl p-5">
+            <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-4">By Hour of Day</h3>
+            <div className="relative h-24 flex items-end gap-px">
+              {hourActivity.map(h => {
+                const heightPx = Math.max(2, Math.round((h.count / maxHour) * 96))
+                const label = `${String(h.hour).padStart(2, '0')}:00`
+                return (
+                  <div key={h.hour} className="group relative flex-1">
+                    <div className="w-full bg-violet-500/60 rounded-sm hover:bg-violet-400 transition-colors cursor-default"
+                      style={{ height: `${heightPx}px` }} />
+                    <div className="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 bg-gray-800 text-xs text-gray-300 px-2 py-1 rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-10">
+                      {label}: {h.count}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+            <div className="flex justify-between mt-1">
+              <span className="text-xs text-gray-700">0h</span>
+              <span className="text-xs text-gray-700">12h</span>
+              <span className="text-xs text-gray-700">23h</span>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -396,6 +454,16 @@ function ProjectTree({ projects, sessions, onOpenSession }: {
 
 // ── Sessions Tab ──────────────────────────────────────────────────────────────
 
+function sessionPreview(session: Session): string {
+  const firstUser = session.turns.find(t => t.role === 'user')
+  if (!firstUser?.text) return ''
+  return firstUser.text
+    .replace(/<[^>]+>[\s\S]*?<\/[^>]+>/g, '')
+    .replace(/<[^>]+>/g, '')
+    .trim()
+    .slice(0, 72)
+}
+
 function groupSessionsByProject(sessions: Session[]): { project: string; sessions: Session[] }[] {
   const map = new Map<string, Session[]>()
   for (const s of sessions) {
@@ -457,19 +525,25 @@ function SessionsTab({ sessions, initialSessionId }: { sessions: Session[]; init
                 {/* Session rows */}
                 {!isCollapsed && (
                   <div className="ml-3 pl-2 border-l border-gray-800 flex flex-col gap-0.5 mb-1">
-                    {projectSessions.map(s => (
-                      <button key={s.id} onClick={() => setSelected(s)}
-                        className={`text-left px-3 py-2 rounded-xl transition-colors ${selected?.id === s.id ? 'bg-indigo-600' : 'hover:bg-gray-800'}`}>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs text-gray-400">{fmt(s.startedAt)}</span>
-                        </div>
-                        <div className="flex items-center gap-2 mt-0.5">
-                          <span className="text-xs text-gray-600">{s.stats.toolCallCount} calls</span>
-                          <span className="text-xs text-gray-700">·</span>
-                          <span className="text-xs text-gray-600">{fmtDuration(s.durationMs)}</span>
-                        </div>
-                      </button>
-                    ))}
+                    {projectSessions.map(s => {
+                      const preview = sessionPreview(s)
+                      return (
+                        <button key={s.id} onClick={() => setSelected(s)}
+                          className={`text-left px-3 py-2 rounded-xl transition-colors ${selected?.id === s.id ? 'bg-indigo-600' : 'hover:bg-gray-800'}`}>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-gray-400">{fmt(s.startedAt)}</span>
+                          </div>
+                          {preview && (
+                            <p className={`text-xs mt-0.5 truncate ${selected?.id === s.id ? 'text-indigo-200' : 'text-gray-500'}`}>{preview}</p>
+                          )}
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span className={`text-xs ${selected?.id === s.id ? 'text-indigo-300' : 'text-gray-600'}`}>{s.stats.toolCallCount} calls</span>
+                            <span className={`text-xs ${selected?.id === s.id ? 'text-indigo-400' : 'text-gray-700'}`}>·</span>
+                            <span className={`text-xs ${selected?.id === s.id ? 'text-indigo-300' : 'text-gray-600'}`}>{fmtDuration(s.durationMs)}</span>
+                          </div>
+                        </button>
+                      )
+                    })}
                   </div>
                 )}
               </div>

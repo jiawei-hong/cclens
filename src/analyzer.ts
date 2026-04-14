@@ -58,6 +58,36 @@ export function activityByDay(sessions: Session[]): { date: string; count: numbe
     .sort((a, b) => a.date.localeCompare(b.date))
 }
 
+export function activityByHour(sessions: Session[]): { hour: number; count: number }[] {
+  const counts: Record<number, number> = {}
+  for (let h = 0; h < 24; h++) counts[h] = 0
+  for (const s of sessions) {
+    const hour = new Date(s.startedAt).getHours()
+    counts[hour] = (counts[hour] ?? 0) + 1
+  }
+  return Object.entries(counts).map(([h, count]) => ({ hour: Number(h), count }))
+}
+
+export type SessionDepthStats = {
+  avgDurationMs: number
+  avgToolCalls: number
+  avgTurns: number
+  longestSession: Session | null
+  deepestSession: Session | null  // most turns
+}
+
+export function sessionDepthStats(sessions: Session[]): SessionDepthStats {
+  if (sessions.length === 0) {
+    return { avgDurationMs: 0, avgToolCalls: 0, avgTurns: 0, longestSession: null, deepestSession: null }
+  }
+  const avgDurationMs = sessions.reduce((s, x) => s + x.durationMs, 0) / sessions.length
+  const avgToolCalls = sessions.reduce((s, x) => s + x.stats.toolCallCount, 0) / sessions.length
+  const avgTurns = sessions.reduce((s, x) => s + x.turns.length, 0) / sessions.length
+  const longestSession = sessions.reduce((a, b) => a.durationMs > b.durationMs ? a : b)
+  const deepestSession = sessions.reduce((a, b) => a.turns.length > b.turns.length ? a : b)
+  return { avgDurationMs, avgToolCalls, avgTurns, longestSession, deepestSession }
+}
+
 function topN(map: Record<string, number>, n: number): { name: string; count: number }[] {
   return Object.entries(map)
     .map(([name, count]) => ({ name, count }))
