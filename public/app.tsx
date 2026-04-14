@@ -16,7 +16,15 @@ function fmt(ts: string) {
 
 function fmtDuration(ms: number) {
   if (ms < 60_000) return `${Math.round(ms / 1000)}s`
-  return `${Math.round(ms / 60_000)}m`
+  if (ms < 3_600_000) return `${Math.round(ms / 60_000)}m`
+  if (ms < 86_400_000) {
+    const h = Math.floor(ms / 3_600_000)
+    const m = Math.round((ms % 3_600_000) / 60_000)
+    return m > 0 ? `${h}h ${m}m` : `${h}h`
+  }
+  const d = Math.floor(ms / 86_400_000)
+  const h = Math.round((ms % 86_400_000) / 3_600_000)
+  return h > 0 ? `${d}d ${h}h` : `${d}d`
 }
 
 function fmtPace(durationMs: number, toolCallCount: number): string {
