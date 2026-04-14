@@ -1,6 +1,6 @@
-# Claude Lens
+# CC Lens
 
-Insights & search across your [Claude Code](https://claude.ai/code) sessions — no install required for end users.
+Insights & search across your [Claude Code](https://claude.ai/code) sessions — runs entirely in the browser, no install required.
 
 ## Features
 
@@ -11,13 +11,15 @@ Insights & search across your [Claude Code](https://claude.ai/code) sessions —
 - **Top tools breakdown** — ranked bar chart of all tools used across sessions
 - **Project tree** — sessions grouped by project with expand/collapse
 - **Session viewer** — full conversation with markdown rendering, tool call inspector, slash command badges
+- **Edit diff view** — visualize `old_string` → `new_string` for every Edit tool call
+- **Export session** — download any session as Markdown or HTML
 - **Full-text search** — search across all turns with highlighted snippets
 
 ## Usage
 
 ### Option A: Use without installing anything
 
-1. Open the hosted version at [claude-lens.vercel.app](https://claude-lens.vercel.app) _(coming soon)_
+1. Open [cclens.dev](https://www.cclens.dev)
 2. Click **Select .claude/projects folder** and pick `~/.claude/projects`
 3. Done — all analysis runs in your browser, nothing is uploaded
 
@@ -26,8 +28,8 @@ Insights & search across your [Claude Code](https://claude.ai/code) sessions —
 **Requirements:** [Bun](https://bun.sh)
 
 ```bash
-git clone https://github.com/your-username/claude-lens
-cd claude-lens
+git clone https://github.com/jiawei-hong/cclens
+cd cclens
 bun install
 bun run dev
 ```
@@ -58,6 +60,3 @@ open ~/.claude/projects
 
 All session data stays in your browser. The folder picker uses the [File System Access API](https://developer.mozilla.org/en-US/docs/Web/API/File_System_Access_API) — files are read locally and never uploaded to any server.
 
-## License
-
-MIT
