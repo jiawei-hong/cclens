@@ -6,7 +6,8 @@
   "private": true,
   "scripts": {
     "dev": "bun --hot src/server.ts",
-    "start": "bun src/server.ts"
+    "start": "bun src/server.ts",
+    "build": "bun scripts/build.ts"
   },
   "dependencies": {
     "react": "^19",
