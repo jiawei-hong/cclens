@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { createRoot } from 'react-dom/client'
 import Markdown from 'react-markdown'
-import { RiSunLine, RiMoonLine, RiComputerLine, RiTimeLine, RiTerminalLine, RiChat3Line, RiFlashlightLine, RiFileCodeLine } from 'react-icons/ri'
+import { RiSunLine, RiMoonLine, RiComputerLine, RiTimeLine, RiTerminalLine, RiChat3Line, RiFlashlightLine, RiFileCodeLine, RiArrowUpLine } from 'react-icons/ri'
 import { SiTypescript, SiJavascript, SiPython, SiRust, SiGo, SiRuby, SiPhp, SiSwift, SiKotlin, SiCplusplus, SiC, SiHtml5, SiCss, SiMarkdown, SiJson, SiYaml, SiShell, SiReact, SiVuedotjs, SiSvelte, SiDart, SiScala, SiElixir, SiHaskell, SiLua, SiDocker, SiPrisma } from 'react-icons/si'
 import { parseSessionFiles } from './lib/parser'
 import { summarizeProjects, globalToolStats, activityByDay, activityByHour, sessionDepthStats, taskBreakdown, trendStats } from '../src/analyzer'
@@ -1548,6 +1548,40 @@ function SearchTab({ sessions, onOpenSession }: { sessions: Session[]; onOpenSes
 
 type Tab = 'insights' | 'sessions' | 'search'
 
+function ScrollToTopButton() {
+  const [visible, setVisible] = useState(false)
+  const scrolledEl = useRef<Element | null>(null)
+
+  useEffect(() => {
+    const onScroll = (e: Event) => {
+      const target = e.target as Element | Document
+      const scrollTop = target === document ? window.scrollY : (target as Element).scrollTop
+      if (scrollTop > 300) {
+        setVisible(true)
+        scrolledEl.current = target === document ? null : (target as Element)
+      } else {
+        setVisible(false)
+        scrolledEl.current = null
+      }
+    }
+    document.addEventListener('scroll', onScroll, { passive: true, capture: true })
+    return () => document.removeEventListener('scroll', onScroll, { capture: true })
+  }, [])
+
+  return (
+    <button
+      onClick={() => {
+        if (scrolledEl.current) scrolledEl.current.scrollTo({ top: 0, behavior: 'smooth' })
+        else window.scrollTo({ top: 0, behavior: 'smooth' })
+      }}
+      className={`fixed bottom-6 right-6 z-50 w-10 h-10 flex items-center justify-center rounded-full bg-indigo-600 hover:bg-indigo-500 active:scale-90 text-white shadow-lg transition-all duration-300 ${visible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4 pointer-events-none'}`}
+      title="Back to top"
+    >
+      <RiArrowUpLine size={18} />
+    </button>
+  )
+}
+
 function App() {
   const [sessions, setSessions] = useState<Session[] | null>(null)
   const [tab, setTab] = useState<Tab>('insights')
@@ -1602,6 +1636,7 @@ function App() {
         {tab === 'sessions' && <SessionsTab sessions={sessions} initialSessionId={selectedSessionId} scrollToTurnId={selectedTurnId} />}
         {tab === 'search' && <SearchTab sessions={sessions} onOpenSession={openSession} />}
       </main>
+      <ScrollToTopButton />
     </div>
   )
 }
