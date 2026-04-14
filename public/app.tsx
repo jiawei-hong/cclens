@@ -26,40 +26,40 @@ function fmtPace(durationMs: number, toolCallCount: number): string {
 }
 
 const TOOL_COLORS: Record<string, string> = {
-  Bash:      'bg-violet-100 text-violet-700 dark:bg-violet-500/20 dark:text-violet-300',
-  Read:      'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300',
-  Write:     'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300',
-  Edit:      'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300',
-  Grep:      'bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300',
-  Glob:      'bg-cyan-100 text-cyan-700 dark:bg-cyan-500/20 dark:text-cyan-300',
-  Agent:     'bg-pink-100 text-pink-700 dark:bg-pink-500/20 dark:text-pink-300',
-  WebFetch:  'bg-orange-100 text-orange-700 dark:bg-orange-500/20 dark:text-orange-300',
+  Bash: 'bg-violet-100 text-violet-700 dark:bg-violet-500/20 dark:text-violet-300',
+  Read: 'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300',
+  Write: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300',
+  Edit: 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300',
+  Grep: 'bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300',
+  Glob: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-500/20 dark:text-cyan-300',
+  Agent: 'bg-pink-100 text-pink-700 dark:bg-pink-500/20 dark:text-pink-300',
+  WebFetch: 'bg-orange-100 text-orange-700 dark:bg-orange-500/20 dark:text-orange-300',
   WebSearch: 'bg-orange-100 text-orange-700 dark:bg-orange-500/20 dark:text-orange-300',
 }
 const toolColor = (name: string) => TOOL_COLORS[name] ?? 'bg-gray-100 text-gray-700 dark:bg-gray-500/20 dark:text-gray-300'
 
 const TASK_COLORS: Record<SessionType, string> = {
-  coding:       'bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300',
-  debugging:    'bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300',
-  research:     'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300',
-  exploration:  'bg-cyan-100 text-cyan-700 dark:bg-cyan-500/20 dark:text-cyan-300',
+  coding: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300',
+  debugging: 'bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300',
+  research: 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300',
+  exploration: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-500/20 dark:text-cyan-300',
   conversation: 'bg-gray-100 text-gray-600 dark:bg-gray-500/20 dark:text-gray-400',
 }
 const TASK_BARS: Record<SessionType, string> = {
-  coding:       'bg-indigo-500',
-  debugging:    'bg-rose-500',
-  research:     'bg-amber-500',
-  exploration:  'bg-cyan-500',
+  coding: 'bg-indigo-500',
+  debugging: 'bg-rose-500',
+  research: 'bg-amber-500',
+  exploration: 'bg-cyan-500',
   conversation: 'bg-gray-500',
 }
 const taskTypeColor = (t: SessionType) => TASK_COLORS[t]
-const taskTypeBar   = (t: SessionType) => TASK_BARS[t]
+const taskTypeBar = (t: SessionType) => TASK_BARS[t]
 
 const TASK_DESCRIPTIONS: Record<SessionType, string> = {
-  coding:       'Edit / Write > 25% of tool calls',
-  debugging:    'Bash > 25% + Read / Grep > 15%',
-  research:     'WebSearch / WebFetch > 20%',
-  exploration:  'Read / Grep / Glob > 40% — browsing codebase',
+  coding: 'Edit / Write > 25% of tool calls',
+  debugging: 'Bash > 25% + Read / Grep > 15%',
+  research: 'WebSearch / WebFetch > 20%',
+  exploration: 'Read / Grep / Glob > 40% — browsing codebase',
   conversation: 'Fewer than 3 tool calls — mostly chat',
 }
 
@@ -142,8 +142,8 @@ type Theme = 'system' | 'light' | 'dark'
 
 const THEME_OPTIONS: { value: Theme; label: string; icon: React.ReactNode }[] = [
   { value: 'system', label: 'System', icon: <RiComputerLine size={14} /> },
-  { value: 'light',  label: 'Light',  icon: <RiSunLine size={14} /> },
-  { value: 'dark',   label: 'Dark',   icon: <RiMoonLine size={14} /> },
+  { value: 'light', label: 'Light', icon: <RiSunLine size={14} /> },
+  { value: 'dark', label: 'Dark', icon: <RiMoonLine size={14} /> },
 ]
 
 function ThemeToggle({ theme, setTheme }: { theme: Theme; setTheme: (t: Theme) => void }) {
@@ -407,8 +407,8 @@ function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; onOpenS
           <div className="grid grid-cols-2 gap-4">
             {(
               [
-                { label: 'Sessions',    this: trend.thisMonth.sessions,   last: trend.lastMonth.sessions },
-                { label: 'Tool Calls',  this: trend.thisMonth.toolCalls,  last: trend.lastMonth.toolCalls },
+                { label: 'Sessions', this: trend.thisMonth.sessions, last: trend.lastMonth.sessions },
+                { label: 'Tool Calls', this: trend.thisMonth.toolCalls, last: trend.lastMonth.toolCalls },
                 { label: 'Active Days', this: trend.thisMonth.activeDays, last: trend.lastMonth.activeDays },
               ] as const
             ).map(row => {
@@ -497,7 +497,7 @@ function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; onOpenS
         </div>
       </div>
 
-<div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
+      <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
         <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wide mb-4">Projects</h3>
         <ProjectTree projects={projects} sessions={sessions} onOpenSession={onOpenSession} />
       </div>
@@ -757,8 +757,13 @@ type TurnContent =
   | { kind: 'meta' }  // caveat / system noise → hidden
 
 function parseTurnContent(raw: string): TurnContent[] {
-  // Strip <local-command-caveat>...</local-command-caveat>
-  const cleaned = raw.replace(/<local-command-caveat>[\s\S]*?<\/local-command-caveat>/g, '').trim()
+  // Strip meta noise
+  const cleaned = raw
+    .replace(/<local-command-caveat>[\s\S]*?<\/local-command-caveat>/g, '')
+    .replace(/<command-message>[^<]*<\/command-message>/g, '')
+    .replace(/<command-args>[^<]*<\/command-args>/g, '')
+    .replace(/\[Request interrupted by user\]\s*/g, '')
+    .trim()
 
   const parts: TurnContent[] = []
   let remaining = cleaned
@@ -799,7 +804,7 @@ function parseTurnContent(raw: string): TurnContent[] {
 
 function TimeLabel({ timestamp }: { timestamp: string }) {
   return (
-    <span className="text-[10px] text-gray-400 dark:text-gray-600 shrink-0 ml-2 self-end leading-none">
+    <span className="text-[10px] text-gray-400 dark:text-gray-600 shrink-0 self-end leading-none">
       {new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
     </span>
   )
@@ -820,6 +825,7 @@ function TurnBody({ text, role, timestamp }: { text: string; role: 'user' | 'ass
   const parts = parseTurnContent(text)
   if (parts.length === 0) return null
 
+  const hasSlashCmd = parts.some(p => p.kind === 'slash-command')
   const lastTextIdx = [...parts].reverse().findIndex(p => p.kind === 'text')
   const lastTextAbsIdx = lastTextIdx === -1 ? -1 : parts.length - 1 - lastTextIdx
 
@@ -830,7 +836,6 @@ function TurnBody({ text, role, timestamp }: { text: string; role: 'user' | 'ass
           return (
             <div key={i} className="flex items-center gap-2">
               <span className="flex items-center gap-1.5 px-3 py-1.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl font-mono text-sm text-gray-800 dark:text-gray-200">
-                <span className="text-indigo-500 dark:text-indigo-400 text-xs">⌘</span>
                 {part.command}
                 {part.args && <span className="text-gray-500 text-xs">{part.args}</span>}
               </span>
@@ -838,6 +843,7 @@ function TurnBody({ text, role, timestamp }: { text: string; role: 'user' | 'ass
           )
         }
         if (part.kind === 'stdout') {
+          if (hasSlashCmd) return null
           return (
             <pre key={i} className="text-xs text-gray-500 bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-xl px-3 py-2 font-mono whitespace-pre-wrap">
               {part.output}
@@ -851,7 +857,7 @@ function TurnBody({ text, role, timestamp }: { text: string; role: 'user' | 'ass
           <div key={i} className="rounded-2xl px-4 py-3 text-sm leading-relaxed bg-indigo-50 dark:bg-indigo-600/20 text-gray-900 dark:text-gray-200">
             <MarkdownText>{part.text}</MarkdownText>
             {isLast && (
-              <div className="flex justify-end mt-1.5">
+              <div className={`flex mt-1.5 ${role === 'user' ? 'justify-start' : 'justify-end'}`}>
                 <TimeLabel timestamp={timestamp} />
               </div>
             )}
@@ -866,8 +872,8 @@ function TurnBody({ text, role, timestamp }: { text: string; role: 'user' | 'ass
 
 function EditDiffView({ input }: { input: Record<string, unknown> }) {
   const filePath = input['file_path'] as string | undefined
-  const oldStr  = (input['old_string']  as string | undefined) ?? ''
-  const newStr  = (input['new_string']  as string | undefined) ?? ''
+  const oldStr = (input['old_string'] as string | undefined) ?? ''
+  const newStr = (input['new_string'] as string | undefined) ?? ''
 
   const oldLines = oldStr.split('\n')
   const newLines = newStr.split('\n')
@@ -899,12 +905,166 @@ function EditDiffView({ input }: { input: Record<string, unknown> }) {
   )
 }
 
+// ── File Change Summary ───────────────────────────────────────────────────────
+
+type FileWriteOp = { kind: 'write'; content: string; ts: string }
+type FileEditOp = { kind: 'edit'; oldStr: string; newStr: string; ts: string }
+type FileOp = FileWriteOp | FileEditOp
+
+type FileChange = {
+  path: string
+  ops: FileOp[]
+  writeCount: number
+  editCount: number
+  linesAdded: number
+  linesRemoved: number
+}
+
+function buildFileChanges(session: Session): FileChange[] {
+  const map = new Map<string, FileChange>()
+  for (const turn of session.turns) {
+    for (const tc of turn.toolCalls) {
+      const path = tc.input['file_path'] as string | undefined
+      if (!path) continue
+      const get = () => map.get(path) ?? (() => {
+        const fc: FileChange = { path, ops: [], writeCount: 0, editCount: 0, linesAdded: 0, linesRemoved: 0 }
+        map.set(path, fc); return fc
+      })()
+      if (tc.name === 'Write') {
+        const content = (tc.input['content'] as string | undefined) ?? ''
+        const fc = get()
+        fc.ops.push({ kind: 'write', content, ts: turn.timestamp })
+        fc.writeCount++
+        fc.linesAdded += content.split('\n').length
+      } else if (tc.name === 'Edit') {
+        const oldStr = (tc.input['old_string'] as string | undefined) ?? ''
+        const newStr = (tc.input['new_string'] as string | undefined) ?? ''
+        const fc = get()
+        fc.ops.push({ kind: 'edit', oldStr, newStr, ts: turn.timestamp })
+        fc.editCount++
+        fc.linesAdded += newStr.split('\n').length
+        fc.linesRemoved += oldStr.split('\n').length
+      }
+    }
+  }
+  return [...map.values()].sort((a, b) => a.path.localeCompare(b.path))
+}
+
+function SessionFilesView({ session }: { session: Session }) {
+  const changes = React.useMemo(() => buildFileChanges(session), [session.id])
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const toggle = (p: string) => setExpanded(prev => {
+    const next = new Set(prev); next.has(p) ? next.delete(p) : next.add(p); return next
+  })
+
+  if (changes.length === 0) {
+    return <p className="text-center py-12 text-sm text-gray-500 dark:text-gray-600">No file changes in this session</p>
+  }
+
+  const totalEdits = changes.reduce((s, c) => s + c.editCount, 0)
+  const totalWrites = changes.reduce((s, c) => s + c.writeCount, 0)
+  const totalAdded = changes.reduce((s, c) => s + c.linesAdded, 0)
+  const totalRemoved = changes.reduce((s, c) => s + c.linesRemoved, 0)
+
+  return (
+    <div className="flex flex-col gap-3">
+      {/* Summary strip */}
+      <div className="flex items-center gap-4 px-1 text-xs text-gray-500 dark:text-gray-500">
+        <span className="font-medium text-gray-700 dark:text-gray-300">{changes.length} files</span>
+        {totalWrites > 0 && <span>{totalWrites} write{totalWrites > 1 ? 's' : ''}</span>}
+        {totalEdits > 0 && <span>{totalEdits} edit{totalEdits > 1 ? 's' : ''}</span>}
+        <span className="ml-auto font-mono">
+          {totalAdded > 0 && <span className="text-emerald-600 dark:text-emerald-400">+{totalAdded}</span>}
+          {totalAdded > 0 && totalRemoved > 0 && <span className="text-gray-400 mx-1">/</span>}
+          {totalRemoved > 0 && <span className="text-rose-500 dark:text-rose-400">−{totalRemoved}</span>}
+        </span>
+      </div>
+
+      {changes.map(fc => {
+        const isExpanded = expanded.has(fc.path)
+        const parts = fc.path.split('/')
+        const fileName = parts.pop() ?? fc.path
+        const dir = parts.slice(-2).join('/')
+
+        return (
+          <div key={fc.path} className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-2xl overflow-hidden">
+            <button onClick={() => toggle(fc.path)}
+              className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors text-left">
+              <span className="text-gray-400 dark:text-gray-600 shrink-0 text-base">◻</span>
+              <div className="flex-1 min-w-0">
+                <span className="text-sm font-mono font-medium text-gray-800 dark:text-gray-200">{fileName}</span>
+                {dir && <span className="text-xs text-gray-400 dark:text-gray-600 ml-2 font-mono">{dir}</span>}
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                {fc.writeCount > 0 && (
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300">
+                    {fc.writeCount}W
+                  </span>
+                )}
+                {fc.editCount > 0 && (
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300">
+                    {fc.editCount}E
+                  </span>
+                )}
+                <span className="text-xs font-mono">
+                  <span className="text-emerald-600 dark:text-emerald-400">+{fc.linesAdded}</span>
+                  <span className="text-gray-400 mx-0.5">/</span>
+                  <span className="text-rose-500 dark:text-rose-400">−{fc.linesRemoved}</span>
+                </span>
+              </div>
+              <span className="text-gray-400 dark:text-gray-600 text-xs ml-1">{isExpanded ? '▾' : '▸'}</span>
+            </button>
+
+            {isExpanded && (
+              <div className="px-4 pb-4 pt-2 flex flex-col gap-4 border-t border-gray-100 dark:border-gray-800">
+                {fc.ops.map((op, i) => (
+                  <div key={i} className="flex flex-col gap-1.5">
+                    <p className="text-[11px] text-gray-400 dark:text-gray-600 font-mono">
+                      {op.kind === 'write'
+                        ? <><span className="text-emerald-600 dark:text-emerald-400 font-semibold">WRITE</span> · {op.content.split('\n').length} lines</>
+                        : <><span className="text-amber-500 dark:text-amber-400 font-semibold">EDIT</span></>
+                      }
+                      {' '}· {new Date(op.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      {fc.ops.length > 1 && <span className="ml-1 text-gray-300 dark:text-gray-700">#{i + 1}</span>}
+                    </p>
+                    {op.kind === 'write' ? (
+                      <div className="rounded-lg overflow-hidden bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 max-h-56 overflow-y-auto text-xs font-mono">
+                        {op.content.split('\n').slice(0, 60).map((line, li) => (
+                          <div key={li} className="flex gap-2 px-3 py-0.5 bg-emerald-50/60 dark:bg-emerald-950/20 hover:bg-emerald-50 dark:hover:bg-emerald-950/40">
+                            <span className="text-gray-300 dark:text-gray-700 select-none w-6 text-right shrink-0">{li + 1}</span>
+                            <span className="text-emerald-700 dark:text-emerald-300 whitespace-pre-wrap break-all">{line || ' '}</span>
+                          </div>
+                        ))}
+                        {op.content.split('\n').length > 60 && (
+                          <div className="px-4 py-2 text-gray-400 dark:text-gray-600 text-center">
+                            … {op.content.split('\n').length - 60} more lines
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <EditDiffView input={{ old_string: op.oldStr, new_string: op.newStr }} />
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// ── Session Detail View ───────────────────────────────────────────────────────
+
 function SessionDetailView({ session, scrollToTurnId }: { session: Session; scrollToTurnId: string | null }) {
   const [expandedTools, setExpandedTools] = useState<Set<string>>(new Set())
   const [highlightedTurnId, setHighlightedTurnId] = useState<string | null>(null)
+  const [detailTab, setDetailTab] = useState<'conversation' | 'files'>('conversation')
   const toggleTool = (id: string) => setExpandedTools(prev => {
     const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next
   })
+  const filesCount = React.useMemo(() => buildFileChanges(session).length, [session.id])
 
   useEffect(() => {
     if (!scrollToTurnId) return
@@ -942,10 +1102,10 @@ function SessionDetailView({ session, scrollToTurnId }: { session: Session; scro
         {/* Stats strip */}
         <div className="grid grid-cols-4 border-t border-gray-100 dark:border-gray-800 divide-x divide-gray-100 dark:divide-gray-800">
           {([
-            { icon: <RiTimeLine size={15} />,       label: 'Duration',   value: fmtDuration(session.durationMs) },
-            { icon: <RiTerminalLine size={15} />,   label: 'Tool Calls', value: session.stats.toolCallCount },
-            { icon: <RiChat3Line size={15} />,      label: 'Turns',      value: session.turns.length },
-            { icon: <RiFlashlightLine size={15} />, label: 'Pace',       value: fmtPace(session.durationMs, session.stats.toolCallCount) },
+            { icon: <RiTimeLine size={15} />, label: 'Duration', value: fmtDuration(session.durationMs) },
+            { icon: <RiTerminalLine size={15} />, label: 'Tool Calls', value: session.stats.toolCallCount },
+            { icon: <RiChat3Line size={15} />, label: 'Turns', value: session.turns.length },
+            { icon: <RiFlashlightLine size={15} />, label: 'Pace', value: fmtPace(session.durationMs, session.stats.toolCallCount) },
           ] as const).map(({ icon, label, value }) => (
             <div key={label} className="flex items-center gap-2.5 px-4 py-3">
               <span className="text-gray-400 dark:text-gray-600 shrink-0">{icon}</span>
@@ -958,27 +1118,51 @@ function SessionDetailView({ session, scrollToTurnId }: { session: Session; scro
         </div>
       </div>
 
-      {(() => {
+      {/* Detail tab switcher */}
+      <div className="flex gap-1">
+        <button onClick={() => setDetailTab('conversation')}
+          className={`px-4 py-1.5 rounded-xl text-sm font-medium transition-colors ${detailTab === 'conversation' ? 'bg-indigo-600 text-white' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800'}`}>
+          Conversation
+        </button>
+        <button onClick={() => setDetailTab('files')}
+          className={`flex items-center gap-1.5 px-4 py-1.5 rounded-xl text-sm font-medium transition-colors ${detailTab === 'files' ? 'bg-indigo-600 text-white' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800'}`}>
+          Files changed
+          {filesCount > 0 && (
+            <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${detailTab === 'files' ? 'bg-white/20 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400'}`}>
+              {filesCount}
+            </span>
+          )}
+        </button>
+      </div>
+
+      {detailTab === 'files' && <SessionFilesView session={session} />}
+
+      {detailTab === 'conversation' && (() => {
         let lastDate = ''
         return session.turns.flatMap(turn => {
           const dateKey = new Date(turn.timestamp).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
           const showDate = dateKey !== lastDate
           lastDate = dateKey
+          // Skip user turns whose text is entirely meta/noise (nothing left after stripping)
+          const userPartsEmpty = turn.role === 'user'
+            && turn.toolCalls.length === 0
+            && parseTurnContent(turn.text).length === 0
+
           return [
-            showDate && (
+            !userPartsEmpty && showDate && (
               <div key={`date-${dateKey}`} className="flex items-center gap-3 py-1">
                 <div className="flex-1 h-px bg-gray-200 dark:bg-gray-800" />
                 <span className="text-[11px] text-gray-400 dark:text-gray-600 font-medium px-2">{dateKey}</span>
                 <div className="flex-1 h-px bg-gray-200 dark:bg-gray-800" />
               </div>
             ),
-            <div key={turn.uuid} id={`turn-${turn.uuid}`}
+            !userPartsEmpty && <div key={turn.uuid} id={`turn-${turn.uuid}`}
               className={`flex gap-3 rounded-2xl transition-colors duration-700 ${turn.role === 'user' ? 'flex-row-reverse' : ''} ${highlightedTurnId === turn.uuid ? 'bg-yellow-100 dark:bg-yellow-400/10' : ''}`}>
               <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0 mt-0.5
                 ${turn.role === 'user' ? 'bg-indigo-600 text-white' : 'bg-gray-300 dark:bg-gray-700 text-gray-700 dark:text-gray-300'}`}>
                 {turn.role === 'user' ? 'U' : 'C'}
               </div>
-              <div className="flex-1 max-w-[85%] flex flex-col gap-2">
+              <div className={`max-w-[85%] flex flex-col gap-2 min-w-0 ${turn.role === 'assistant' ? 'flex-1' : ''}`}>
                 {turn.text && <TurnBody text={turn.text} role={turn.role} timestamp={turn.timestamp} />}
 
                 {turn.toolCalls.length > 0 && (
@@ -1001,8 +1185,8 @@ function SessionDetailView({ session, scrollToTurnId }: { session: Session; scro
                               {isEdit
                                 ? <EditDiffView input={tc.input} />
                                 : <pre className="text-xs text-gray-600 dark:text-gray-400 bg-white dark:bg-gray-950 rounded-lg p-2 overflow-x-auto whitespace-pre-wrap">
-                                    {JSON.stringify(tc.input, null, 2)}
-                                  </pre>
+                                  {JSON.stringify(tc.input, null, 2)}
+                                </pre>
                               }
                               {tc.result && (
                                 <pre className="text-xs text-gray-500 bg-white dark:bg-gray-950 rounded-lg p-2 overflow-x-auto whitespace-pre-wrap max-h-40">
@@ -1024,6 +1208,8 @@ function SessionDetailView({ session, scrollToTurnId }: { session: Session; scro
     </div>
   )
 }
+
+// ── Session Detail View end ───────────────────────────────────────────────────
 
 // ── Export helpers ────────────────────────────────────────────────────────────
 
@@ -1082,7 +1268,7 @@ function exportSessionAsMarkdown(session: Session) {
 }
 
 function exportSessionAsHTML(session: Session) {
-  const escHtml = (s: string) => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+  const escHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   const turns = session.turns.map(turn => {
     const isUser = turn.role === 'user'
     const textClean = turn.text
