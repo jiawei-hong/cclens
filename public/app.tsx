@@ -656,6 +656,43 @@ function TurnBody({ text, role }: { text: string; role: 'user' | 'assistant' }) 
   )
 }
 
+// ── Edit Diff View ────────────────────────────────────────────────────────────
+
+function EditDiffView({ input }: { input: Record<string, unknown> }) {
+  const filePath = input['file_path'] as string | undefined
+  const oldStr  = (input['old_string']  as string | undefined) ?? ''
+  const newStr  = (input['new_string']  as string | undefined) ?? ''
+
+  const oldLines = oldStr.split('\n')
+  const newLines = newStr.split('\n')
+
+  return (
+    <div className="flex flex-col gap-1 text-xs font-mono">
+      {filePath && (
+        <p className="text-gray-500 px-1 pb-1 truncate">{filePath}</p>
+      )}
+      <div className="rounded-lg overflow-hidden bg-gray-950 border border-gray-800">
+        {/* removed */}
+        {oldLines.map((line, i) => (
+          <div key={`-${i}`} className="flex gap-2 px-3 py-0.5 bg-rose-950/40 hover:bg-rose-950/60">
+            <span className="text-rose-500 select-none w-3 shrink-0">−</span>
+            <span className="text-rose-300 whitespace-pre-wrap break-all">{line}</span>
+          </div>
+        ))}
+        {/* separator */}
+        <div className="border-t border-gray-800" />
+        {/* added */}
+        {newLines.map((line, i) => (
+          <div key={`+${i}`} className="flex gap-2 px-3 py-0.5 bg-emerald-950/40 hover:bg-emerald-950/60">
+            <span className="text-emerald-500 select-none w-3 shrink-0">+</span>
+            <span className="text-emerald-300 whitespace-pre-wrap break-all">{line}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function SessionDetailView({ session }: { session: Session }) {
   const [expandedTools, setExpandedTools] = useState<Set<string>>(new Set())
   const toggleTool = (id: string) => setExpandedTools(prev => {
@@ -697,30 +734,37 @@ function SessionDetailView({ session }: { session: Session }) {
 
             {turn.toolCalls.length > 0 && (
               <div className="flex flex-col gap-1.5">
-                {turn.toolCalls.map(tc => (
-                  <div key={tc.id} className="bg-gray-900 rounded-xl overflow-hidden">
-                    <button onClick={() => toggleTool(tc.id)}
-                      className="w-full flex items-center gap-2 px-3 py-2 hover:bg-gray-800 transition-colors text-left">
-                      <span className={`text-xs px-2 py-0.5 rounded font-mono ${toolColor(tc.name)}`}>{tc.name}</span>
-                      <span className="text-xs text-gray-500 truncate flex-1">
-                        {Object.values(tc.input)[0]?.toString().slice(0, 60) ?? ''}
-                      </span>
-                      <span className="text-gray-600 text-xs">{expandedTools.has(tc.id) ? '▾' : '▸'}</span>
-                    </button>
-                    {expandedTools.has(tc.id) && (
-                      <div className="px-3 pb-3 flex flex-col gap-2">
-                        <pre className="text-xs text-gray-400 bg-gray-950 rounded-lg p-2 overflow-x-auto whitespace-pre-wrap">
-                          {JSON.stringify(tc.input, null, 2)}
-                        </pre>
-                        {tc.result && (
-                          <pre className="text-xs text-gray-500 bg-gray-950 rounded-lg p-2 overflow-x-auto whitespace-pre-wrap max-h-40">
-                            {tc.result}
-                          </pre>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                ))}
+                {turn.toolCalls.map(tc => {
+                  const isEdit = tc.name === 'Edit' && 'old_string' in tc.input
+                  const summary = isEdit
+                    ? (tc.input['file_path'] as string | undefined ?? '').split('/').pop() ?? ''
+                    : Object.values(tc.input)[0]?.toString().slice(0, 60) ?? ''
+                  return (
+                    <div key={tc.id} className="bg-gray-900 rounded-xl overflow-hidden">
+                      <button onClick={() => toggleTool(tc.id)}
+                        className="w-full flex items-center gap-2 px-3 py-2 hover:bg-gray-800 transition-colors text-left">
+                        <span className={`text-xs px-2 py-0.5 rounded font-mono ${toolColor(tc.name)}`}>{tc.name}</span>
+                        <span className="text-xs text-gray-500 truncate flex-1">{summary}</span>
+                        <span className="text-gray-600 text-xs">{expandedTools.has(tc.id) ? '▾' : '▸'}</span>
+                      </button>
+                      {expandedTools.has(tc.id) && (
+                        <div className="px-3 pb-3 flex flex-col gap-2">
+                          {isEdit
+                            ? <EditDiffView input={tc.input} />
+                            : <pre className="text-xs text-gray-400 bg-gray-950 rounded-lg p-2 overflow-x-auto whitespace-pre-wrap">
+                                {JSON.stringify(tc.input, null, 2)}
+                              </pre>
+                          }
+                          {tc.result && (
+                            <pre className="text-xs text-gray-500 bg-gray-950 rounded-lg p-2 overflow-x-auto whitespace-pre-wrap max-h-40">
+                              {tc.result}
+                            </pre>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
             )}
             <p className="text-xs text-gray-700 px-1">{fmt(turn.timestamp)}</p>
