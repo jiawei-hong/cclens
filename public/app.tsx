@@ -9,7 +9,7 @@ import type { Session, ProjectSummary, SearchResult } from '../src/types'
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function fmt(ts: string) {
-  return new Date(ts).toLocaleString('zh-TW', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+  return new Date(ts).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
 function fmtDuration(ms: number) {
