@@ -485,8 +485,12 @@ function SessionsTab({ sessions, initialSessionId }: { sessions: Session[]; init
     if (initialSessionId) {
       const s = sessions.find(s => s.id === initialSessionId) ?? null
       setSelected(s)
-      // auto-expand the project
-      if (s) setCollapsedProjects(prev => { const next = new Set(prev); next.delete(s.project); return next })
+      if (s) {
+        // collapse all other projects, expand only the target
+        const allProjects = new Set(sessions.map(x => x.project))
+        allProjects.delete(s.project)
+        setCollapsedProjects(allProjects)
+      }
     }
   }, [initialSessionId, sessions])
 
