@@ -396,41 +396,89 @@ function ProjectTree({ projects, sessions, onOpenSession }: {
 
 // ── Sessions Tab ──────────────────────────────────────────────────────────────
 
+function groupSessionsByProject(sessions: Session[]): { project: string; sessions: Session[] }[] {
+  const map = new Map<string, Session[]>()
+  for (const s of sessions) {
+    const list = map.get(s.project) ?? []
+    list.push(s)
+    map.set(s.project, list)
+  }
+  return [...map.entries()]
+    .map(([project, sessions]) => ({ project, sessions }))
+    .sort((a, b) => b.sessions[0]!.startedAt.localeCompare(a.sessions[0]!.startedAt))
+}
+
 function SessionsTab({ sessions, initialSessionId }: { sessions: Session[]; initialSessionId: string | null }) {
   const [selected, setSelected] = useState<Session | null>(null)
   const [filter, setFilter] = useState('')
+  const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     if (initialSessionId) {
-      setSelected(sessions.find(s => s.id === initialSessionId) ?? null)
+      const s = sessions.find(s => s.id === initialSessionId) ?? null
+      setSelected(s)
+      // auto-expand the project
+      if (s) setCollapsedProjects(prev => { const next = new Set(prev); next.delete(s.project); return next })
     }
   }, [initialSessionId, sessions])
 
-  const filtered = sessions.filter(s => !filter || s.project.toLowerCase().includes(filter.toLowerCase()))
+  const toggleProject = (project: string) => setCollapsedProjects(prev => {
+    const next = new Set(prev); next.has(project) ? next.delete(project) : next.add(project); return next
+  })
+
+  const filtered = filter
+    ? sessions.filter(s => s.project.toLowerCase().includes(filter.toLowerCase()))
+    : sessions
+  const groups = groupSessionsByProject(filtered)
 
   return (
     <div className="flex gap-4 h-[calc(100vh-140px)]">
+      {/* Left: grouped list */}
       <div className="w-72 flex flex-col gap-2 shrink-0">
         <input type="text" placeholder="Filter by project..." value={filter}
           onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFilter(e.target.value)}
           className="w-full bg-gray-800 text-gray-100 text-sm px-3 py-2 rounded-xl border border-gray-700 focus:outline-none focus:border-indigo-500 placeholder:text-gray-600" />
-        <div className="flex-1 overflow-y-auto flex flex-col gap-1.5 pr-1">
-          {filtered.map(s => (
-            <button key={s.id} onClick={() => setSelected(s)}
-              className={`text-left px-3 py-2.5 rounded-xl transition-colors ${selected?.id === s.id ? 'bg-indigo-600' : 'bg-gray-900 hover:bg-gray-800'}`}>
-              <p className="text-sm font-medium text-gray-100 truncate">{s.project}</p>
-              <div className="flex items-center gap-2 mt-0.5">
-                <span className="text-xs text-gray-500">{fmt(s.startedAt)}</span>
-                <span className="text-xs text-gray-600">·</span>
-                <span className="text-xs text-gray-500">{s.stats.toolCallCount} calls</span>
-                <span className="text-xs text-gray-600">·</span>
-                <span className="text-xs text-gray-500">{fmtDuration(s.durationMs)}</span>
+
+        <div className="flex-1 overflow-y-auto flex flex-col gap-0.5 pr-1">
+          {groups.map(({ project, sessions: projectSessions }) => {
+            const isCollapsed = collapsedProjects.has(project)
+            return (
+              <div key={project}>
+                {/* Project header */}
+                <button
+                  onClick={() => toggleProject(project)}
+                  className="w-full flex items-center gap-2 px-3 py-2 rounded-xl hover:bg-gray-800 transition-colors text-left"
+                >
+                  <span className="text-gray-600 text-xs w-3 shrink-0">{isCollapsed ? '▶' : '▼'}</span>
+                  <span className="text-sm font-medium text-gray-200 truncate flex-1">{project}</span>
+                  <span className="text-xs text-gray-600 shrink-0">{projectSessions.length}</span>
+                </button>
+
+                {/* Session rows */}
+                {!isCollapsed && (
+                  <div className="ml-3 pl-2 border-l border-gray-800 flex flex-col gap-0.5 mb-1">
+                    {projectSessions.map(s => (
+                      <button key={s.id} onClick={() => setSelected(s)}
+                        className={`text-left px-3 py-2 rounded-xl transition-colors ${selected?.id === s.id ? 'bg-indigo-600' : 'hover:bg-gray-800'}`}>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-gray-400">{fmt(s.startedAt)}</span>
+                        </div>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className="text-xs text-gray-600">{s.stats.toolCallCount} calls</span>
+                          <span className="text-xs text-gray-700">·</span>
+                          <span className="text-xs text-gray-600">{fmtDuration(s.durationMs)}</span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
-            </button>
-          ))}
+            )
+          })}
         </div>
       </div>
 
+      {/* Right: detail */}
       <div className="flex-1 overflow-y-auto">
         {selected
           ? <SessionDetailView session={selected} />
