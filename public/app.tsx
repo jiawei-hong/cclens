@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react'
 import { createRoot } from 'react-dom/client'
 import Markdown from 'react-markdown'
 import { parseSessionFiles } from './lib/parser'
-import { summarizeProjects, globalToolStats, activityByDay, activityByHour, sessionDepthStats, streakStats } from '../src/analyzer'
+import { summarizeProjects, globalToolStats, activityByDay, activityByHour, sessionDepthStats } from '../src/analyzer'
 import { search as searchSessions } from '../src/searcher'
 import type { Session, ProjectSummary, SearchResult } from '../src/types'
 
@@ -206,77 +206,6 @@ function NavTab({ label, active, onClick }: { label: string; active: boolean; on
   )
 }
 
-// ── Contribution Graph ────────────────────────────────────────────────────────
-
-function ContributionGraph({ activityByDate }: { activityByDate: Record<string, number> }) {
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-
-  // Start from the Sunday of the week 51 weeks ago
-  const startDate = new Date(today)
-  startDate.setDate(today.getDate() - today.getDay() - 51 * 7)
-
-  const weeks: { date: string; count: number }[][] = []
-  const cursor = new Date(startDate)
-  for (let w = 0; w < 52; w++) {
-    const week: { date: string; count: number }[] = []
-    for (let d = 0; d < 7; d++) {
-      const dateStr = cursor.toISOString().slice(0, 10)
-      week.push({ date: dateStr, count: activityByDate[dateStr] ?? 0 })
-      cursor.setDate(cursor.getDate() + 1)
-    }
-    weeks.push(week)
-  }
-
-  const maxCount = Math.max(...Object.values(activityByDate), 1)
-  const cellColor = (count: number) => {
-    if (count === 0) return 'bg-gray-800'
-    const r = count / maxCount
-    if (r < 0.25) return 'bg-emerald-900'
-    if (r < 0.5)  return 'bg-emerald-700'
-    if (r < 0.75) return 'bg-emerald-500'
-    return 'bg-emerald-400'
-  }
-
-  // Month label for the first week of each month
-  const monthLabels: { label: string; col: number }[] = []
-  weeks.forEach((week, i) => {
-    const d = new Date(week[0]!.date)
-    if (d.getDate() <= 7) {
-      monthLabels.push({ label: d.toLocaleString('default', { month: 'short' }), col: i })
-    }
-  })
-
-  return (
-    <div className="overflow-x-auto">
-      <div className="relative inline-block" style={{ paddingTop: '18px' }}>
-        {/* Month labels */}
-        {monthLabels.map((m, i) => (
-          <span key={i} className="absolute top-0 text-xs text-gray-600"
-            style={{ left: `${m.col * 13}px` }}>{m.label}</span>
-        ))}
-        {/* Grid */}
-        <div className="flex" style={{ gap: '3px' }}>
-          {weeks.map((week, wi) => (
-            <div key={wi} className="flex flex-col" style={{ gap: '3px' }}>
-              {week.map((day, di) => (
-                <div key={di} title={`${day.date}: ${day.count} sessions`}
-                  className={`w-2.5 h-2.5 rounded-sm cursor-default group relative ${cellColor(day.count)}`}>
-                  {day.count > 0 && (
-                    <div className="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 bg-gray-800 text-xs text-gray-300 px-2 py-1 rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-10">
-                      {day.date}: {day.count}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  )
-}
-
 // ── Insights Tab ──────────────────────────────────────────────────────────────
 
 function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; onOpenSession: (id: string) => void }) {
@@ -284,7 +213,6 @@ function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; onOpenS
   const activity = activityByDay(sessions)
   const hourActivity = activityByHour(sessions)
   const depth = sessionDepthStats(sessions)
-  const streak = streakStats(sessions)
   const projects = summarizeProjects(sessions)
   const maxActivity = Math.max(...activity.map(d => d.count), 1)
   const maxHour = Math.max(...hourActivity.map(h => h.count), 1)
@@ -296,35 +224,6 @@ function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; onOpenS
         <StatCard label="Total Sessions" value={sessions.length} />
         <StatCard label="Projects" value={projects.length} />
         <StatCard label="Total Tool Calls" value={topTools.reduce((s, t) => s + t.count, 0)} />
-      </div>
-
-      {/* Contribution graph */}
-      <div className="bg-gray-900 rounded-2xl p-5">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wide">Activity</h3>
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-1.5">
-              <span className="text-xs text-gray-500">🔥 Current streak</span>
-              <span className="text-sm font-bold text-emerald-400">{streak.currentStreak}d</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <span className="text-xs text-gray-500">Best</span>
-              <span className="text-sm font-bold text-gray-300">{streak.longestStreak}d</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <span className="text-xs text-gray-500">Active days</span>
-              <span className="text-sm font-bold text-gray-300">{streak.totalActiveDays}</span>
-            </div>
-          </div>
-        </div>
-        <ContributionGraph activityByDate={streak.activityByDate} />
-        <div className="flex items-center gap-1.5 mt-3">
-          <span className="text-xs text-gray-600">Less</span>
-          {['bg-gray-800','bg-emerald-900','bg-emerald-700','bg-emerald-500','bg-emerald-400'].map(c => (
-            <div key={c} className={`w-2.5 h-2.5 rounded-sm ${c}`} />
-          ))}
-          <span className="text-xs text-gray-600">More</span>
-        </div>
       </div>
 
       {/* Depth stats */}
