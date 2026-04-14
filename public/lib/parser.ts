@@ -75,7 +75,15 @@ export async function parseSessionFile(file: File): Promise<Session | null> {
   const timestamps = turns.map(t => t.timestamp).sort()
   const startedAt = timestamps[0] ?? new Date().toISOString()
   const endedAt = timestamps[timestamps.length - 1] ?? startedAt
-  const durationMs = new Date(endedAt).getTime() - new Date(startedAt).getTime()
+
+  // Active duration: sum only gaps < 5 min between consecutive turns.
+  // Gaps ≥ 5 min are treated as idle (user away / claude --resume after a break).
+  const IDLE_THRESHOLD_MS = 5 * 60 * 1000
+  let durationMs = 0
+  for (let i = 1; i < timestamps.length; i++) {
+    const gap = new Date(timestamps[i]).getTime() - new Date(timestamps[i - 1]).getTime()
+    if (gap < IDLE_THRESHOLD_MS) durationMs += gap
+  }
 
   const cwdEntry = entries.find(e => e.cwd)
   const projectPath = cwdEntry?.cwd ?? '/'

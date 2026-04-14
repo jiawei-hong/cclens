@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { createRoot } from 'react-dom/client'
 import Markdown from 'react-markdown'
-import { RiSunLine, RiMoonLine, RiComputerLine } from 'react-icons/ri'
+import { RiSunLine, RiMoonLine, RiComputerLine, RiTimeLine, RiTerminalLine, RiChat3Line, RiFlashlightLine } from 'react-icons/ri'
 import { parseSessionFiles } from './lib/parser'
 import { summarizeProjects, globalToolStats, activityByDay, activityByHour, sessionDepthStats, taskBreakdown, trendStats } from '../src/analyzer'
 import type { SessionType } from '../src/analyzer'
@@ -656,7 +656,7 @@ function groupSessionsByProject(sessions: Session[]): { project: string; session
     .sort((a, b) => b.sessions[0]!.startedAt.localeCompare(a.sessions[0]!.startedAt))
 }
 
-function SessionsTab({ sessions, initialSessionId }: { sessions: Session[]; initialSessionId: string | null }) {
+function SessionsTab({ sessions, initialSessionId, scrollToTurnId }: { sessions: Session[]; initialSessionId: string | null; scrollToTurnId: string | null }) {
   const [selected, setSelected] = useState<Session | null>(null)
   const [filter, setFilter] = useState('')
   const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(new Set())
@@ -741,7 +741,7 @@ function SessionsTab({ sessions, initialSessionId }: { sessions: Session[]; init
       {/* Right: detail */}
       <div className="flex-1 overflow-y-auto">
         {selected
-          ? <SessionDetailView session={selected} />
+          ? <SessionDetailView session={selected} scrollToTurnId={scrollToTurnId} />
           : <div className="flex items-center justify-center h-full text-gray-500 dark:text-gray-600 text-sm">Select a session to view details</div>}
       </div>
     </div>
@@ -797,17 +797,31 @@ function parseTurnContent(raw: string): TurnContent[] {
   return parts.filter(p => p.kind !== 'meta' && !(p.kind === 'text' && !p.text))
 }
 
-function TurnBody({ text, role }: { text: string; role: 'user' | 'assistant' }) {
+function TimeLabel({ timestamp }: { timestamp: string }) {
+  return (
+    <span className="text-[10px] text-gray-400 dark:text-gray-600 shrink-0 ml-2 self-end leading-none">
+      {new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+    </span>
+  )
+}
+
+function TurnBody({ text, role, timestamp }: { text: string; role: 'user' | 'assistant'; timestamp: string }) {
   if (role === 'assistant') {
     return (
       <div className="rounded-2xl px-4 py-3 text-sm leading-relaxed bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 text-gray-700 dark:text-gray-300">
         <MarkdownText>{text}</MarkdownText>
+        <div className="flex justify-end mt-1.5">
+          <TimeLabel timestamp={timestamp} />
+        </div>
       </div>
     )
   }
 
   const parts = parseTurnContent(text)
   if (parts.length === 0) return null
+
+  const lastTextIdx = [...parts].reverse().findIndex(p => p.kind === 'text')
+  const lastTextAbsIdx = lastTextIdx === -1 ? -1 : parts.length - 1 - lastTextIdx
 
   return (
     <div className="flex flex-col gap-2">
@@ -832,9 +846,15 @@ function TurnBody({ text, role }: { text: string; role: 'user' | 'assistant' }) 
         }
         // plain text
         if (part.kind !== 'text') return null
+        const isLast = i === lastTextAbsIdx
         return (
           <div key={i} className="rounded-2xl px-4 py-3 text-sm leading-relaxed bg-indigo-50 dark:bg-indigo-600/20 text-gray-900 dark:text-gray-200">
             <MarkdownText>{part.text}</MarkdownText>
+            {isLast && (
+              <div className="flex justify-end mt-1.5">
+                <TimeLabel timestamp={timestamp} />
+              </div>
+            )}
           </div>
         )
       })}
@@ -879,85 +899,128 @@ function EditDiffView({ input }: { input: Record<string, unknown> }) {
   )
 }
 
-function SessionDetailView({ session }: { session: Session }) {
+function SessionDetailView({ session, scrollToTurnId }: { session: Session; scrollToTurnId: string | null }) {
   const [expandedTools, setExpandedTools] = useState<Set<string>>(new Set())
+  const [highlightedTurnId, setHighlightedTurnId] = useState<string | null>(null)
   const toggleTool = (id: string) => setExpandedTools(prev => {
     const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next
   })
 
+  useEffect(() => {
+    if (!scrollToTurnId) return
+    const el = document.getElementById(`turn-${scrollToTurnId}`)
+    if (!el) return
+    const timer = setTimeout(() => {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      setHighlightedTurnId(scrollToTurnId)
+      setTimeout(() => setHighlightedTurnId(null), 1500)
+    }, 150)
+    return () => clearTimeout(timer)
+  }, [scrollToTurnId, session.id])
+
   return (
     <div className="flex flex-col gap-4 pb-8">
-      <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-4 flex items-start gap-4">
-        <div className="flex-1">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">{session.project}</h2>
-          <p className="text-xs text-gray-500 mt-0.5">{session.projectPath}</p>
-        </div>
-        <div className="flex gap-4 text-right shrink-0">
-          <div><p className="text-xs text-gray-500">Duration</p><p className="text-sm font-medium text-gray-700 dark:text-gray-300">{fmtDuration(session.durationMs)}</p></div>
-          <div><p className="text-xs text-gray-500">Tool calls</p><p className="text-sm font-medium text-gray-700 dark:text-gray-300">{session.stats.toolCallCount}</p></div>
-          <div><p className="text-xs text-gray-500">Turns</p><p className="text-sm font-medium text-gray-700 dark:text-gray-300">{session.turns.length}</p></div>
-          <div><p className="text-xs text-gray-500">Pace</p><p className="text-sm font-medium text-gray-700 dark:text-gray-300">{fmtPace(session.durationMs, session.stats.toolCallCount)}</p></div>
-          <div className="flex flex-col gap-1.5 pl-4 border-l border-gray-200 dark:border-gray-800">
+      <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl overflow-hidden">
+        {/* Project info + export */}
+        <div className="flex items-start justify-between px-5 pt-4 pb-3">
+          <div className="min-w-0">
+            <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100 truncate">{session.project}</h2>
+            <p className="text-xs text-gray-500 mt-0.5 truncate">{session.projectPath}</p>
+          </div>
+          <div className="flex gap-1.5 shrink-0 ml-4">
             <button onClick={() => exportSessionAsMarkdown(session)}
-              className="text-xs px-3 py-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg transition-colors">
+              className="text-xs px-2.5 py-1 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 rounded-lg transition-colors">
               ↓ MD
             </button>
             <button onClick={() => exportSessionAsHTML(session)}
-              className="text-xs px-3 py-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg transition-colors">
+              className="text-xs px-2.5 py-1 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 rounded-lg transition-colors">
               ↓ HTML
             </button>
           </div>
         </div>
+
+        {/* Stats strip */}
+        <div className="grid grid-cols-4 border-t border-gray-100 dark:border-gray-800 divide-x divide-gray-100 dark:divide-gray-800">
+          {([
+            { icon: <RiTimeLine size={15} />,       label: 'Duration',   value: fmtDuration(session.durationMs) },
+            { icon: <RiTerminalLine size={15} />,   label: 'Tool Calls', value: session.stats.toolCallCount },
+            { icon: <RiChat3Line size={15} />,      label: 'Turns',      value: session.turns.length },
+            { icon: <RiFlashlightLine size={15} />, label: 'Pace',       value: fmtPace(session.durationMs, session.stats.toolCallCount) },
+          ] as const).map(({ icon, label, value }) => (
+            <div key={label} className="flex items-center gap-2.5 px-4 py-3">
+              <span className="text-gray-400 dark:text-gray-600 shrink-0">{icon}</span>
+              <div>
+                <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 leading-none">{value}</p>
+                <p className="text-[11px] text-gray-500 mt-1 leading-none">{label}</p>
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
 
-      {session.turns.map(turn => (
-        <div key={turn.uuid} className={`flex gap-3 ${turn.role === 'user' ? 'flex-row-reverse' : ''}`}>
-          <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0 mt-0.5
-            ${turn.role === 'user' ? 'bg-indigo-600 text-white' : 'bg-gray-300 dark:bg-gray-700 text-gray-700 dark:text-gray-300'}`}>
-            {turn.role === 'user' ? 'U' : 'C'}
-          </div>
-          <div className="flex-1 max-w-[85%] flex flex-col gap-2">
-            {turn.text && <TurnBody text={turn.text} role={turn.role} />}
+      {(() => {
+        let lastDate = ''
+        return session.turns.flatMap(turn => {
+          const dateKey = new Date(turn.timestamp).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
+          const showDate = dateKey !== lastDate
+          lastDate = dateKey
+          return [
+            showDate && (
+              <div key={`date-${dateKey}`} className="flex items-center gap-3 py-1">
+                <div className="flex-1 h-px bg-gray-200 dark:bg-gray-800" />
+                <span className="text-[11px] text-gray-400 dark:text-gray-600 font-medium px-2">{dateKey}</span>
+                <div className="flex-1 h-px bg-gray-200 dark:bg-gray-800" />
+              </div>
+            ),
+            <div key={turn.uuid} id={`turn-${turn.uuid}`}
+              className={`flex gap-3 rounded-2xl transition-colors duration-700 ${turn.role === 'user' ? 'flex-row-reverse' : ''} ${highlightedTurnId === turn.uuid ? 'bg-yellow-100 dark:bg-yellow-400/10' : ''}`}>
+              <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0 mt-0.5
+                ${turn.role === 'user' ? 'bg-indigo-600 text-white' : 'bg-gray-300 dark:bg-gray-700 text-gray-700 dark:text-gray-300'}`}>
+                {turn.role === 'user' ? 'U' : 'C'}
+              </div>
+              <div className="flex-1 max-w-[85%] flex flex-col gap-2">
+                {turn.text && <TurnBody text={turn.text} role={turn.role} timestamp={turn.timestamp} />}
 
-            {turn.toolCalls.length > 0 && (
-              <div className="flex flex-col gap-1.5">
-                {turn.toolCalls.map(tc => {
-                  const isEdit = tc.name === 'Edit' && 'old_string' in tc.input
-                  const summary = isEdit
-                    ? (tc.input['file_path'] as string | undefined ?? '').split('/').pop() ?? ''
-                    : Object.values(tc.input)[0]?.toString().slice(0, 60) ?? ''
-                  return (
-                    <div key={tc.id} className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-xl overflow-hidden">
-                      <button onClick={() => toggleTool(tc.id)}
-                        className="w-full flex items-center gap-2 px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors text-left">
-                        <span className={`text-xs px-2 py-0.5 rounded font-mono ${toolColor(tc.name)}`}>{tc.name}</span>
-                        <span className="text-xs text-gray-500 truncate flex-1">{summary}</span>
-                        <span className="text-gray-500 dark:text-gray-600 text-xs">{expandedTools.has(tc.id) ? '▾' : '▸'}</span>
-                      </button>
-                      {expandedTools.has(tc.id) && (
-                        <div className="px-3 pb-3 flex flex-col gap-2">
-                          {isEdit
-                            ? <EditDiffView input={tc.input} />
-                            : <pre className="text-xs text-gray-600 dark:text-gray-400 bg-white dark:bg-gray-950 rounded-lg p-2 overflow-x-auto whitespace-pre-wrap">
-                                {JSON.stringify(tc.input, null, 2)}
-                              </pre>
-                          }
-                          {tc.result && (
-                            <pre className="text-xs text-gray-500 bg-white dark:bg-gray-950 rounded-lg p-2 overflow-x-auto whitespace-pre-wrap max-h-40">
-                              {tc.result}
-                            </pre>
+                {turn.toolCalls.length > 0 && (
+                  <div className="flex flex-col gap-1.5">
+                    {turn.toolCalls.map(tc => {
+                      const isEdit = tc.name === 'Edit' && 'old_string' in tc.input
+                      const summary = isEdit
+                        ? (tc.input['file_path'] as string | undefined ?? '').split('/').pop() ?? ''
+                        : Object.values(tc.input)[0]?.toString().slice(0, 60) ?? ''
+                      return (
+                        <div key={tc.id} className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-xl overflow-hidden">
+                          <button onClick={() => toggleTool(tc.id)}
+                            className="w-full flex items-center gap-2 px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors text-left">
+                            <span className={`text-xs px-2 py-0.5 rounded font-mono ${toolColor(tc.name)}`}>{tc.name}</span>
+                            <span className="text-xs text-gray-500 truncate flex-1">{summary}</span>
+                            <span className="text-gray-500 dark:text-gray-600 text-xs">{expandedTools.has(tc.id) ? '▾' : '▸'}</span>
+                          </button>
+                          {expandedTools.has(tc.id) && (
+                            <div className="px-3 pb-3 flex flex-col gap-2">
+                              {isEdit
+                                ? <EditDiffView input={tc.input} />
+                                : <pre className="text-xs text-gray-600 dark:text-gray-400 bg-white dark:bg-gray-950 rounded-lg p-2 overflow-x-auto whitespace-pre-wrap">
+                                    {JSON.stringify(tc.input, null, 2)}
+                                  </pre>
+                              }
+                              {tc.result && (
+                                <pre className="text-xs text-gray-500 bg-white dark:bg-gray-950 rounded-lg p-2 overflow-x-auto whitespace-pre-wrap max-h-40">
+                                  {tc.result}
+                                </pre>
+                              )}
+                            </div>
                           )}
                         </div>
-                      )}
-                    </div>
-                  )
-                })}
+                      )
+                    })}
+                  </div>
+                )}
               </div>
-            )}
-            <p className="text-xs text-gray-400 dark:text-gray-700 px-1">{fmt(turn.timestamp)}</p>
-          </div>
-        </div>
-      ))}
+            </div>,
+          ].filter(Boolean)
+        })
+      })()}
     </div>
   )
 }
@@ -1087,7 +1150,7 @@ ${turns}
 
 type RoleFilter = 'all' | 'user' | 'assistant'
 
-function SearchTab({ sessions, onOpenSession }: { sessions: Session[]; onOpenSession: (id: string) => void }) {
+function SearchTab({ sessions, onOpenSession }: { sessions: Session[]; onOpenSession: (id: string, turnId?: string) => void }) {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<SearchResult[]>([])
   const [projectFilter, setProjectFilter] = useState('all')
@@ -1174,10 +1237,9 @@ function SearchTab({ sessions, onOpenSession }: { sessions: Session[]; onOpenSes
       {/* Results grouped by session */}
       <div className="flex flex-col gap-3">
         {grouped.map(({ id, project, startedAt, snippets }) => (
-          <button key={id} onClick={() => onOpenSession(id)}
-            className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-4 flex flex-col gap-3 text-left hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors w-full group">
+          <div key={id} className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-4 flex flex-col gap-3">
             {/* Session header */}
-            <div className="flex items-center gap-2">
+            <button onClick={() => onOpenSession(id)} className="flex items-center gap-2 text-left w-full group">
               <span className="text-xs font-medium text-indigo-600 dark:text-indigo-400">{project}</span>
               <span className="text-gray-400 dark:text-gray-700">·</span>
               <span className="text-xs text-gray-500 dark:text-gray-600">{fmt(startedAt)}</span>
@@ -1185,24 +1247,25 @@ function SearchTab({ sessions, onOpenSession }: { sessions: Session[]; onOpenSes
                 {snippets.length} {snippets.length === 1 ? 'match' : 'matches'}
               </span>
               <span className="ml-auto text-xs text-gray-400 dark:text-gray-700 group-hover:text-indigo-400 transition-colors">Open session →</span>
-            </div>
+            </button>
             {/* Snippets */}
             <div className="flex flex-col gap-2">
               {snippets.slice(0, 3).map((r, i) => (
-                <div key={i} className="flex flex-col gap-1">
+                <button key={i} onClick={() => onOpenSession(id, r.turnUuid)}
+                  className="flex flex-col gap-1 text-left hover:opacity-80 transition-opacity group/snippet">
                   <span className={`text-xs px-2 py-0.5 rounded-full self-start ${r.role === 'user' ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-600/20 dark:text-indigo-300' : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400'}`}>
                     {r.role}
                   </span>
-                  <p className="text-sm text-gray-700 dark:text-gray-300 font-mono bg-white dark:bg-gray-950 rounded-xl px-3 py-2 whitespace-pre-wrap">
+                  <p className="text-sm text-gray-700 dark:text-gray-300 font-mono bg-gray-50 dark:bg-gray-950 group-hover/snippet:bg-indigo-50 dark:group-hover/snippet:bg-indigo-950/30 rounded-xl px-3 py-2 whitespace-pre-wrap transition-colors w-full">
                     {highlight(r.snippet, query)}
                   </p>
-                </div>
+                </button>
               ))}
               {snippets.length > 3 && (
                 <p className="text-xs text-gray-500 dark:text-gray-600 px-1">+{snippets.length - 3} more matches in this session</p>
               )}
             </div>
-          </button>
+          </div>
         ))}
         {query && grouped.length === 0 && (
           <p className="text-gray-500 dark:text-gray-600 text-sm text-center py-12">No results for "{query}"</p>
@@ -1220,6 +1283,7 @@ function App() {
   const [sessions, setSessions] = useState<Session[] | null>(null)
   const [tab, setTab] = useState<Tab>('insights')
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
+  const [selectedTurnId, setSelectedTurnId] = useState<string | null>(null)
   const [theme, setTheme] = useState<Theme>(() =>
     (localStorage.getItem('theme') as Theme) ?? 'system'
   )
@@ -1238,7 +1302,11 @@ function App() {
     }
   }, [theme])
 
-  const openSession = (id: string) => { setSelectedSessionId(id); setTab('sessions') }
+  const openSession = (id: string, turnId?: string) => {
+    setSelectedSessionId(id)
+    setSelectedTurnId(turnId ?? null)
+    setTab('sessions')
+  }
 
   if (!sessions) return <UploadScreen onLoad={setSessions} theme={theme} setTheme={setTheme} />
 
@@ -1262,7 +1330,7 @@ function App() {
 
       <main className="flex-1 px-6 py-6 max-w-6xl w-full mx-auto">
         {tab === 'insights' && <InsightsTab sessions={sessions} onOpenSession={openSession} />}
-        {tab === 'sessions' && <SessionsTab sessions={sessions} initialSessionId={selectedSessionId} />}
+        {tab === 'sessions' && <SessionsTab sessions={sessions} initialSessionId={selectedSessionId} scrollToTurnId={selectedTurnId} />}
         {tab === 'search' && <SearchTab sessions={sessions} onOpenSession={openSession} />}
       </main>
     </div>
