@@ -102,18 +102,23 @@ export function streakStats(sessions: Session[]): StreakStats {
     counts[date] = (counts[date] ?? 0) + 1
   }
 
-  const today = new Date().toISOString().slice(0, 10)
+  const todayStr = new Date().toISOString().slice(0, 10)
+  const yesterdayStr = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10)
 
-  // Current streak — walk backwards from today
+  // Current streak — start from today if active today, else from yesterday
+  // (so a streak isn't broken just because today's session hasn't happened yet)
   let currentStreak = 0
-  const cursor = new Date(today)
-  while (true) {
-    const dateStr = cursor.toISOString().slice(0, 10)
-    if (counts[dateStr]) {
-      currentStreak++
-      cursor.setDate(cursor.getDate() - 1)
-    } else {
-      break
+  const startDate = counts[todayStr] ? todayStr : (counts[yesterdayStr] ? yesterdayStr : null)
+  if (startDate) {
+    const cursor = new Date(startDate)
+    while (true) {
+      const dateStr = cursor.toISOString().slice(0, 10)
+      if (counts[dateStr]) {
+        currentStreak++
+        cursor.setDate(cursor.getDate() - 1)
+      } else {
+        break
+      }
     }
   }
 
