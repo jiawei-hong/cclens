@@ -488,6 +488,100 @@ function SessionsTab({ sessions, initialSessionId }: { sessions: Session[]; init
   )
 }
 
+// ── Turn content parser ───────────────────────────────────────────────────────
+
+type TurnContent =
+  | { kind: 'text'; text: string }
+  | { kind: 'slash-command'; command: string; args: string }
+  | { kind: 'stdout'; output: string }
+  | { kind: 'meta' }  // caveat / system noise → hidden
+
+function parseTurnContent(raw: string): TurnContent[] {
+  // Strip <local-command-caveat>...</local-command-caveat>
+  const cleaned = raw.replace(/<local-command-caveat>[\s\S]*?<\/local-command-caveat>/g, '').trim()
+
+  const parts: TurnContent[] = []
+  let remaining = cleaned
+
+  while (remaining.length > 0) {
+    // Slash command block
+    const cmdMatch = remaining.match(/<command-name>([^<]+)<\/command-name>\s*(?:<command-message>[^<]*<\/command-message>)?\s*(?:<command-args>([^<]*)<\/command-args>)?/)
+    // Stdout block
+    const stdoutMatch = remaining.match(/<local-command-stdout>([\s\S]*?)<\/local-command-stdout>/)
+
+    const cmdIdx = cmdMatch?.index ?? Infinity
+    const stdoutIdx = stdoutMatch?.index ?? Infinity
+
+    if (cmdIdx === Infinity && stdoutIdx === Infinity) {
+      // No more special blocks — rest is plain text
+      if (remaining.trim()) parts.push({ kind: 'text', text: remaining.trim() })
+      break
+    }
+
+    const firstIdx = Math.min(cmdIdx, stdoutIdx)
+
+    // Text before the first block
+    const before = remaining.slice(0, firstIdx).trim()
+    if (before) parts.push({ kind: 'text', text: before })
+
+    if (cmdIdx <= stdoutIdx && cmdMatch) {
+      parts.push({ kind: 'slash-command', command: cmdMatch[1]?.trim() ?? '', args: cmdMatch[2]?.trim() ?? '' })
+      remaining = remaining.slice(cmdIdx + cmdMatch[0].length)
+    } else if (stdoutMatch) {
+      const out = stdoutMatch[1]?.trim() ?? ''
+      if (out) parts.push({ kind: 'stdout', output: out })
+      remaining = remaining.slice(stdoutIdx + stdoutMatch[0].length)
+    }
+  }
+
+  return parts.filter(p => p.kind !== 'meta' && !(p.kind === 'text' && !p.text))
+}
+
+function TurnBody({ text, role }: { text: string; role: 'user' | 'assistant' }) {
+  if (role === 'assistant') {
+    return (
+      <div className="rounded-2xl px-4 py-3 text-sm leading-relaxed bg-gray-900 text-gray-300">
+        <MarkdownText>{text}</MarkdownText>
+      </div>
+    )
+  }
+
+  const parts = parseTurnContent(text)
+  if (parts.length === 0) return null
+
+  return (
+    <div className="flex flex-col gap-2">
+      {parts.map((part, i) => {
+        if (part.kind === 'slash-command') {
+          return (
+            <div key={i} className="flex items-center gap-2">
+              <span className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-800 border border-gray-700 rounded-xl font-mono text-sm text-gray-200">
+                <span className="text-indigo-400 text-xs">⌘</span>
+                {part.command}
+                {part.args && <span className="text-gray-500 text-xs">{part.args}</span>}
+              </span>
+            </div>
+          )
+        }
+        if (part.kind === 'stdout') {
+          return (
+            <pre key={i} className="text-xs text-gray-500 bg-gray-950 border border-gray-800 rounded-xl px-3 py-2 font-mono whitespace-pre-wrap">
+              {part.output}
+            </pre>
+          )
+        }
+        // plain text
+        if (part.kind !== 'text') return null
+        return (
+          <div key={i} className="rounded-2xl px-4 py-3 text-sm leading-relaxed bg-indigo-600/20 text-gray-200">
+            <MarkdownText>{part.text}</MarkdownText>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 function SessionDetailView({ session }: { session: Session }) {
   const [expandedTools, setExpandedTools] = useState<Set<string>>(new Set())
   const toggleTool = (id: string) => setExpandedTools(prev => {
@@ -515,12 +609,7 @@ function SessionDetailView({ session }: { session: Session }) {
             {turn.role === 'user' ? 'U' : 'C'}
           </div>
           <div className="flex-1 max-w-[85%] flex flex-col gap-2">
-            {turn.text && (
-              <div className={`rounded-2xl px-4 py-3 text-sm leading-relaxed
-                ${turn.role === 'user' ? 'bg-indigo-600/20 text-gray-200' : 'bg-gray-900 text-gray-300'}`}>
-                <MarkdownText>{turn.text}</MarkdownText>
-              </div>
-            )}
+            {turn.text && <TurnBody text={turn.text} role={turn.role} />}
 
             {turn.toolCalls.length > 0 && (
               <div className="flex flex-col gap-1.5">
