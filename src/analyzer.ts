@@ -88,6 +88,54 @@ export function sessionDepthStats(sessions: Session[]): SessionDepthStats {
   return { avgDurationMs, avgToolCalls, avgTurns, longestSession, deepestSession }
 }
 
+export type StreakStats = {
+  currentStreak: number
+  longestStreak: number
+  totalActiveDays: number
+  activityByDate: Record<string, number>
+}
+
+export function streakStats(sessions: Session[]): StreakStats {
+  const counts: Record<string, number> = {}
+  for (const s of sessions) {
+    const date = s.startedAt.slice(0, 10)
+    counts[date] = (counts[date] ?? 0) + 1
+  }
+
+  const today = new Date().toISOString().slice(0, 10)
+
+  // Current streak — walk backwards from today
+  let currentStreak = 0
+  const cursor = new Date(today)
+  while (true) {
+    const dateStr = cursor.toISOString().slice(0, 10)
+    if (counts[dateStr]) {
+      currentStreak++
+      cursor.setDate(cursor.getDate() - 1)
+    } else {
+      break
+    }
+  }
+
+  // Longest streak
+  const sorted = Object.keys(counts).sort()
+  let longestStreak = 0
+  let run = 0
+  let prev: string | null = null
+  for (const date of sorted) {
+    if (prev) {
+      const diff = Math.round((new Date(date).getTime() - new Date(prev).getTime()) / 86_400_000)
+      run = diff === 1 ? run + 1 : 1
+    } else {
+      run = 1
+    }
+    longestStreak = Math.max(longestStreak, run)
+    prev = date
+  }
+
+  return { currentStreak, longestStreak, totalActiveDays: sorted.length, activityByDate: counts }
+}
+
 function topN(map: Record<string, number>, n: number): { name: string; count: number }[] {
   return Object.entries(map)
     .map(([name, count]) => ({ name, count }))

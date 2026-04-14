@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react'
 import { createRoot } from 'react-dom/client'
 import Markdown from 'react-markdown'
 import { parseSessionFiles } from './lib/parser'
-import { summarizeProjects, globalToolStats, activityByDay, activityByHour, sessionDepthStats } from '../src/analyzer'
+import { summarizeProjects, globalToolStats, activityByDay, activityByHour, sessionDepthStats, streakStats } from '../src/analyzer'
 import { search as searchSessions } from '../src/searcher'
 import type { Session, ProjectSummary, SearchResult } from '../src/types'
 
@@ -206,6 +206,77 @@ function NavTab({ label, active, onClick }: { label: string; active: boolean; on
   )
 }
 
+// ── Contribution Graph ────────────────────────────────────────────────────────
+
+function ContributionGraph({ activityByDate }: { activityByDate: Record<string, number> }) {
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+
+  // Start from the Sunday of the week 51 weeks ago
+  const startDate = new Date(today)
+  startDate.setDate(today.getDate() - today.getDay() - 51 * 7)
+
+  const weeks: { date: string; count: number }[][] = []
+  const cursor = new Date(startDate)
+  for (let w = 0; w < 52; w++) {
+    const week: { date: string; count: number }[] = []
+    for (let d = 0; d < 7; d++) {
+      const dateStr = cursor.toISOString().slice(0, 10)
+      week.push({ date: dateStr, count: activityByDate[dateStr] ?? 0 })
+      cursor.setDate(cursor.getDate() + 1)
+    }
+    weeks.push(week)
+  }
+
+  const maxCount = Math.max(...Object.values(activityByDate), 1)
+  const cellColor = (count: number) => {
+    if (count === 0) return 'bg-gray-800'
+    const r = count / maxCount
+    if (r < 0.25) return 'bg-emerald-900'
+    if (r < 0.5)  return 'bg-emerald-700'
+    if (r < 0.75) return 'bg-emerald-500'
+    return 'bg-emerald-400'
+  }
+
+  // Month label for the first week of each month
+  const monthLabels: { label: string; col: number }[] = []
+  weeks.forEach((week, i) => {
+    const d = new Date(week[0]!.date)
+    if (d.getDate() <= 7) {
+      monthLabels.push({ label: d.toLocaleString('default', { month: 'short' }), col: i })
+    }
+  })
+
+  return (
+    <div className="overflow-x-auto">
+      <div className="relative inline-block" style={{ paddingTop: '18px' }}>
+        {/* Month labels */}
+        {monthLabels.map((m, i) => (
+          <span key={i} className="absolute top-0 text-xs text-gray-600"
+            style={{ left: `${m.col * 13}px` }}>{m.label}</span>
+        ))}
+        {/* Grid */}
+        <div className="flex" style={{ gap: '3px' }}>
+          {weeks.map((week, wi) => (
+            <div key={wi} className="flex flex-col" style={{ gap: '3px' }}>
+              {week.map((day, di) => (
+                <div key={di} title={`${day.date}: ${day.count} sessions`}
+                  className={`w-2.5 h-2.5 rounded-sm cursor-default group relative ${cellColor(day.count)}`}>
+                  {day.count > 0 && (
+                    <div className="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 bg-gray-800 text-xs text-gray-300 px-2 py-1 rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-10">
+                      {day.date}: {day.count}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Insights Tab ──────────────────────────────────────────────────────────────
 
 function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; onOpenSession: (id: string) => void }) {
@@ -213,6 +284,7 @@ function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; onOpenS
   const activity = activityByDay(sessions)
   const hourActivity = activityByHour(sessions)
   const depth = sessionDepthStats(sessions)
+  const streak = streakStats(sessions)
   const projects = summarizeProjects(sessions)
   const maxActivity = Math.max(...activity.map(d => d.count), 1)
   const maxHour = Math.max(...hourActivity.map(h => h.count), 1)
@@ -224,6 +296,35 @@ function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; onOpenS
         <StatCard label="Total Sessions" value={sessions.length} />
         <StatCard label="Projects" value={projects.length} />
         <StatCard label="Total Tool Calls" value={topTools.reduce((s, t) => s + t.count, 0)} />
+      </div>
+
+      {/* Contribution graph */}
+      <div className="bg-gray-900 rounded-2xl p-5">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wide">Activity</h3>
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-gray-500">🔥 Current streak</span>
+              <span className="text-sm font-bold text-emerald-400">{streak.currentStreak}d</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-gray-500">Best</span>
+              <span className="text-sm font-bold text-gray-300">{streak.longestStreak}d</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-gray-500">Active days</span>
+              <span className="text-sm font-bold text-gray-300">{streak.totalActiveDays}</span>
+            </div>
+          </div>
+        </div>
+        <ContributionGraph activityByDate={streak.activityByDate} />
+        <div className="flex items-center gap-1.5 mt-3">
+          <span className="text-xs text-gray-600">Less</span>
+          {['bg-gray-800','bg-emerald-900','bg-emerald-700','bg-emerald-500','bg-emerald-400'].map(c => (
+            <div key={c} className={`w-2.5 h-2.5 rounded-sm ${c}`} />
+          ))}
+          <span className="text-xs text-gray-600">More</span>
+        </div>
       </div>
 
       {/* Depth stats */}
@@ -673,6 +774,16 @@ function SessionDetailView({ session }: { session: Session }) {
           <div><p className="text-xs text-gray-500">Duration</p><p className="text-sm font-medium text-gray-300">{fmtDuration(session.durationMs)}</p></div>
           <div><p className="text-xs text-gray-500">Tool calls</p><p className="text-sm font-medium text-gray-300">{session.stats.toolCallCount}</p></div>
           <div><p className="text-xs text-gray-500">Turns</p><p className="text-sm font-medium text-gray-300">{session.turns.length}</p></div>
+          <div className="flex flex-col gap-1.5 pl-4 border-l border-gray-800">
+            <button onClick={() => exportSessionAsMarkdown(session)}
+              className="text-xs px-3 py-1 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg transition-colors">
+              ↓ MD
+            </button>
+            <button onClick={() => exportSessionAsHTML(session)}
+              className="text-xs px-3 py-1 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg transition-colors">
+              ↓ HTML
+            </button>
+          </div>
         </div>
       </div>
 
@@ -719,6 +830,127 @@ function SessionDetailView({ session }: { session: Session }) {
       ))}
     </div>
   )
+}
+
+// ── Export helpers ────────────────────────────────────────────────────────────
+
+function exportSessionAsMarkdown(session: Session) {
+  const lines: string[] = [
+    `# ${session.project}`,
+    ``,
+    `**Path:** ${session.projectPath}  `,
+    `**Started:** ${new Date(session.startedAt).toLocaleString()}  `,
+    `**Duration:** ${fmtDuration(session.durationMs)}  `,
+    `**Tool calls:** ${session.stats.toolCallCount}  `,
+    `**Turns:** ${session.turns.length}`,
+    ``,
+    `---`,
+    ``,
+  ]
+  for (const turn of session.turns) {
+    lines.push(`### ${turn.role === 'user' ? 'User' : 'Claude'}`)
+    lines.push(``)
+    if (turn.text) {
+      const clean = turn.text
+        .replace(/<local-command-caveat>[\s\S]*?<\/local-command-caveat>/g, '')
+        .replace(/<[^>]+>/g, '')
+        .trim()
+      if (clean) lines.push(clean)
+    }
+    for (const tc of turn.toolCalls) {
+      lines.push(``)
+      lines.push(`**\`${tc.name}\`**`)
+      lines.push(`\`\`\`json`)
+      lines.push(JSON.stringify(tc.input, null, 2))
+      lines.push(`\`\`\``)
+      if (tc.result) {
+        lines.push(`<details><summary>Result</summary>`)
+        lines.push(``)
+        lines.push(`\`\`\``)
+        lines.push(tc.result)
+        lines.push(`\`\`\``)
+        lines.push(`</details>`)
+      }
+    }
+    lines.push(``)
+    lines.push(`*${fmt(turn.timestamp)}*`)
+    lines.push(``)
+    lines.push(`---`)
+    lines.push(``)
+  }
+
+  const blob = new Blob([lines.join('\n')], { type: 'text/markdown' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${session.project}-${session.id}.md`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+function exportSessionAsHTML(session: Session) {
+  const escHtml = (s: string) => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+  const turns = session.turns.map(turn => {
+    const isUser = turn.role === 'user'
+    const textClean = turn.text
+      .replace(/<local-command-caveat>[\s\S]*?<\/local-command-caveat>/g, '')
+      .replace(/<[^>]+>/g, '')
+      .trim()
+    const toolsHtml = turn.toolCalls.map(tc => `
+      <details class="tool">
+        <summary><code>${escHtml(tc.name)}</code> ${escHtml(Object.values(tc.input)[0]?.toString().slice(0, 60) ?? '')}</summary>
+        <pre>${escHtml(JSON.stringify(tc.input, null, 2))}</pre>
+        ${tc.result ? `<pre class="result">${escHtml(tc.result)}</pre>` : ''}
+      </details>`).join('')
+    return `
+      <div class="turn ${isUser ? 'user' : 'assistant'}">
+        <div class="avatar">${isUser ? 'U' : 'C'}</div>
+        <div class="body">
+          ${textClean ? `<div class="text">${escHtml(textClean)}</div>` : ''}
+          ${toolsHtml}
+          <div class="ts">${fmt(turn.timestamp)}</div>
+        </div>
+      </div>`
+  }).join('')
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>${escHtml(session.project)}</title>
+<style>
+  body { background:#0a0a0f; color:#e5e7eb; font-family:system-ui,sans-serif; max-width:800px; margin:0 auto; padding:2rem; }
+  h1 { font-size:1.5rem; margin-bottom:.25rem; }
+  .meta { color:#6b7280; font-size:.85rem; margin-bottom:2rem; }
+  .turn { display:flex; gap:12px; margin-bottom:1.5rem; }
+  .turn.user { flex-direction:row-reverse; }
+  .avatar { width:28px; height:28px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:.75rem; font-weight:700; flex-shrink:0; margin-top:2px; }
+  .turn.user .avatar { background:#4f46e5; color:#fff; }
+  .turn.assistant .avatar { background:#374151; color:#d1d5db; }
+  .body { flex:1; max-width:85%; }
+  .text { background:#111827; border-radius:12px; padding:.75rem 1rem; font-size:.875rem; line-height:1.6; white-space:pre-wrap; }
+  .turn.user .text { background:#312e81; }
+  details.tool { background:#111827; border-radius:8px; padding:.5rem .75rem; margin-top:.5rem; font-size:.8rem; }
+  details.tool summary { cursor:pointer; color:#a5b4fc; }
+  pre { background:#030712; border-radius:6px; padding:.5rem; overflow-x:auto; font-size:.75rem; color:#6ee7b7; white-space:pre-wrap; }
+  pre.result { color:#9ca3af; }
+  .ts { color:#374151; font-size:.7rem; margin-top:.25rem; }
+</style>
+</head>
+<body>
+<h1>${escHtml(session.project)}</h1>
+<p class="meta">${escHtml(session.projectPath)} · ${new Date(session.startedAt).toLocaleString()} · ${fmtDuration(session.durationMs)} · ${session.stats.toolCallCount} tool calls</p>
+${turns}
+</body>
+</html>`
+
+  const blob = new Blob([html], { type: 'text/html' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${session.project}-${session.id}.html`
+  a.click()
+  URL.revokeObjectURL(url)
 }
 
 // ── Search Tab ────────────────────────────────────────────────────────────────
