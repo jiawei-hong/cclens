@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { createRoot } from 'react-dom/client'
 import Markdown from 'react-markdown'
-import { RiSunLine, RiMoonLine, RiComputerLine, RiTimeLine, RiTerminalLine, RiChat3Line, RiFlashlightLine } from 'react-icons/ri'
+import { RiSunLine, RiMoonLine, RiComputerLine, RiTimeLine, RiTerminalLine, RiChat3Line, RiFlashlightLine, RiFileCodeLine } from 'react-icons/ri'
+import { SiTypescript, SiJavascript, SiPython, SiRust, SiGo, SiRuby, SiPhp, SiSwift, SiKotlin, SiCplusplus, SiC, SiHtml5, SiCss, SiMarkdown, SiJson, SiYaml, SiShell, SiReact, SiVuedotjs, SiSvelte, SiDart, SiScala, SiElixir, SiHaskell, SiLua, SiDocker, SiPrisma } from 'react-icons/si'
 import { parseSessionFiles } from './lib/parser'
 import { summarizeProjects, globalToolStats, activityByDay, activityByHour, sessionDepthStats, taskBreakdown, trendStats } from '../src/analyzer'
 import type { SessionType } from '../src/analyzer'
@@ -913,6 +914,60 @@ function EditDiffView({ input }: { input: Record<string, unknown> }) {
   )
 }
 
+// ── File Language Icons ───────────────────────────────────────────────────────
+
+const EXT_ICONS: Record<string, { icon: React.ElementType; color: string }> = {
+  ts:     { icon: SiTypescript,  color: 'text-blue-500' },
+  tsx:    { icon: SiReact,       color: 'text-cyan-400' },
+  js:     { icon: SiJavascript,  color: 'text-yellow-400' },
+  jsx:    { icon: SiReact,       color: 'text-cyan-400' },
+  mjs:    { icon: SiJavascript,  color: 'text-yellow-400' },
+  cjs:    { icon: SiJavascript,  color: 'text-yellow-400' },
+  py:     { icon: SiPython,      color: 'text-blue-400' },
+  rs:     { icon: SiRust,        color: 'text-orange-500' },
+  go:     { icon: SiGo,          color: 'text-cyan-500' },
+  rb:     { icon: SiRuby,        color: 'text-red-500' },
+  php:    { icon: SiPhp,         color: 'text-indigo-400' },
+  swift:  { icon: SiSwift,       color: 'text-orange-400' },
+  kt:     { icon: SiKotlin,      color: 'text-purple-400' },
+  kts:    { icon: SiKotlin,      color: 'text-purple-400' },
+  cpp:    { icon: SiCplusplus,   color: 'text-blue-600' },
+  cc:     { icon: SiCplusplus,   color: 'text-blue-600' },
+  c:      { icon: SiC,           color: 'text-blue-500' },
+  h:      { icon: SiC,           color: 'text-blue-400' },
+  html:   { icon: SiHtml5,       color: 'text-orange-500' },
+  css:    { icon: SiCss,         color: 'text-blue-400' },
+  scss:   { icon: SiCss,         color: 'text-pink-400' },
+  sass:   { icon: SiCss,         color: 'text-pink-400' },
+  md:     { icon: SiMarkdown,    color: 'text-gray-500' },
+  mdx:    { icon: SiMarkdown,    color: 'text-gray-500' },
+  json:   { icon: SiJson,        color: 'text-yellow-500' },
+  yaml:   { icon: SiYaml,        color: 'text-red-400' },
+  yml:    { icon: SiYaml,        color: 'text-red-400' },
+  sh:     { icon: SiShell,       color: 'text-green-400' },
+  bash:   { icon: SiShell,       color: 'text-green-400' },
+  zsh:    { icon: SiShell,       color: 'text-green-400' },
+  vue:    { icon: SiVuedotjs,    color: 'text-emerald-400' },
+  svelte: { icon: SiSvelte,      color: 'text-orange-500' },
+  dart:   { icon: SiDart,        color: 'text-cyan-500' },
+  scala:  { icon: SiScala,       color: 'text-red-500' },
+  ex:     { icon: SiElixir,      color: 'text-purple-500' },
+  exs:    { icon: SiElixir,      color: 'text-purple-500' },
+  hs:     { icon: SiHaskell,     color: 'text-purple-400' },
+  lua:    { icon: SiLua,         color: 'text-blue-400' },
+  prisma: { icon: SiPrisma,      color: 'text-teal-400' },
+  dockerfile: { icon: SiDocker,  color: 'text-blue-400' },
+}
+
+function FileIcon({ path, size = 14 }: { path: string; size?: number }) {
+  const name = path.split('/').pop() ?? ''
+  const ext = name.includes('.') ? name.split('.').pop()?.toLowerCase() ?? '' : name.toLowerCase()
+  const match = EXT_ICONS[ext]
+  if (!match) return <RiFileCodeLine size={size} className="text-gray-400 dark:text-gray-600" />
+  const Icon = match.icon
+  return <Icon size={size} className={match.color} />
+}
+
 // ── File Change Summary ───────────────────────────────────────────────────────
 
 type FileWriteOp = { kind: 'write'; content: string; ts: string }
@@ -1002,7 +1057,7 @@ function SessionFilesView({ session }: { session: Session }) {
           <div key={fc.path} className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-2xl overflow-hidden">
             <button onClick={() => toggle(fc.path)}
               className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors text-left">
-              <span className="text-gray-400 dark:text-gray-600 shrink-0 text-base">◻</span>
+              <span className="shrink-0"><FileIcon path={fc.path} size={15} /></span>
               <div className="flex-1 min-w-0">
                 <span className="text-sm font-mono font-medium text-gray-800 dark:text-gray-200">{fileName}</span>
                 {dir && <span className="text-xs text-gray-400 dark:text-gray-600 ml-2 font-mono">{dir}</span>}
