@@ -89,6 +89,68 @@ export function sessionDepthStats(sessions: Session[]): SessionDepthStats {
 }
 
 
+export type SessionType = 'coding' | 'debugging' | 'research' | 'exploration' | 'conversation'
+
+export function classifySession(session: Session): SessionType {
+  const tools = session.stats.toolBreakdown
+  const total = session.stats.toolCallCount
+  if (total < 3) return 'conversation'
+
+  const pct = (name: string) => ((tools[name] ?? 0) / total) * 100
+  const webScore   = pct('WebSearch') + pct('WebFetch')
+  const editScore  = pct('Edit') + pct('Write')
+  const bashScore  = pct('Bash')
+  const readScore  = pct('Read') + pct('Grep') + pct('Glob')
+
+  if (webScore  > 20) return 'research'
+  if (bashScore > 25 && readScore > 15) return 'debugging'
+  if (editScore > 25) return 'coding'
+  if (readScore > 40) return 'exploration'
+  return 'conversation'
+}
+
+export function taskBreakdown(sessions: Session[]): { type: SessionType; count: number }[] {
+  const counts: Record<SessionType, number> = { coding: 0, debugging: 0, research: 0, exploration: 0, conversation: 0 }
+  for (const s of sessions) counts[classifySession(s)]++
+  return (Object.entries(counts) as [SessionType, number][])
+    .filter(([, c]) => c > 0)
+    .sort((a, b) => b[1] - a[1])
+    .map(([type, count]) => ({ type, count }))
+}
+
+export type MonthStats = { sessions: number; toolCalls: number; activeDays: number }
+export type TrendStats  = { thisMonth: MonthStats; lastMonth: MonthStats; label: string; lastLabel: string }
+
+export function trendStats(sessions: Session[]): TrendStats {
+  const now = new Date()
+  const thisStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10)
+  const lastStart = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString().slice(0, 10)
+
+  const thisMonthSessions = sessions.filter(s => s.startedAt.slice(0, 10) >= thisStart)
+  const lastMonthSessions = sessions.filter(s => {
+    const d = s.startedAt.slice(0, 10)
+    return d >= lastStart && d < thisStart
+  })
+
+  const toStats = (ss: Session[]): MonthStats => ({
+    sessions: ss.length,
+    toolCalls: ss.reduce((sum, s) => sum + s.stats.toolCallCount, 0),
+    activeDays: new Set(ss.map(s => s.startedAt.slice(0, 10))).size,
+  })
+
+  const monthLabel = (offset: number) =>
+    new Date(now.getFullYear(), now.getMonth() + offset, 1)
+      .toLocaleString('en-US', { month: 'long' })
+
+  return {
+    thisMonth: toStats(thisMonthSessions),
+    lastMonth: toStats(lastMonthSessions),
+    label: monthLabel(0),
+    lastLabel: monthLabel(-1),
+  }
+}
+
+
 function topN(map: Record<string, number>, n: number): { name: string; count: number }[] {
   return Object.entries(map)
     .map(([name, count]) => ({ name, count }))

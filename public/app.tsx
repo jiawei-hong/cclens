@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef } from 'react'
 import { createRoot } from 'react-dom/client'
 import Markdown from 'react-markdown'
 import { parseSessionFiles } from './lib/parser'
-import { summarizeProjects, globalToolStats, activityByDay, activityByHour, sessionDepthStats } from '../src/analyzer'
+import { summarizeProjects, globalToolStats, activityByDay, activityByHour, sessionDepthStats, taskBreakdown, trendStats } from '../src/analyzer'
+import type { SessionType } from '../src/analyzer'
 import { search as searchSessions } from '../src/searcher'
 import type { Session, ProjectSummary, SearchResult } from '../src/types'
 
@@ -29,6 +30,31 @@ const TOOL_COLORS: Record<string, string> = {
   WebSearch: 'bg-orange-500/20 text-orange-300',
 }
 const toolColor = (name: string) => TOOL_COLORS[name] ?? 'bg-gray-500/20 text-gray-300'
+
+const TASK_COLORS: Record<SessionType, string> = {
+  coding:       'bg-indigo-500/20 text-indigo-300',
+  debugging:    'bg-rose-500/20 text-rose-300',
+  research:     'bg-amber-500/20 text-amber-300',
+  exploration:  'bg-cyan-500/20 text-cyan-300',
+  conversation: 'bg-gray-500/20 text-gray-400',
+}
+const TASK_BARS: Record<SessionType, string> = {
+  coding:       'bg-indigo-500',
+  debugging:    'bg-rose-500',
+  research:     'bg-amber-500',
+  exploration:  'bg-cyan-500',
+  conversation: 'bg-gray-500',
+}
+const taskTypeColor = (t: SessionType) => TASK_COLORS[t]
+const taskTypeBar   = (t: SessionType) => TASK_BARS[t]
+
+const TASK_DESCRIPTIONS: Record<SessionType, string> = {
+  coding:       'Edit / Write > 25% of tool calls',
+  debugging:    'Bash > 25% + Read / Grep > 15%',
+  research:     'WebSearch / WebFetch > 20%',
+  exploration:  'Read / Grep / Glob > 40% — browsing codebase',
+  conversation: 'Fewer than 3 tool calls — mostly chat',
+}
 
 // ── Markdown renderer ─────────────────────────────────────────────────────────
 
@@ -63,6 +89,30 @@ function MarkdownText({ children }: { children: string }) {
     >
       {children}
     </Markdown>
+  )
+}
+
+// ── Tooltip ───────────────────────────────────────────────────────────────────
+
+function Tooltip({ content, children }: { content: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <span className="relative group inline-flex">
+      {children}
+      {/* Tooltip panel */}
+      <span className="
+        absolute bottom-full left-1/2 -translate-x-1/2 mb-3
+        bg-gray-950 border border-gray-700/60
+        rounded-xl px-3 py-2.5 shadow-2xl
+        opacity-0 -translate-y-1
+        group-hover:opacity-100 group-hover:translate-y-0
+        transition-all duration-150 delay-100
+        pointer-events-none z-30 whitespace-nowrap
+      ">
+        {content}
+        {/* Arrow */}
+        <span className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-700/60" />
+      </span>
+    </span>
   )
 }
 
@@ -213,6 +263,8 @@ function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; onOpenS
   const activity = activityByDay(sessions)
   const hourActivity = activityByHour(sessions)
   const depth = sessionDepthStats(sessions)
+  const tasks = taskBreakdown(sessions)
+  const trend = trendStats(sessions)
   const projects = summarizeProjects(sessions)
   const maxActivity = Math.max(...activity.map(d => d.count), 1)
   const maxHour = Math.max(...hourActivity.map(h => h.count), 1)
@@ -252,6 +304,61 @@ function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; onOpenS
               Deepest: {depth.deepestSession.turns.length} turns →
             </button>
           )}
+        </div>
+      </div>
+
+      {/* Task breakdown + Trend */}
+      <div className="grid grid-cols-2 gap-6">
+        <div className="bg-gray-900 rounded-2xl p-5">
+          <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-4">Task Types</h3>
+          <div className="flex flex-col gap-3">
+            {tasks.map(({ type, count }) => {
+              const pct = Math.round((count / sessions.length) * 100)
+              return (
+                <div key={type} className="flex items-center gap-3">
+                  <Tooltip content={<span className="text-[11px] text-gray-400">{TASK_DESCRIPTIONS[type]}</span>}>
+                    <span className={`text-xs px-2 py-0.5 rounded-md w-24 text-center shrink-0 font-medium cursor-default ${taskTypeColor(type)}`}>{type}</span>
+                  </Tooltip>
+                  <div className="flex-1 bg-gray-800 rounded-full h-1.5">
+                    <div className={`h-1.5 rounded-full ${taskTypeBar(type)}`} style={{ width: `${pct}%` }} />
+                  </div>
+                  <span className="text-xs text-gray-400 w-14 text-right">{count} ({pct}%)</span>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+
+        <div className="bg-gray-900 rounded-2xl p-5">
+          <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-4">Monthly Trend</h3>
+          <div className="grid grid-cols-2 gap-4">
+            {(
+              [
+                { label: 'Sessions',    this: trend.thisMonth.sessions,   last: trend.lastMonth.sessions },
+                { label: 'Tool Calls',  this: trend.thisMonth.toolCalls,  last: trend.lastMonth.toolCalls },
+                { label: 'Active Days', this: trend.thisMonth.activeDays, last: trend.lastMonth.activeDays },
+              ] as const
+            ).map(row => {
+              const delta = row.last === 0 ? null : Math.round(((row.this - row.last) / row.last) * 100)
+              return (
+                <div key={row.label} className="flex flex-col gap-1">
+                  <p className="text-xs text-gray-500">{row.label}</p>
+                  <p className="text-xl font-bold text-gray-100">{row.this.toLocaleString()}</p>
+                  <div className="flex items-center gap-1.5">
+                    {delta !== null && (
+                      <span className={`text-xs font-medium ${delta > 0 ? 'text-emerald-400' : delta < 0 ? 'text-rose-400' : 'text-gray-500'}`}>
+                        {delta > 0 ? '↑' : delta < 0 ? '↓' : ''}  {Math.abs(delta)}%
+                      </span>
+                    )}
+                    <span className="text-xs text-gray-600">vs {trend.lastLabel}</span>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+          <div className="mt-4 pt-3 border-t border-gray-800">
+            <p className="text-xs text-gray-500">{trend.label} so far</p>
+          </div>
         </div>
       </div>
 
@@ -317,7 +424,7 @@ function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; onOpenS
         </div>
       </div>
 
-      <div className="bg-gray-900 rounded-2xl p-5">
+<div className="bg-gray-900 rounded-2xl p-5">
         <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-4">Projects</h3>
         <ProjectTree projects={projects} sessions={sessions} onOpenSession={onOpenSession} />
       </div>
