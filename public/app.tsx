@@ -4,8 +4,8 @@ import Markdown from 'react-markdown'
 import { RiSunLine, RiMoonLine, RiComputerLine, RiTimeLine, RiTerminalLine, RiChat3Line, RiFlashlightLine, RiFileCodeLine, RiArrowUpLine } from 'react-icons/ri'
 import { SiTypescript, SiJavascript, SiPython, SiRust, SiGo, SiRuby, SiPhp, SiSwift, SiKotlin, SiCplusplus, SiC, SiHtml5, SiCss, SiMarkdown, SiJson, SiYaml, SiShell, SiReact, SiVuedotjs, SiSvelte, SiDart, SiScala, SiElixir, SiHaskell, SiLua, SiDocker, SiPrisma } from 'react-icons/si'
 import { parseSessionFiles } from './lib/parser'
-import { summarizeProjects, globalToolStats, activityByDay, activityByHour, sessionDepthStats, taskBreakdown, trendStats, bashAntiPatterns, bashCommandBreakdown } from '../src/analyzer'
-import type { SessionType, BashAntiPattern, BashCategory } from '../src/analyzer'
+import { summarizeProjects, globalToolStats, activityByDay, activityByHour, sessionDepthStats, taskBreakdown, trendStats, bashAntiPatterns, bashCommandBreakdown, skillUsageStats, skillGaps, agentBreakdown } from '../src/analyzer'
+import type { SessionType, BashAntiPattern, BashCategory, SkillUsage, SkillGap, AgentTypeUsage } from '../src/analyzer'
 import { search as searchSessions } from '../src/searcher'
 import type { Session, ProjectSummary, SearchResult } from '../src/types'
 
@@ -345,6 +345,112 @@ const BASH_CATEGORY_COLORS: Record<string, string> = {
   'other':             'bg-gray-400',
 }
 
+function EfficiencyPanel({ breakdown, antiPatterns }: { breakdown: BashCategory[]; antiPatterns: BashAntiPattern[] }) {
+  const total = breakdown.reduce((s, c) => s + c.count, 0)
+  const maxBreak = Math.max(...breakdown.map(c => c.count), 1)
+  const totalCalls = antiPatterns.reduce((s, p) => s + p.count, 0)
+  const totalChars = antiPatterns.reduce((s, p) => s + p.totalResultChars, 0)
+  const maxChars = Math.max(...antiPatterns.map(p => p.totalResultChars), 1)
+  const [showSnippet, setShowSnippet] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const snippet = React.useMemo(() => generateClaudeMd(antiPatterns), [antiPatterns])
+  const copy = () => { navigator.clipboard.writeText(snippet); setCopied(true); setTimeout(() => setCopied(false), 2000) }
+
+  return (
+    <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl flex overflow-hidden">
+      {/* Left: Bash breakdown */}
+      <div className="w-72 shrink-0 p-5 flex flex-col gap-3">
+        <div>
+          <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Bash Usage</h3>
+          <p className="text-xs text-gray-400 dark:text-gray-600 mt-0.5">{total.toLocaleString()} lines total</p>
+        </div>
+        <div className="flex flex-col gap-2.5">
+          {breakdown.slice(0, 8).map(({ label, count }) => {
+            const pct = Math.round((count / total) * 100)
+            const barColor = BASH_CATEGORY_COLORS[label] ?? 'bg-gray-400'
+            return (
+              <div key={label} className="flex items-center gap-2.5">
+                <span className="text-xs text-gray-600 dark:text-gray-400 w-32 shrink-0 truncate font-mono">{label}</span>
+                <div className="flex-1 bg-gray-100 dark:bg-gray-800 rounded-full h-1.5">
+                  <div className={`h-1.5 rounded-full ${barColor}`} style={{ width: `${(count / maxBreak) * 100}%` }} />
+                </div>
+                <span className="text-xs text-gray-400 dark:text-gray-600 w-10 text-right shrink-0 tabular-nums">{pct}%</span>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* Divider */}
+      <div className="w-px bg-gray-100 dark:bg-gray-800 self-stretch" />
+
+      {/* Right: Context Waste */}
+      <div className="flex-1 p-5 flex flex-col gap-3.5 min-w-0">
+        <div className="flex items-start justify-between">
+          <div>
+            <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Context Waste</h3>
+            {totalChars > 0 && (
+              <p className="text-xs text-gray-400 dark:text-gray-600 mt-0.5">
+                {totalCalls} calls · <span className="text-rose-500 dark:text-rose-400 font-medium">{fmtChars(totalChars)} chars</span> dumped into context
+              </p>
+            )}
+          </div>
+          {totalChars > 0 && (
+            <span className="text-sm font-bold font-mono text-rose-500 dark:text-rose-400 shrink-0 ml-2">~{fmtTokens(totalChars)} tok</span>
+          )}
+        </div>
+
+        {antiPatterns.length === 0 ? (
+          <p className="text-sm text-emerald-600 dark:text-emerald-400 font-medium">No context waste detected</p>
+        ) : (
+          <>
+            <div className="flex flex-col gap-3">
+              {antiPatterns.map(p => (
+                <div key={p.id} className="flex flex-col gap-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-mono font-semibold text-rose-600 dark:text-rose-400 shrink-0">{p.bashCmd}</span>
+                    <span className="text-gray-400 dark:text-gray-600 text-xs">→</span>
+                    <span className="text-xs font-mono font-semibold text-emerald-600 dark:text-emerald-400 shrink-0">{p.betterTool}</span>
+                    <span className="ml-auto text-xs text-gray-400 tabular-nums shrink-0">{p.count}× · {fmtChars(p.avgResultChars)} avg</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1 bg-gray-100 dark:bg-gray-800 rounded-full h-1">
+                      <div className="h-1 rounded-full bg-rose-400/70" style={{ width: `${(p.totalResultChars / maxChars) * 100}%` }} />
+                    </div>
+                    <span className="text-[11px] text-gray-400 dark:text-gray-600 tabular-nums w-10 text-right shrink-0">{fmtChars(p.totalResultChars)}</span>
+                  </div>
+                  <p className="text-[11px] text-gray-500 dark:text-gray-600 leading-relaxed">{p.tip}</p>
+                </div>
+              ))}
+            </div>
+
+            <div className="pt-3 border-t border-gray-100 dark:border-gray-800">
+              <button
+                onClick={() => setShowSnippet(v => !v)}
+                className="w-full flex items-center justify-between px-3 py-2 rounded-xl bg-indigo-50 dark:bg-indigo-600/10 hover:bg-indigo-100 dark:hover:bg-indigo-600/20 text-indigo-700 dark:text-indigo-300 transition-colors text-left"
+              >
+                <span className="text-xs font-semibold">Fix with CLAUDE.md</span>
+                <span className="text-xs text-indigo-500 dark:text-indigo-400">{showSnippet ? '▾ hide' : '▸ generate'}</span>
+              </button>
+              {showSnippet && (
+                <div className="mt-2 flex flex-col gap-2">
+                  <pre className="text-[11px] font-mono text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-xl px-3 py-3 whitespace-pre-wrap leading-relaxed overflow-x-auto">{snippet}</pre>
+                  <div className="flex items-center gap-2">
+                    <button onClick={copy} className={`flex-1 text-xs py-1.5 rounded-lg font-medium transition-colors ${copied ? 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300' : 'bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300'}`}>
+                      {copied ? 'Copied!' : 'Copy'}
+                    </button>
+                    <span className="text-[11px] text-gray-400 dark:text-gray-600">Paste into <code className="text-gray-500">~/.claude/CLAUDE.md</code></span>
+                  </div>
+                </div>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function BashBreakdownCard({ breakdown }: { breakdown: BashCategory[] }) {
   const total = breakdown.reduce((s, c) => s + c.count, 0)
   const max = Math.max(...breakdown.map(c => c.count), 1)
@@ -497,6 +603,115 @@ function WorkflowTipsCard({ antiPatterns }: { antiPatterns: BashAntiPattern[] })
   )
 }
 
+// ── Skills & Agents Cards ─────────────────────────────────────────────────────
+
+const AGENT_COLORS: Record<string, string> = {
+  'Explore':          'bg-cyan-500',
+  'general-purpose':  'bg-indigo-500',
+  'Plan':             'bg-violet-500',
+  'pr-reviewer':      'bg-rose-500',
+  'create-pr':        'bg-emerald-500',
+  'retro-agent':      'bg-amber-500',
+  'statusline-setup': 'bg-sky-500',
+  'claude-code-guide':'bg-orange-500',
+}
+
+function SkillsCard({ skillUsage, agents }: { skillUsage: SkillUsage[]; agents: AgentTypeUsage[] }) {
+  const totalAgentCalls = agents.reduce((s, a) => s + a.count, 0)
+  const maxAgent = Math.max(...agents.map(a => a.count), 1)
+
+  return (
+    <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5 flex flex-col gap-5">
+      {/* Skills used */}
+      <div>
+        <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wide mb-3">
+          Skills Used
+        </h3>
+        {skillUsage.length === 0 ? (
+          <p className="text-xs text-gray-500 dark:text-gray-600">No skill invocations found in your sessions.</p>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {skillUsage.map(s => (
+              <div key={s.name} className="flex items-center gap-2">
+                <span className="text-xs font-mono font-medium text-indigo-600 dark:text-indigo-400 w-40 truncate shrink-0">{s.name}</span>
+                <div className="flex-1 bg-gray-100 dark:bg-gray-800 rounded-full h-1.5">
+                  <div className="h-1.5 rounded-full bg-indigo-500"
+                    style={{ width: `${(s.count / (skillUsage[0]?.count ?? 1)) * 100}%` }} />
+                </div>
+                <span className="text-xs text-gray-500 tabular-nums w-16 text-right shrink-0">
+                  {s.count}× · {s.projectCount}p
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Agent breakdown */}
+      {agents.length > 0 && (
+        <div className="pt-4 border-t border-gray-100 dark:border-gray-800">
+          <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wide mb-3">
+            Agents  <span className="text-gray-400 dark:text-gray-600 normal-case font-normal">{totalAgentCalls} calls</span>
+          </h3>
+          <div className="flex flex-col gap-2">
+            {agents.map(a => {
+              const barColor = AGENT_COLORS[a.type] ?? 'bg-gray-400'
+              return (
+                <div key={a.type} className="flex items-center gap-2">
+                  <span className="text-xs font-mono text-gray-600 dark:text-gray-400 w-40 truncate shrink-0">{a.type}</span>
+                  <div className="flex-1 bg-gray-100 dark:bg-gray-800 rounded-full h-1.5">
+                    <div className={`h-1.5 rounded-full ${barColor}`}
+                      style={{ width: `${(a.count / maxAgent) * 100}%` }} />
+                  </div>
+                  <span className="text-xs text-gray-500 tabular-nums w-8 text-right shrink-0">{a.count}</span>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function SkillGapsCard({ gaps }: { gaps: SkillGap[] }) {
+  return (
+    <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
+      <div className="flex items-center justify-between mb-1">
+        <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wide">
+          Skill Gaps
+        </h3>
+        {gaps.length > 0 && (
+          <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">{gaps.length} opportunity{gaps.length > 1 ? 'ies' : ''}</span>
+        )}
+      </div>
+
+      {gaps.length === 0 ? (
+        <div className="flex flex-col gap-2 mt-4">
+          <p className="text-sm text-emerald-600 dark:text-emerald-400 font-medium">Skills look well-utilised</p>
+          <p className="text-xs text-gray-500 dark:text-gray-600">No obvious gaps detected based on your workflow patterns.</p>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-4 mt-3">
+          {gaps.map(g => (
+            <div key={g.skill} className="flex flex-col gap-1.5 pb-4 border-b border-gray-100 dark:border-gray-800 last:border-0 last:pb-0">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-mono font-semibold text-amber-600 dark:text-amber-400">{g.skill}</span>
+              </div>
+              <p className="text-xs text-gray-700 dark:text-gray-300">{g.description}</p>
+              <p className="text-[11px] text-gray-400 dark:text-gray-600 italic">{g.evidence}</p>
+              <div className="flex items-center gap-1.5 mt-0.5">
+                <span className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-gray-600">Usage:</span>
+                <span className="text-[11px] font-mono bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 px-2 py-0.5 rounded">{g.howToUse}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Insights Tab ──────────────────────────────────────────────────────────────
 
 function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; onOpenSession: (id: string) => void }) {
@@ -509,183 +724,206 @@ function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; onOpenS
   const projects = summarizeProjects(sessions)
   const antiPatterns = React.useMemo(() => bashAntiPatterns(sessions), [sessions])
   const bashBreakdown = React.useMemo(() => bashCommandBreakdown(sessions), [sessions])
+  const skillUsage = React.useMemo(() => skillUsageStats(sessions), [sessions])
+  const gaps = React.useMemo(() => skillGaps(sessions, skillUsage), [sessions, skillUsage])
+  const agents = React.useMemo(() => agentBreakdown(sessions), [sessions])
   const maxActivity = Math.max(...activity.map(d => d.count), 1)
   const maxHour = Math.max(...hourActivity.map(h => h.count), 1)
   const maxTool = Math.max(...topTools.map(t => t.count), 1)
 
+  const [insightTab, setInsightTab] = useState<'overview' | 'efficiency' | 'skills' | 'projects'>('overview')
+  const totalToolCalls = topTools.reduce((s, t) => s + t.count, 0)
+
+  const insightTabBtn = (label: string, value: typeof insightTab, badge?: number) => (
+    <button
+      onClick={() => setInsightTab(value)}
+      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+        insightTab === value
+          ? 'bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900'
+          : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800'
+      }`}
+    >
+      {label}
+      {badge != null && badge > 0 && (
+        <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${
+          insightTab === value ? 'bg-white/20 text-white dark:bg-black/20 dark:text-gray-900' : 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400'
+        }`}>{badge}</span>
+      )}
+    </button>
+  )
+
   return (
-    <div className="flex flex-col gap-6">
-      <div className="grid grid-cols-3 gap-4">
-        <StatCard label="Total Sessions" value={sessions.length} />
-        <StatCard label="Projects" value={projects.length} />
-        <StatCard label="Total Tool Calls" value={topTools.reduce((s, t) => s + t.count, 0)} />
-      </div>
+    <div className="flex flex-col gap-5">
 
-      {/* Depth stats */}
-      <div className="grid grid-cols-4 gap-4">
-        <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
-          <p className="text-xs text-gray-500 uppercase tracking-wide">Avg Duration</p>
-          <p className="text-2xl font-bold text-gray-900 dark:text-gray-100 mt-1">{fmtDuration(depth.avgDurationMs)}</p>
-          {depth.longestSession && (
-            <button onClick={() => onOpenSession(depth.longestSession!.id)}
-              className="text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 mt-2 text-left">
-              Longest: {fmtDuration(depth.longestSession.durationMs)} →
-            </button>
-          )}
-        </div>
-        <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
-          <p className="text-xs text-gray-500 uppercase tracking-wide">Avg Tool Calls</p>
-          <p className="text-2xl font-bold text-gray-900 dark:text-gray-100 mt-1">{depth.avgToolCalls.toFixed(1)}</p>
-          <p className="text-xs text-gray-500 dark:text-gray-600 mt-2">per session</p>
-        </div>
-        <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
-          <p className="text-xs text-gray-500 uppercase tracking-wide">Avg Turns</p>
-          <p className="text-2xl font-bold text-gray-900 dark:text-gray-100 mt-1">{depth.avgTurns.toFixed(1)}</p>
-          {depth.deepestSession && (
-            <button onClick={() => onOpenSession(depth.deepestSession!.id)}
-              className="text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 mt-2 text-left">
-              Deepest: {depth.deepestSession.turns.length} turns →
-            </button>
-          )}
-        </div>
-        <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
-          <p className="text-xs text-gray-500 uppercase tracking-wide">Avg Pace</p>
-          <p className="text-2xl font-bold text-gray-900 dark:text-gray-100 mt-1">
-            {fmtPace(depth.avgDurationMs, depth.avgToolCalls)}
-          </p>
-          <p className="text-xs text-gray-500 dark:text-gray-600 mt-2">tool calls / min</p>
+      {/* ── Compact stat strip ── */}
+      <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl px-6 py-4">
+        <div className="flex items-center gap-0 divide-x divide-gray-100 dark:divide-gray-800">
+          {[
+            { label: 'Sessions', value: sessions.length.toLocaleString() },
+            { label: 'Projects', value: projects.length.toLocaleString() },
+            { label: 'Tool Calls', value: totalToolCalls.toLocaleString() },
+            { label: 'Avg Duration', value: fmtDuration(depth.avgDurationMs) },
+            { label: 'Avg Tools', value: depth.avgToolCalls.toFixed(1) },
+            { label: 'Avg Turns', value: depth.avgTurns.toFixed(1) },
+            { label: 'Pace', value: fmtPace(depth.avgDurationMs, depth.avgToolCalls) },
+          ].map(({ label, value }) => (
+            <div key={label} className="flex flex-col px-5 first:pl-0 last:pr-0">
+              <span className="text-[10px] text-gray-400 dark:text-gray-600 uppercase tracking-wide">{label}</span>
+              <span className="text-lg font-bold text-gray-900 dark:text-gray-100 mt-0.5 tabular-nums">{value}</span>
+            </div>
+          ))}
         </div>
       </div>
 
-      {/* Task breakdown + Trend */}
-      <div className="grid grid-cols-2 gap-6">
-        <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
-          <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wide mb-4">Task Types</h3>
-          <div className="flex flex-col gap-3">
-            {tasks.map(({ type, count }) => {
-              const pct = Math.round((count / sessions.length) * 100)
-              return (
-                <div key={type} className="flex items-center gap-3">
-                  <Tooltip content={<span className="text-[11px] text-gray-600 dark:text-gray-400">{TASK_DESCRIPTIONS[type]}</span>}>
-                    <span className={`text-xs px-2 py-0.5 rounded-md w-24 text-center shrink-0 font-medium cursor-default ${taskTypeColor(type)}`}>{type}</span>
-                  </Tooltip>
-                  <div className="flex-1 bg-gray-100 dark:bg-gray-800 rounded-full h-1.5">
-                    <div className={`h-1.5 rounded-full ${taskTypeBar(type)}`} style={{ width: `${pct}%` }} />
-                  </div>
-                  <span className="text-xs text-gray-600 dark:text-gray-400 w-14 text-right">{count} ({pct}%)</span>
+      {/* ── Sub-tab nav ── */}
+      <div className="flex items-center gap-1">
+        {insightTabBtn('Overview', 'overview')}
+        {insightTabBtn('Efficiency', 'efficiency')}
+        {insightTabBtn('Skills', 'skills', gaps.length)}
+        {insightTabBtn('Projects', 'projects')}
+      </div>
+
+      {/* ── Overview ── */}
+      {insightTab === 'overview' && (
+        <div className="flex flex-col gap-5">
+          <div className="grid grid-cols-2 gap-5">
+            {/* Task Types */}
+            <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
+              <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-4">Task Types</h3>
+              <div className="flex flex-col gap-3">
+                {tasks.map(({ type, count }) => {
+                  const pct = Math.round((count / sessions.length) * 100)
+                  return (
+                    <div key={type} className="flex items-center gap-3">
+                      <Tooltip content={<span className="text-[11px] text-gray-600 dark:text-gray-400">{TASK_DESCRIPTIONS[type]}</span>}>
+                        <span className={`text-xs px-2 py-0.5 rounded-md w-24 text-center shrink-0 font-medium cursor-default ${taskTypeColor(type)}`}>{type}</span>
+                      </Tooltip>
+                      <div className="flex-1 bg-gray-100 dark:bg-gray-800 rounded-full h-1.5">
+                        <div className={`h-1.5 rounded-full ${taskTypeBar(type)}`} style={{ width: `${pct}%` }} />
+                      </div>
+                      <span className="text-xs text-gray-500 dark:text-gray-400 w-14 text-right tabular-nums">{count} ({pct}%)</span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* Activity charts stacked */}
+            <div className="flex flex-col gap-3">
+              <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
+                <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">Daily Activity <span className="font-normal text-gray-400">— last 30 days</span></h3>
+                <div className="relative h-16 flex items-end gap-px">
+                  {activity.slice(-30).map(d => {
+                    const heightPx = Math.max(3, Math.round((d.count / maxActivity) * 64))
+                    return (
+                      <div key={d.date} className="group relative flex-1">
+                        <div className="w-full bg-indigo-500/70 rounded-sm hover:bg-indigo-400 transition-colors cursor-default" style={{ height: `${heightPx}px` }} />
+                        <div className="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 shadow-sm text-xs text-gray-700 dark:text-gray-300 px-2 py-1 rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-10">
+                          {d.date}: {d.count}
+                        </div>
+                      </div>
+                    )
+                  })}
                 </div>
-              )
-            })}
-          </div>
-        </div>
-
-        <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
-          <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wide mb-4">Monthly Trend</h3>
-          <div className="grid grid-cols-2 gap-4">
-            {(
-              [
-                { label: 'Sessions', this: trend.thisMonth.sessions, last: trend.lastMonth.sessions },
-                { label: 'Tool Calls', this: trend.thisMonth.toolCalls, last: trend.lastMonth.toolCalls },
-                { label: 'Active Days', this: trend.thisMonth.activeDays, last: trend.lastMonth.activeDays },
-              ] as const
-            ).map(row => {
-              const delta = row.last === 0 ? null : Math.round(((row.this - row.last) / row.last) * 100)
-              return (
-                <div key={row.label} className="flex flex-col gap-1">
-                  <p className="text-xs text-gray-500">{row.label}</p>
-                  <p className="text-xl font-bold text-gray-900 dark:text-gray-100">{row.this.toLocaleString()}</p>
-                  <div className="flex items-center gap-1.5">
-                    {delta !== null && (
-                      <span className={`text-xs font-medium ${delta > 0 ? 'text-emerald-400' : delta < 0 ? 'text-rose-400' : 'text-gray-500'}`}>
-                        {delta > 0 ? '↑' : delta < 0 ? '↓' : ''}  {Math.abs(delta)}%
-                      </span>
-                    )}
-                    <span className="text-xs text-gray-500 dark:text-gray-600">vs {trend.lastLabel}</span>
-                  </div>
+              </div>
+              <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
+                <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">By Hour of Day</h3>
+                <div className="relative h-16 flex items-end gap-px">
+                  {hourActivity.map(h => {
+                    const heightPx = Math.max(2, Math.round((h.count / maxHour) * 64))
+                    return (
+                      <div key={h.hour} className="group relative flex-1">
+                        <div className="w-full bg-violet-500/60 rounded-sm hover:bg-violet-400 transition-colors cursor-default" style={{ height: `${heightPx}px` }} />
+                        <div className="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 shadow-sm text-xs text-gray-700 dark:text-gray-300 px-2 py-1 rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-10">
+                          {String(h.hour).padStart(2, '0')}:00 · {h.count}
+                        </div>
+                      </div>
+                    )
+                  })}
                 </div>
-              )
-            })}
+                <div className="flex justify-between mt-1">
+                  <span className="text-[10px] text-gray-400 dark:text-gray-700">0h</span>
+                  <span className="text-[10px] text-gray-400 dark:text-gray-700">12h</span>
+                  <span className="text-[10px] text-gray-400 dark:text-gray-700">23h</span>
+                </div>
+              </div>
+            </div>
           </div>
-          <div className="mt-4 pt-3 border-t border-gray-200 dark:border-gray-800">
-            <p className="text-xs text-gray-500">{trend.label} so far</p>
-          </div>
-        </div>
-      </div>
 
-      {/* Workflow Insights: Bash breakdown + anti-pattern tips */}
-      {bashBreakdown.length > 0 && (
-        <div className="grid grid-cols-2 gap-6">
-          <BashBreakdownCard breakdown={bashBreakdown} />
-          <WorkflowTipsCard antiPatterns={antiPatterns} />
+          {/* Top Tools + Trend */}
+          <div className="grid grid-cols-2 gap-5">
+            <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
+              <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-4">Top Tools</h3>
+              <div className="flex flex-col gap-2">
+                {topTools.slice(0, 8).map(tool => (
+                  <div key={tool.name} className="flex items-center gap-3">
+                    <span className={`text-xs px-2 py-0.5 rounded font-mono w-24 text-center shrink-0 ${toolColor(tool.name)}`}>{tool.name}</span>
+                    <div className="flex-1 bg-gray-100 dark:bg-gray-800 rounded-full h-1.5">
+                      <div className="bg-indigo-500 h-1.5 rounded-full" style={{ width: `${(tool.count / maxTool) * 100}%` }} />
+                    </div>
+                    <span className="text-xs text-gray-500 w-10 text-right tabular-nums">{tool.count}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Monthly Trend</h3>
+                <span className="text-xs text-gray-400 dark:text-gray-600">{trend.label}</span>
+              </div>
+              <div className="grid grid-cols-3 gap-x-4 gap-y-5">
+                {([
+                  { label: 'Sessions',      thisVal: trend.thisMonth.sessions           ?? 0, lastVal: trend.lastMonth.sessions           ?? 0, fmt: (n: number) => n.toLocaleString(),  lowerIsBetter: false },
+                  { label: 'Tool Calls',    thisVal: trend.thisMonth.toolCalls           ?? 0, lastVal: trend.lastMonth.toolCalls           ?? 0, fmt: (n: number) => n.toLocaleString(),  lowerIsBetter: false },
+                  { label: 'Active Days',   thisVal: trend.thisMonth.activeDays          ?? 0, lastVal: trend.lastMonth.activeDays          ?? 0, fmt: (n: number) => n.toLocaleString(),  lowerIsBetter: false },
+                  { label: 'Avg Duration',  thisVal: trend.thisMonth.avgDurationMs       ?? 0, lastVal: trend.lastMonth.avgDurationMs       ?? 0, fmt: (n: number) => fmtDuration(n),      lowerIsBetter: false },
+                  { label: 'Context Waste', thisVal: trend.thisMonth.contextWasteChars   ?? 0, lastVal: trend.lastMonth.contextWasteChars   ?? 0, fmt: (n: number) => fmtChars(n) + ' chars', lowerIsBetter: true  },
+                  { label: 'Skills Used',   thisVal: trend.thisMonth.skillInvocations    ?? 0, lastVal: trend.lastMonth.skillInvocations    ?? 0, fmt: (n: number) => n.toLocaleString(),  lowerIsBetter: false },
+                ]).map(row => {
+                  const delta = row.lastVal === 0 ? null : Math.round(((row.thisVal - row.lastVal) / row.lastVal) * 100)
+                  const positive = delta !== null && delta > 0
+                  const negative = delta !== null && delta < 0
+                  const good = row.lowerIsBetter ? negative : positive
+                  const bad  = row.lowerIsBetter ? positive : negative
+                  return (
+                    <div key={row.label} className="flex flex-col gap-0.5">
+                      <p className="text-[10px] text-gray-400 dark:text-gray-600 uppercase tracking-wide">{row.label}</p>
+                      <p className="text-lg font-bold text-gray-900 dark:text-gray-100 tabular-nums leading-tight">{row.fmt(row.thisVal)}</p>
+                      {delta !== null && (
+                        <span className={`text-xs font-medium ${good ? 'text-emerald-500' : bad ? 'text-rose-400' : 'text-gray-400'}`}>
+                          {positive ? '↑' : negative ? '↓' : '—'} {Math.abs(delta)}%
+                        </span>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          </div>
+
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-6">
+      {/* ── Efficiency ── */}
+      {insightTab === 'efficiency' && (
+        <EfficiencyPanel breakdown={bashBreakdown} antiPatterns={antiPatterns} />
+      )}
+
+      {/* ── Skills ── */}
+      {insightTab === 'skills' && (
+        <div className="grid grid-cols-2 gap-5">
+          <SkillsCard skillUsage={skillUsage} agents={agents} />
+          <SkillGapsCard gaps={gaps} />
+        </div>
+      )}
+
+      {/* ── Projects ── */}
+      {insightTab === 'projects' && (
         <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
-          <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wide mb-4">Top Tools</h3>
-          <div className="flex flex-col gap-2.5">
-            {topTools.slice(0, 10).map(tool => (
-              <div key={tool.name} className="flex items-center gap-3">
-                <span className={`text-xs px-2 py-0.5 rounded-md font-mono w-28 text-center shrink-0 ${toolColor(tool.name)}`}>{tool.name}</span>
-                <div className="flex-1 bg-gray-100 dark:bg-gray-800 rounded-full h-1.5">
-                  <div className="bg-indigo-500 h-1.5 rounded-full" style={{ width: `${(tool.count / maxTool) * 100}%` }} />
-                </div>
-                <span className="text-xs text-gray-600 dark:text-gray-400 w-10 text-right">{tool.count}</span>
-              </div>
-            ))}
-          </div>
+          <ProjectTree projects={projects} sessions={sessions} onOpenSession={onOpenSession} />
         </div>
-
-        <div className="flex flex-col gap-6">
-          <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
-            <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wide mb-4">Daily Activity</h3>
-            <div className="relative h-24 flex items-end gap-1">
-              {activity.slice(-30).map(d => {
-                const heightPx = Math.max(4, Math.round((d.count / maxActivity) * 96))
-                return (
-                  <div key={d.date} className="group relative flex-1">
-                    <div className="w-full bg-indigo-500/70 rounded-sm hover:bg-indigo-400 transition-colors cursor-default"
-                      style={{ height: `${heightPx}px` }} />
-                    <div className="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 shadow-sm text-xs text-gray-700 dark:text-gray-300 px-2 py-1 rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-10">
-                      {d.date}: {d.count}
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-            <p className="text-xs text-gray-500 dark:text-gray-600 mt-2">Last 30 days</p>
-          </div>
-
-          <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
-            <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wide mb-4">By Hour of Day</h3>
-            <div className="relative h-24 flex items-end gap-px">
-              {hourActivity.map(h => {
-                const heightPx = Math.max(2, Math.round((h.count / maxHour) * 96))
-                const label = `${String(h.hour).padStart(2, '0')}:00`
-                return (
-                  <div key={h.hour} className="group relative flex-1">
-                    <div className="w-full bg-violet-500/60 rounded-sm hover:bg-violet-400 transition-colors cursor-default"
-                      style={{ height: `${heightPx}px` }} />
-                    <div className="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 shadow-sm text-xs text-gray-700 dark:text-gray-300 px-2 py-1 rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-10">
-                      {label}: {h.count}
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-            <div className="flex justify-between mt-1">
-              <span className="text-xs text-gray-400 dark:text-gray-700">0h</span>
-              <span className="text-xs text-gray-400 dark:text-gray-700">12h</span>
-              <span className="text-xs text-gray-400 dark:text-gray-700">23h</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
-        <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wide mb-4">Projects</h3>
-        <ProjectTree projects={projects} sessions={sessions} onOpenSession={onOpenSession} />
-      </div>
+      )}
     </div>
   )
 }
