@@ -4,8 +4,8 @@ import Markdown from 'react-markdown'
 import { RiSunLine, RiMoonLine, RiComputerLine, RiTimeLine, RiTerminalLine, RiChat3Line, RiFlashlightLine, RiFileCodeLine, RiArrowUpLine } from 'react-icons/ri'
 import { SiTypescript, SiJavascript, SiPython, SiRust, SiGo, SiRuby, SiPhp, SiSwift, SiKotlin, SiCplusplus, SiC, SiHtml5, SiCss, SiMarkdown, SiJson, SiYaml, SiShell, SiReact, SiVuedotjs, SiSvelte, SiDart, SiScala, SiElixir, SiHaskell, SiLua, SiDocker, SiPrisma } from 'react-icons/si'
 import { parseSessionFiles } from './lib/parser'
-import { summarizeProjects, globalToolStats, activityByDay, activityByHour, sessionDepthStats, taskBreakdown, trendStats, bashAntiPatterns, bashCommandBreakdown, skillUsageStats, skillGaps, agentBreakdown } from '../src/analyzer'
-import type { SessionType, BashAntiPattern, BashCategory, SkillUsage, SkillGap, AgentTypeUsage } from '../src/analyzer'
+import { summarizeProjects, globalToolStats, activityByDay, activityByHour, sessionDepthStats, taskBreakdown, trendStats, bashAntiPatterns, bashCommandBreakdown, skillUsageStats, skillGaps, agentBreakdown, hotFiles } from '../src/analyzer'
+import type { SessionType, BashAntiPattern, BashCategory, SkillUsage, SkillGap, AgentTypeUsage, HotFile } from '../src/analyzer'
 import { search as searchSessions } from '../src/searcher'
 import type { Session, ProjectSummary, SearchResult } from '../src/types'
 
@@ -638,8 +638,8 @@ function SkillsCard({ skillUsage, agents }: { skillUsage: SkillUsage[]; agents: 
                   <div className="h-1.5 rounded-full bg-indigo-500"
                     style={{ width: `${(s.count / (skillUsage[0]?.count ?? 1)) * 100}%` }} />
                 </div>
-                <span className="text-xs text-gray-500 tabular-nums w-16 text-right shrink-0">
-                  {s.count}× · {s.projectCount}p
+                <span className="text-xs text-gray-500 tabular-nums w-28 text-right shrink-0">
+                  {s.count}× · {s.projectCount} {s.projectCount === 1 ? 'project' : 'projects'}
                 </span>
               </div>
             ))}
@@ -712,6 +712,45 @@ function SkillGapsCard({ gaps }: { gaps: SkillGap[] }) {
   )
 }
 
+// ── Hot Files Card ────────────────────────────────────────────────────────────
+
+function HotFilesCard({ files }: { files: HotFile[] }) {
+  const max = Math.max(...files.map(f => f.totalOps), 1)
+
+  return (
+    <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Most Edited Files</h3>
+        <span className="text-xs text-gray-400 dark:text-gray-600">{files.length} files</span>
+      </div>
+      <div className="flex flex-col gap-2.5">
+        {files.map(f => (
+          <div key={f.path} className="flex items-center gap-3">
+            <div className="shrink-0"><FileIcon path={f.path} size={14} /></div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-baseline gap-1.5 min-w-0">
+                <span className="text-xs font-mono font-medium text-gray-800 dark:text-gray-200 truncate">{f.fileName}</span>
+                {f.dir && <span className="text-[11px] text-gray-400 dark:text-gray-600 truncate shrink-0">{f.dir}</span>}
+              </div>
+              <div className="flex items-center gap-2 mt-1">
+                <div className="flex-1 bg-gray-100 dark:bg-gray-800 rounded-full h-1">
+                  <div className="h-1 rounded-full bg-indigo-500" style={{ width: `${(f.totalOps / max) * 100}%` }} />
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0 text-xs text-gray-500 tabular-nums">
+              {f.editCount > 0 && <span className="text-amber-600 dark:text-amber-400">{f.editCount}E</span>}
+              {f.writeCount > 0 && <span className="text-emerald-600 dark:text-emerald-400">{f.writeCount}W</span>}
+              <span className="text-gray-400 dark:text-gray-600">·</span>
+              <span>{f.sessionCount} {f.sessionCount === 1 ? 'session' : 'sessions'}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 // ── Insights Tab ──────────────────────────────────────────────────────────────
 
 function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; onOpenSession: (id: string) => void }) {
@@ -727,6 +766,7 @@ function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; onOpenS
   const skillUsage = React.useMemo(() => skillUsageStats(sessions), [sessions])
   const gaps = React.useMemo(() => skillGaps(sessions, skillUsage), [sessions, skillUsage])
   const agents = React.useMemo(() => agentBreakdown(sessions), [sessions])
+  const files = React.useMemo(() => hotFiles(sessions), [sessions])
   const maxActivity = Math.max(...activity.map(d => d.count), 1)
   const maxHour = Math.max(...hourActivity.map(h => h.count), 1)
   const maxTool = Math.max(...topTools.map(t => t.count), 1)
@@ -920,8 +960,11 @@ function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; onOpenS
 
       {/* ── Projects ── */}
       {insightTab === 'projects' && (
-        <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
-          <ProjectTree projects={projects} sessions={sessions} onOpenSession={onOpenSession} />
+        <div className="flex flex-col gap-5">
+          <HotFilesCard files={files} />
+          <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
+            <ProjectTree projects={projects} sessions={sessions} onOpenSession={onOpenSession} />
+          </div>
         </div>
       )}
     </div>

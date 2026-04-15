@@ -476,3 +476,54 @@ export function agentBreakdown(sessions: Session[]): AgentTypeUsage[] {
     .map(([type, count]) => ({ type, count }))
     .sort((a, b) => b.count - a.count)
 }
+
+// ── Hot files ─────────────────────────────────────────────────────────────────
+
+export type HotFile = {
+  path: string
+  fileName: string
+  dir: string          // last 2 path segments before filename
+  editCount: number
+  writeCount: number
+  totalOps: number
+  sessionCount: number
+  projectCount: number
+}
+
+export function hotFiles(sessions: Session[], limit = 15): HotFile[] {
+  type Acc = { editCount: number; writeCount: number; sessions: Set<string>; projects: Set<string> }
+  const map = new Map<string, Acc>()
+
+  for (const s of sessions) {
+    for (const turn of s.turns) {
+      for (const tc of turn.toolCalls) {
+        if (tc.name !== 'Edit' && tc.name !== 'Write') continue
+        const path = tc.input['file_path'] as string | undefined
+        if (!path) continue
+        let acc = map.get(path)
+        if (!acc) { acc = { editCount: 0, writeCount: 0, sessions: new Set(), projects: new Set() }; map.set(path, acc) }
+        if (tc.name === 'Edit') acc.editCount++
+        else acc.writeCount++
+        acc.sessions.add(s.id)
+        acc.projects.add(s.project)
+      }
+    }
+  }
+
+  return [...map.entries()]
+    .map(([path, acc]) => {
+      const parts = path.split('/')
+      const fileName = parts.pop() ?? path
+      const dir = parts.slice(-2).join('/')
+      return {
+        path, fileName, dir,
+        editCount: acc.editCount,
+        writeCount: acc.writeCount,
+        totalOps: acc.editCount + acc.writeCount,
+        sessionCount: acc.sessions.size,
+        projectCount: acc.projects.size,
+      }
+    })
+    .sort((a, b) => b.totalOps - a.totalOps)
+    .slice(0, limit)
+}
