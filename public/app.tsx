@@ -4,8 +4,8 @@ import Markdown from 'react-markdown'
 import { RiSunLine, RiMoonLine, RiComputerLine, RiTimeLine, RiTerminalLine, RiChat3Line, RiFlashlightLine, RiFileCodeLine, RiArrowUpLine } from 'react-icons/ri'
 import { SiTypescript, SiJavascript, SiPython, SiRust, SiGo, SiRuby, SiPhp, SiSwift, SiKotlin, SiCplusplus, SiC, SiHtml5, SiCss, SiMarkdown, SiJson, SiYaml, SiShell, SiReact, SiVuedotjs, SiSvelte, SiDart, SiScala, SiElixir, SiHaskell, SiLua, SiDocker, SiPrisma } from 'react-icons/si'
 import { parseSessionFiles } from './lib/parser'
-import { summarizeProjects, globalToolStats, activityByDay, activityByHour, sessionDepthStats, taskBreakdown, trendStats } from '../src/analyzer'
-import type { SessionType } from '../src/analyzer'
+import { summarizeProjects, globalToolStats, activityByDay, activityByHour, sessionDepthStats, taskBreakdown, trendStats, bashAntiPatterns, bashCommandBreakdown } from '../src/analyzer'
+import type { SessionType, BashAntiPattern, BashCategory } from '../src/analyzer'
 import { search as searchSessions } from '../src/searcher'
 import type { Session, ProjectSummary, SearchResult } from '../src/types'
 
@@ -331,6 +331,172 @@ function NavTab({ label, active, onClick }: { label: string; active: boolean; on
   )
 }
 
+// ── Workflow Insight Cards ────────────────────────────────────────────────────
+
+const BASH_CATEGORY_COLORS: Record<string, string> = {
+  'git':               'bg-orange-500',
+  'npm/yarn/pnpm/bun': 'bg-emerald-500',
+  'docker':            'bg-sky-500',
+  'test runners':      'bg-violet-500',
+  'curl/wget':         'bg-amber-500',
+  'make/cmake':        'bg-teal-500',
+  'file search':       'bg-rose-500',
+  'file read':         'bg-blue-500',
+  'other':             'bg-gray-400',
+}
+
+function BashBreakdownCard({ breakdown }: { breakdown: BashCategory[] }) {
+  const total = breakdown.reduce((s, c) => s + c.count, 0)
+  const max = Math.max(...breakdown.map(c => c.count), 1)
+  return (
+    <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
+      <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wide mb-4">
+        Bash Usage  <span className="text-gray-400 dark:text-gray-600 normal-case font-normal">{total} lines</span>
+      </h3>
+      <div className="flex flex-col gap-2.5">
+        {breakdown.slice(0, 8).map(({ label, count }) => {
+          const pct = Math.round((count / total) * 100)
+          const barColor = BASH_CATEGORY_COLORS[label] ?? 'bg-gray-400'
+          return (
+            <div key={label} className="flex items-center gap-3">
+              <span className="text-xs text-gray-600 dark:text-gray-400 w-36 shrink-0 truncate font-mono">{label}</span>
+              <div className="flex-1 bg-gray-100 dark:bg-gray-800 rounded-full h-1.5">
+                <div className={`h-1.5 rounded-full ${barColor}`} style={{ width: `${(count / max) * 100}%` }} />
+              </div>
+              <span className="text-xs text-gray-500 dark:text-gray-500 w-20 text-right shrink-0">{count} ({pct}%)</span>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function fmtChars(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
+  if (n >= 1_000) return `${(n / 1_000).toFixed(0)}K`
+  return `${n}`
+}
+
+function fmtTokens(chars: number): string {
+  // rough estimate: 1 token ≈ 4 chars
+  return fmtChars(Math.round(chars / 4))
+}
+
+const CLAUDE_MD_RULES: Record<string, string> = {
+  grep:       'NEVER use `bash grep` or `bash rg` to search file contents — use the Grep tool instead.',
+  find:       'NEVER use `bash find` to locate files — use the Glob tool instead.',
+  cat:        'NEVER use `bash cat`, `bash head`, or `bash tail` to read files — use the Read tool with offset/limit parameters to fetch only what is needed.',
+  ls:         'NEVER use `bash ls` to list files — use the Glob tool instead.',
+  echo_write: 'NEVER use `bash echo >` or `bash echo >>` to write files — use the Write or Edit tool instead.',
+  sed:        'NEVER use `bash sed` to edit files — use the Edit tool for targeted replacements.',
+  awk:        'NEVER use `bash awk` to process file content — read the file with Read, then reason over the content directly.',
+}
+
+function generateClaudeMd(antiPatterns: BashAntiPattern[]): string {
+  const rules = antiPatterns
+    .filter(p => CLAUDE_MD_RULES[p.id])
+    .map(p => `- ${CLAUDE_MD_RULES[p.id]}`)
+    .join('\n')
+
+  return `## Tool Usage Rules\n\n${rules}\n`
+}
+
+function WorkflowTipsCard({ antiPatterns }: { antiPatterns: BashAntiPattern[] }) {
+  const totalCalls = antiPatterns.reduce((s, p) => s + p.count, 0)
+  const totalChars = antiPatterns.reduce((s, p) => s + p.totalResultChars, 0)
+  const maxChars = Math.max(...antiPatterns.map(p => p.totalResultChars), 1)
+  const [showSnippet, setShowSnippet] = useState(false)
+  const [copied, setCopied] = useState(false)
+
+  const snippet = React.useMemo(() => generateClaudeMd(antiPatterns), [antiPatterns])
+
+  const copy = () => {
+    navigator.clipboard.writeText(snippet)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  return (
+    <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
+      <div className="flex items-start justify-between mb-1">
+        <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wide">
+          Context Waste
+        </h3>
+        {totalChars > 0 && (
+          <span className="text-xs font-mono font-semibold text-rose-500 dark:text-rose-400">
+            ~{fmtTokens(totalChars)} tokens
+          </span>
+        )}
+      </div>
+
+      {antiPatterns.length === 0 ? (
+        <div className="flex flex-col gap-2 mt-4">
+          <p className="text-sm text-emerald-600 dark:text-emerald-400 font-medium">No context waste detected</p>
+          <p className="text-xs text-gray-500 dark:text-gray-600">You're using dedicated tools where they're available.</p>
+        </div>
+      ) : (
+        <>
+          <p className="text-xs text-gray-500 dark:text-gray-600 mb-4">
+            {totalCalls} Bash calls dumped <span className="text-rose-500 dark:text-rose-400 font-medium">{fmtChars(totalChars)} chars</span> of verbose output into context
+          </p>
+          <div className="flex flex-col gap-3.5">
+            {antiPatterns.map(p => (
+              <div key={p.id} className="flex flex-col gap-1.5">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-mono font-semibold text-rose-600 dark:text-rose-400 shrink-0">{p.bashCmd}</span>
+                  <span className="text-gray-400 dark:text-gray-600 text-xs">→</span>
+                  <span className="text-xs font-mono font-semibold text-emerald-600 dark:text-emerald-400 shrink-0">{p.betterTool}</span>
+                  <span className="ml-auto text-xs text-gray-500 tabular-nums shrink-0">{p.count}× · {fmtChars(p.avgResultChars)} avg</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 bg-gray-100 dark:bg-gray-800 rounded-full h-1">
+                    <div className="h-1 rounded-full bg-rose-400/70" style={{ width: `${(p.totalResultChars / maxChars) * 100}%` }} />
+                  </div>
+                  <span className="text-[11px] text-gray-400 dark:text-gray-600 tabular-nums w-12 text-right shrink-0">{fmtChars(p.totalResultChars)}</span>
+                </div>
+                <p className="text-[11px] text-gray-500 dark:text-gray-600">{p.tip}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* CLAUDE.md generator */}
+          <div className="mt-5 pt-4 border-t border-gray-100 dark:border-gray-800">
+            <button
+              onClick={() => setShowSnippet(v => !v)}
+              className="w-full flex items-center justify-between px-3 py-2 rounded-xl bg-indigo-50 dark:bg-indigo-600/10 hover:bg-indigo-100 dark:hover:bg-indigo-600/20 text-indigo-700 dark:text-indigo-300 transition-colors text-left"
+            >
+              <span className="text-xs font-semibold">Fix with CLAUDE.md</span>
+              <span className="text-xs text-indigo-500 dark:text-indigo-400">{showSnippet ? '▾ hide' : '▸ generate'}</span>
+            </button>
+
+            {showSnippet && (
+              <div className="mt-2 flex flex-col gap-2">
+                <div className="relative">
+                  <pre className="text-[11px] font-mono text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-xl px-3 py-3 whitespace-pre-wrap leading-relaxed overflow-x-auto">
+                    {snippet}
+                  </pre>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={copy}
+                    className={`flex-1 text-xs py-1.5 rounded-lg font-medium transition-colors ${copied ? 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300' : 'bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300'}`}
+                  >
+                    {copied ? 'Copied!' : 'Copy'}
+                  </button>
+                  <span className="text-[11px] text-gray-400 dark:text-gray-600">
+                    Paste into <code className="text-gray-500">~/.claude/CLAUDE.md</code>
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 // ── Insights Tab ──────────────────────────────────────────────────────────────
 
 function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; onOpenSession: (id: string) => void }) {
@@ -341,6 +507,8 @@ function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; onOpenS
   const tasks = taskBreakdown(sessions)
   const trend = trendStats(sessions)
   const projects = summarizeProjects(sessions)
+  const antiPatterns = React.useMemo(() => bashAntiPatterns(sessions), [sessions])
+  const bashBreakdown = React.useMemo(() => bashCommandBreakdown(sessions), [sessions])
   const maxActivity = Math.max(...activity.map(d => d.count), 1)
   const maxHour = Math.max(...hourActivity.map(h => h.count), 1)
   const maxTool = Math.max(...topTools.map(t => t.count), 1)
@@ -443,6 +611,14 @@ function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; onOpenS
           </div>
         </div>
       </div>
+
+      {/* Workflow Insights: Bash breakdown + anti-pattern tips */}
+      {bashBreakdown.length > 0 && (
+        <div className="grid grid-cols-2 gap-6">
+          <BashBreakdownCard breakdown={bashBreakdown} />
+          <WorkflowTipsCard antiPatterns={antiPatterns} />
+        </div>
+      )}
 
       <div className="grid grid-cols-2 gap-6">
         <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">

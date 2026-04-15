@@ -157,3 +157,106 @@ function topN(map: Record<string, number>, n: number): { name: string; count: nu
     .sort((a, b) => b.count - a.count)
     .slice(0, n)
 }
+
+// ── Bash anti-pattern analysis ────────────────────────────────────────────────
+
+export type BashAntiPattern = {
+  id: string
+  bashCmd: string          // what they typed (display label)
+  betterTool: string       // recommended dedicated tool
+  tip: string              // one-line explanation
+  count: number
+  totalResultChars: number // total chars dumped into context by these calls
+  avgResultChars: number   // average chars per call
+}
+
+const ANTI_PATTERN_DEFS: { id: string; regex: RegExp; bashCmd: string; betterTool: string; tip: string }[] = [
+  { id: 'grep', regex: /^\s*(grep|rg|ripgrep)\s/, bashCmd: 'grep / rg', betterTool: 'Grep', tip: 'Grep returns only matching lines; bash grep often returns full-file noise' },
+  { id: 'find', regex: /^\s*find\s/, bashCmd: 'find', betterTool: 'Glob', tip: 'Glob returns a structured list; bash find output includes paths, permissions, verbose errors' },
+  { id: 'cat', regex: /^\s*(cat|head|tail)\s/, bashCmd: 'cat / head / tail', betterTool: 'Read', tip: 'Read supports offset/limit — cat dumps the entire file into context every time' },
+  { id: 'ls', regex: /^\s*ls(\s|$)/, bashCmd: 'ls', betterTool: 'Glob', tip: 'Glob returns clean paths; ls includes colors, permissions, and formatting noise' },
+  { id: 'echo_write', regex: /^\s*echo\s+.*>>?/, bashCmd: 'echo >', betterTool: 'Write / Edit', tip: 'Write tool creates files without echoing content back into context' },
+  { id: 'sed', regex: /^\s*sed\s/, bashCmd: 'sed', betterTool: 'Edit', tip: 'Edit does targeted replacement with no result output; sed echoes the whole file' },
+  { id: 'awk', regex: /^\s*awk\s/, bashCmd: 'awk', betterTool: 'Read + logic', tip: 'Read the file first, then process inline — awk outputs unpredictable result sizes' },
+]
+
+function bashLines(cmd: string): string[] {
+  return cmd.split(/\n|&&|\|/).map(l => l.trim()).filter(Boolean)
+}
+
+export function bashAntiPatterns(sessions: Session[]): BashAntiPattern[] {
+  const counts: Record<string, number> = {}
+  const resultChars: Record<string, number> = {}
+  for (const p of ANTI_PATTERN_DEFS) { counts[p.id] = 0; resultChars[p.id] = 0 }
+
+  for (const s of sessions) {
+    for (const turn of s.turns) {
+      for (const tc of turn.toolCalls) {
+        if (tc.name !== 'Bash') continue
+        const cmd = (tc.input['command'] as string | undefined) ?? ''
+        for (const line of bashLines(cmd)) {
+          for (const p of ANTI_PATTERN_DEFS) {
+            if (p.regex.test(line)) {
+              counts[p.id]++
+              resultChars[p.id] += tc.result?.length ?? 0
+              break
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return ANTI_PATTERN_DEFS
+    .map(p => ({
+      id: p.id, bashCmd: p.bashCmd, betterTool: p.betterTool, tip: p.tip,
+      count: counts[p.id],
+      totalResultChars: resultChars[p.id],
+      avgResultChars: counts[p.id] > 0 ? Math.round(resultChars[p.id] / counts[p.id]) : 0,
+    }))
+    .filter(p => p.count > 0)
+    .sort((a, b) => b.totalResultChars - a.totalResultChars)
+}
+
+// ── Bash command category breakdown ──────────────────────────────────────────
+
+export type BashCategory = { label: string; count: number }
+
+const BASH_CATEGORY_DEFS: { label: string; regex: RegExp }[] = [
+  { label: 'git',             regex: /^\s*git\s/ },
+  { label: 'npm/yarn/pnpm/bun', regex: /^\s*(npm|yarn|pnpm|bun)\s/ },
+  { label: 'docker',          regex: /^\s*(docker|docker-compose|docker compose)\s/ },
+  { label: 'test runners',    regex: /^\s*(jest|vitest|pytest|go test|cargo test|mocha|phpunit)\b/ },
+  { label: 'curl/wget',       regex: /^\s*(curl|wget)\s/ },
+  { label: 'make/cmake',      regex: /^\s*(make|cmake)\b/ },
+  { label: 'file search',     regex: /^\s*(grep|rg|find|ls)\s/ },
+  { label: 'file read',       regex: /^\s*(cat|head|tail|sed|awk)\s/ },
+]
+
+export function bashCommandBreakdown(sessions: Session[]): BashCategory[] {
+  const counts: Record<string, number> = { other: 0 }
+  for (const c of BASH_CATEGORY_DEFS) counts[c.label] = 0
+
+  for (const s of sessions) {
+    for (const turn of s.turns) {
+      for (const tc of turn.toolCalls) {
+        if (tc.name !== 'Bash') continue
+        const cmd = (tc.input['command'] as string | undefined) ?? ''
+        for (const line of bashLines(cmd)) {
+          let matched = false
+          for (const c of BASH_CATEGORY_DEFS) {
+            if (c.regex.test(line)) { counts[c.label]++; matched = true; break }
+          }
+          if (!matched) counts['other']++
+        }
+      }
+    }
+  }
+
+  return [
+    ...BASH_CATEGORY_DEFS.map(c => ({ label: c.label, count: counts[c.label] })),
+    { label: 'other', count: counts['other'] },
+  ]
+    .filter(c => c.count > 0)
+    .sort((a, b) => b.count - a.count)
+}
