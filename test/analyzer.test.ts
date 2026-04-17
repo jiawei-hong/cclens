@@ -6,6 +6,7 @@ import {
   bashAntiPatterns,
   contextWindowHotspots,
   costByTaskType,
+  thinkingStats,
   modelVersionLabel,
 } from '../src/analyzer'
 import type { Session } from '../src/types'
@@ -29,6 +30,7 @@ function makeSession(overrides: Partial<Session> & { id: string; project?: strin
       modelUsage: {},
       peakContextTokens: 0,
       contextLimit: 200_000,
+      totalThinkingBlocks: 0,
       ...(overrides.stats ?? {}),
     },
   }
@@ -102,6 +104,7 @@ describe('classifySession', () => {
       modelUsage: {},
       peakContextTokens: 0,
       contextLimit: 200_000,
+      totalThinkingBlocks: 0,
     },
   })
 
@@ -179,7 +182,7 @@ describe('costByTaskType', () => {
         totalTextLength: 0,
         usage: { inputTokens: 1_000_000, outputTokens: 1_000_000, cacheCreateTokens: 0, cacheReadTokens: 0 },
         modelUsage: { 'claude-opus-4-7': { inputTokens: 1_000_000, outputTokens: 1_000_000, cacheCreateTokens: 0, cacheReadTokens: 0 } },
-        peakContextTokens: 0, contextLimit: 200_000,
+        peakContextTokens: 0, contextLimit: 200_000, totalThinkingBlocks: 0,
       },
     })
     // Research session on Sonnet 4.6: 1M input + 1M output ≈ $3 + $15 = $18
@@ -191,7 +194,7 @@ describe('costByTaskType', () => {
         totalTextLength: 0,
         usage: { inputTokens: 1_000_000, outputTokens: 1_000_000, cacheCreateTokens: 0, cacheReadTokens: 0 },
         modelUsage: { 'claude-sonnet-4-6': { inputTokens: 1_000_000, outputTokens: 1_000_000, cacheCreateTokens: 0, cacheReadTokens: 0 } },
-        peakContextTokens: 0, contextLimit: 200_000,
+        peakContextTokens: 0, contextLimit: 200_000, totalThinkingBlocks: 0,
       },
     })
     const rows = costByTaskType([coding, research])
@@ -213,7 +216,7 @@ describe('costByTaskType', () => {
         totalTextLength: 0,
         usage: { inputTokens: 100, outputTokens: 50, cacheCreateTokens: 0, cacheReadTokens: 0 },
         modelUsage: { 'claude-sonnet-4-6': { inputTokens: 100, outputTokens: 50, cacheCreateTokens: 0, cacheReadTokens: 0 } },
-        peakContextTokens: 0, contextLimit: 200_000,
+        peakContextTokens: 0, contextLimit: 200_000, totalThinkingBlocks: 0,
       },
     })
     const rows = costByTaskType([s])
@@ -231,5 +234,36 @@ function statsWithPeak(peak: number, limit: number) {
     modelUsage: {},
     peakContextTokens: peak,
     contextLimit: limit,
+    totalThinkingBlocks: 0,
   }
 }
+
+describe('thinkingStats', () => {
+  it('ranks sessions by thinking block count and reports totals', () => {
+    const mk = (id: string, blocks: number, turns: number) => makeSession({
+      id,
+      stats: {
+        userTurns: 0, assistantTurns: turns,
+        toolCallCount: 0, toolBreakdown: {}, totalTextLength: 0,
+        usage: { inputTokens: 0, outputTokens: 0, cacheCreateTokens: 0, cacheReadTokens: 0 },
+        modelUsage: {}, peakContextTokens: 0, contextLimit: 200_000,
+        totalThinkingBlocks: blocks,
+      },
+    })
+    const sessions = [mk('a', 5, 10), mk('b', 20, 30), mk('c', 0, 5)]
+    const stats = thinkingStats(sessions, 10)
+    expect(stats.totalBlocks).toBe(25)
+    expect(stats.sessionsWithThinking).toBe(2)  // 'c' excluded
+    expect(stats.deepest[0]!.sessionId).toBe('b')
+    expect(stats.deepest[1]!.sessionId).toBe('a')
+    expect(stats.deepest.length).toBe(2)
+  })
+
+  it('returns empty deepest when no session has thinking', () => {
+    const s = makeSession({ id: 's' })  // default totalThinkingBlocks: 0
+    const stats = thinkingStats([s])
+    expect(stats.deepest.length).toBe(0)
+    expect(stats.sessionsWithThinking).toBe(0)
+    expect(stats.totalBlocks).toBe(0)
+  })
+})

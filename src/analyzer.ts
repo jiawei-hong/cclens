@@ -814,6 +814,47 @@ export function slowestToolCalls(sessions: Session[], limit = 10): SlowToolCall[
   return all.sort((a, b) => b.durationMs - a.durationMs).slice(0, limit)
 }
 
+// ── Extended thinking stats ───────────────────────────────────────────────────
+// Claude 4.x models emit thinking blocks that are billed by Anthropic but NOT
+// reported in the session JSONL's usage object — so cost estimates here are
+// structurally low for sessions with extended thinking. This surfaces the
+// affected sessions so users can factor that into their own mental model.
+// See: github.com/anthropics/claude-code/issues/31143
+
+export type ThinkingStats = {
+  totalBlocks: number
+  sessionsWithThinking: number     // count of sessions where totalThinkingBlocks > 0
+  deepest: {
+    sessionId: string
+    project: string
+    startedAt: string
+    thinkingBlocks: number
+    assistantTurns: number         // so a reader can spot "N blocks over M turns"
+  }[]
+}
+
+export function thinkingStats(sessions: Session[], limit = 10): ThinkingStats {
+  let total = 0
+  let withThinking = 0
+  for (const s of sessions) {
+    const n = s.stats.totalThinkingBlocks
+    total += n
+    if (n > 0) withThinking++
+  }
+  const deepest = sessions
+    .filter(s => s.stats.totalThinkingBlocks > 0)
+    .map(s => ({
+      sessionId: s.id,
+      project: s.project,
+      startedAt: s.startedAt,
+      thinkingBlocks: s.stats.totalThinkingBlocks,
+      assistantTurns: s.stats.assistantTurns,
+    }))
+    .sort((a, b) => b.thinkingBlocks - a.thinkingBlocks)
+    .slice(0, limit)
+  return { totalBlocks: total, sessionsWithThinking: withThinking, deepest }
+}
+
 // ── Cost by task type ─────────────────────────────────────────────────────────
 // Combines classifySession + per-session cost to answer "where is my spend
 // actually going — coding, debugging, research, exploration, or chat?"

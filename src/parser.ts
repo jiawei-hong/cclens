@@ -165,6 +165,7 @@ export async function parseSession(projectDir: string, filename: string): Promis
       modelUsage,
       peakContextTokens,
       contextLimit: has1MContext ? 1_000_000 : 200_000,
+      totalThinkingBlocks: turns.reduce((sum, t) => sum + t.thinkingBlocks, 0),
     },
   }
 }

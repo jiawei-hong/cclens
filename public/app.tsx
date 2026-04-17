@@ -4,8 +4,8 @@ import Markdown from 'react-markdown'
 import { RiSunLine, RiMoonLine, RiComputerLine, RiTimeLine, RiTerminalLine, RiChat3Line, RiFlashlightLine, RiFileCodeLine, RiArrowUpLine } from 'react-icons/ri'
 import { SiTypescript, SiJavascript, SiPython, SiRust, SiGo, SiRuby, SiPhp, SiSwift, SiKotlin, SiCplusplus, SiC, SiHtml5, SiCss, SiMarkdown, SiJson, SiYaml, SiShell, SiReact, SiVuedotjs, SiSvelte, SiDart, SiScala, SiElixir, SiHaskell, SiLua, SiDocker, SiPrisma } from 'react-icons/si'
 import { parseSessionFiles, parseMemoryFiles, type TrackedFile } from './lib/parser'
-import { summarizeProjects, globalToolStats, activityByHour, sessionDepthStats, taskBreakdown, trendStats, bashAntiPatterns, bashCommandBreakdown, skillUsageStats, skillGaps, agentBreakdown, hotFiles, totalUsage, usageByModel, dailyCost, toolErrorRates, activityHeatmap, slowestToolCalls, mcpUsageStats, contextWindowHotspots, costByTaskType } from '../src/analyzer'
-import type { SessionType, BashAntiPattern, BashCategory, SkillUsage, SkillGap, AgentTypeUsage, HotFile, TotalUsage, ModelUsageRow, ToolErrorStats, HeatmapCell, SlowToolCall, McpServerUsage, ContextHotspotStats, CostByTaskRow } from '../src/analyzer'
+import { summarizeProjects, globalToolStats, activityByHour, sessionDepthStats, taskBreakdown, trendStats, bashAntiPatterns, bashCommandBreakdown, skillUsageStats, skillGaps, agentBreakdown, hotFiles, totalUsage, usageByModel, dailyCost, toolErrorRates, activityHeatmap, slowestToolCalls, mcpUsageStats, contextWindowHotspots, costByTaskType, thinkingStats } from '../src/analyzer'
+import type { SessionType, BashAntiPattern, BashCategory, SkillUsage, SkillGap, AgentTypeUsage, HotFile, TotalUsage, ModelUsageRow, ToolErrorStats, HeatmapCell, SlowToolCall, McpServerUsage, ContextHotspotStats, CostByTaskRow, ThinkingStats } from '../src/analyzer'
 import { search as searchSessions } from '../src/searcher'
 import type { Session, ProjectSummary, SearchResult, MemoryEntry, MemoryEntryType } from '../src/types'
 import { fmt, fmtDuration, fmtPace, fmtToolDuration, fmtTokenCount, fmtUSD, fmtChars, fmtTokensFromChars } from './lib/format'
@@ -348,7 +348,7 @@ function CostByTaskCard({ rows }: { rows: CostByTaskRow[] }) {
   )
 }
 
-function CostPanel({ usage, modelRows, dailySeries, maxDailyCost, hasData, dailySeriesDays, costByTask }: {
+function CostPanel({ usage, modelRows, dailySeries, maxDailyCost, hasData, dailySeriesDays, costByTask, thinking }: {
   usage: TotalUsage
   modelRows: ModelUsageRow[]
   dailySeries: { date: string; costUSD: number }[]
@@ -356,6 +356,7 @@ function CostPanel({ usage, modelRows, dailySeries, maxDailyCost, hasData, daily
   hasData: boolean
   dailySeriesDays: number
   costByTask: CostByTaskRow[]
+  thinking: ThinkingStats
 }) {
   if (!hasData) {
     return (
@@ -378,6 +379,16 @@ function CostPanel({ usage, modelRows, dailySeries, maxDailyCost, hasData, daily
 
   return (
     <div className="flex flex-col gap-5">
+      {thinking.totalBlocks > 0 && (
+        <div className="bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded-2xl px-4 py-3 text-[11px] text-amber-900 dark:text-amber-200 leading-relaxed">
+          <strong>Cost is under-reported for sessions with extended thinking.</strong>{' '}
+          Detected <span className="font-mono font-semibold">{thinking.totalBlocks.toLocaleString()}</span> thinking
+          block{thinking.totalBlocks === 1 ? '' : 's'} across{' '}
+          <span className="font-mono font-semibold">{thinking.sessionsWithThinking}</span> session{thinking.sessionsWithThinking === 1 ? '' : 's'}.
+          Anthropic bills for these tokens but they don't appear in the session JSONL's <code className="font-mono">usage.output_tokens</code>.
+          Your actual bill may be meaningfully higher than the estimate below.
+        </div>
+      )}
       {/* 4 stat cards */}
       <div className="grid grid-cols-4 gap-5">
         <StatCardRich label="Est. Cost" value={fmtUSD(usage.costUSD)} sub={`${fmtTokenCount(usage.totalTokens)} tokens total`} />
@@ -1013,6 +1024,42 @@ function SlowestToolsCard({ calls, onOpenSession }: { calls: SlowToolCall[]; onO
   )
 }
 
+function ThinkingDepthCard({ stats, onOpenSession }: { stats: ThinkingStats; onOpenSession: (id: string, turnId?: string) => void }) {
+  if (stats.deepest.length === 0) return null
+  const max = Math.max(...stats.deepest.map(r => r.thinkingBlocks), 1)
+  return (
+    <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Deepest Thinking Sessions</h3>
+        <span className="text-[10px] text-gray-400 dark:text-gray-600">
+          {stats.totalBlocks.toLocaleString()} blocks · {stats.sessionsWithThinking} sessions
+        </span>
+      </div>
+      <div className="flex flex-col gap-2">
+        {stats.deepest.map(r => {
+          const density = r.assistantTurns > 0 ? r.thinkingBlocks / r.assistantTurns : 0
+          return (
+            <button key={r.sessionId}
+              onClick={() => onOpenSession(r.sessionId)}
+              className="flex items-center gap-3 text-left hover:bg-gray-50 dark:hover:bg-gray-800/60 rounded-lg px-2 py-1.5 -mx-2 transition-colors">
+              <span className="text-xs text-gray-700 dark:text-gray-300 truncate w-40 shrink-0">{r.project}</span>
+              <span className="text-[11px] text-gray-500 dark:text-gray-500 font-mono w-20 shrink-0 tabular-nums">{fmt(r.startedAt)}</span>
+              <div className="flex-1 bg-gray-100 dark:bg-gray-800 rounded-full h-1.5">
+                <div className="bg-purple-500 h-1.5 rounded-full" style={{ width: `${(r.thinkingBlocks / max) * 100}%` }} />
+              </div>
+              <span className="text-[11px] text-gray-500 dark:text-gray-500 tabular-nums w-16 text-right shrink-0">{density.toFixed(1)}/turn</span>
+              <span className="text-xs text-gray-900 dark:text-gray-100 tabular-nums font-medium w-12 text-right shrink-0">🧠 {r.thinkingBlocks}</span>
+            </button>
+          )
+        })}
+      </div>
+      <p className="text-[10px] text-gray-400 dark:text-gray-600 mt-3 leading-relaxed">
+        Claude 4.x emits thinking blocks during multi-step reasoning. These tokens are <em>billed by Anthropic</em> but are <strong>not</strong> included in the session's reported <code className="font-mono">usage.output_tokens</code> — cclens's cost estimate is low for these sessions. See <a className="text-indigo-400 hover:underline" href="https://github.com/anthropics/claude-code/issues/31143" target="_blank" rel="noreferrer">anthropics/claude-code#31143</a>.
+      </p>
+    </div>
+  )
+}
+
 function ContextHotspotsCard({ stats, onOpenSession }: { stats: ContextHotspotStats; onOpenSession: (id: string, turnId?: string) => void }) {
   if (stats.rows.length === 0) return null
   return (
@@ -1259,6 +1306,7 @@ function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; onOpenS
   const mcpServers = React.useMemo(() => mcpUsageStats(filtered), [filtered])
   const contextHotspots = React.useMemo(() => contextWindowHotspots(filtered, 10), [filtered])
   const costByTask = React.useMemo(() => costByTaskType(filtered), [filtered])
+  const thinking = React.useMemo(() => thinkingStats(filtered, 10), [filtered])
   const heatmap = React.useMemo(() => activityHeatmap(sessions, 14), [sessions])  // fixed 14-week view
   const hasUsageData = usage.totalTokens > 0
   const maxHour = Math.max(...hourActivity.map(h => h.count), 1)
@@ -1461,13 +1509,14 @@ function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; onOpenS
 
       {/* ── Cost ── */}
       {insightTab === 'cost' && (
-        <CostPanel usage={usage} modelRows={modelRows} dailySeries={dailyCostSeries} maxDailyCost={maxDailyCost} hasData={hasUsageData} dailySeriesDays={costSeriesDays} costByTask={costByTask} />
+        <CostPanel usage={usage} modelRows={modelRows} dailySeries={dailyCostSeries} maxDailyCost={maxDailyCost} hasData={hasUsageData} dailySeriesDays={costSeriesDays} costByTask={costByTask} thinking={thinking} />
       )}
 
       {/* ── Efficiency ── */}
       {insightTab === 'efficiency' && (
         <div className="flex flex-col gap-5">
           <ContextHotspotsCard stats={contextHotspots} onOpenSession={onOpenSession} />
+          <ThinkingDepthCard stats={thinking} onOpenSession={onOpenSession} />
           <EfficiencyPanel breakdown={bashBreakdown} antiPatterns={antiPatterns} />
           <SlowestToolsCard calls={slowCalls} onOpenSession={onOpenSession} />
           <ToolErrorsCard stats={errorStats} />
@@ -2232,6 +2281,13 @@ function SessionDetailView({ session, scrollToTurnId }: { session: Session; scro
                 {turn.role === 'user' ? 'U' : 'C'}
               </div>
               <div className={`max-w-[85%] flex flex-col gap-2 min-w-0 ${turn.role === 'assistant' ? 'flex-1' : ''}`}>
+                {turn.role === 'assistant' && turn.thinkingBlocks > 0 && (
+                  <span
+                    title={`${turn.thinkingBlocks} thinking block${turn.thinkingBlocks === 1 ? '' : 's'} — Anthropic bills these tokens but they are not reported in usage.output_tokens`}
+                    className="inline-flex self-start items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-purple-100 dark:bg-purple-500/20 text-purple-700 dark:text-purple-300 font-medium cursor-help">
+                    🧠 ×{turn.thinkingBlocks}
+                  </span>
+                )}
                 {turn.text && <TurnBody text={turn.text} role={turn.role} timestamp={turn.timestamp} />}
 
                 {turn.toolCalls.length > 0 && (

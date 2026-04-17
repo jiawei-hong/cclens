@@ -158,6 +158,7 @@ export async function parseSessionFile(file: File): Promise<Session | null> {
       modelUsage,
       peakContextTokens,
       contextLimit: has1MContext ? 1_000_000 : 200_000,
+      totalThinkingBlocks: turns.reduce((sum, t) => sum + t.thinkingBlocks, 0),
     },
   }
 }
