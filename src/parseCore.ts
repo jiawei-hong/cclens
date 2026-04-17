@@ -114,7 +114,7 @@ export function parseRawJsonl(rawText: string, sessionId: string, projectPath: s
   }
 
   // Usage + context series
-  const usage: AggregatedUsage = { inputTokens: 0, outputTokens: 0, cacheCreateTokens: 0, cacheReadTokens: 0 }
+  const usage: AggregatedUsage = { inputTokens: 0, outputTokens: 0, cacheCreateTokens: 0, cacheCreate1hTokens: 0, cacheReadTokens: 0 }
   const modelUsage: Record<string, AggregatedUsage> = {}
   let peakContextTokens = 0
   let has1MContext = false
@@ -127,18 +127,21 @@ export function parseRawJsonl(rawText: string, sessionId: string, projectPath: s
     const input = u.input_tokens ?? 0
     const output = u.output_tokens ?? 0
     const ccIn = u.cache_creation_input_tokens ?? 0
+    const cc1h = u.cache_creation?.ephemeral_1h_input_tokens ?? 0
     const crIn = u.cache_read_input_tokens ?? 0
-    usage.inputTokens       += input
-    usage.outputTokens      += output
-    usage.cacheCreateTokens += ccIn
-    usage.cacheReadTokens   += crIn
+    usage.inputTokens         += input
+    usage.outputTokens        += output
+    usage.cacheCreateTokens   += ccIn
+    usage.cacheCreate1hTokens += cc1h
+    usage.cacheReadTokens     += crIn
     const model = entry.message?.model ?? 'unknown'
     if (model.includes('[1m]')) has1MContext = true
-    const m = modelUsage[model] ?? (modelUsage[model] = { inputTokens: 0, outputTokens: 0, cacheCreateTokens: 0, cacheReadTokens: 0 })
-    m.inputTokens       += input
-    m.outputTokens      += output
-    m.cacheCreateTokens += ccIn
-    m.cacheReadTokens   += crIn
+    const m = modelUsage[model] ?? (modelUsage[model] = { inputTokens: 0, outputTokens: 0, cacheCreateTokens: 0, cacheCreate1hTokens: 0, cacheReadTokens: 0 })
+    m.inputTokens         += input
+    m.outputTokens        += output
+    m.cacheCreateTokens   += ccIn
+    m.cacheCreate1hTokens += cc1h
+    m.cacheReadTokens     += crIn
     const ctx = input + ccIn + crIn
     if (ctx > peakContextTokens) peakContextTokens = ctx
     contextSeries.push({ ts: entry.timestamp, tokens: ctx })

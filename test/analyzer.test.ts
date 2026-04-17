@@ -26,7 +26,7 @@ function makeSession(overrides: Partial<Session> & { id: string; project?: strin
       toolCallCount: 0,
       toolBreakdown: {},
       totalTextLength: 0,
-      usage: { inputTokens: 0, outputTokens: 0, cacheCreateTokens: 0, cacheReadTokens: 0 },
+      usage: { inputTokens: 0, outputTokens: 0, cacheCreateTokens: 0, cacheCreate1hTokens: 0, cacheReadTokens: 0 },
       modelUsage: {},
       peakContextTokens: 0,
       contextLimit: 200_000,
@@ -70,7 +70,7 @@ describe('priceFor', () => {
 
 describe('costOfUsage', () => {
   it('computes Opus 4.7 cost correctly', () => {
-    const usage = { inputTokens: 10_000, outputTokens: 5_000, cacheCreateTokens: 2_000, cacheReadTokens: 8_000 }
+    const usage = { inputTokens: 10_000, outputTokens: 5_000, cacheCreateTokens: 2_000, cacheCreate1hTokens: 0, cacheReadTokens: 8_000 }
     // 10k × $5 + 5k × $25 + 2k × $6.25 + 8k × $0.5 = 50 + 125 + 12.5 + 4 = 191.5 µUSD/1M? No —
     // per-MTok, so divide by 1_000_000:
     // 10000*5/1e6 = 0.05; 5000*25/1e6 = 0.125; 2000*6.25/1e6 = 0.0125; 8000*0.5/1e6 = 0.004
@@ -79,7 +79,7 @@ describe('costOfUsage', () => {
   })
 
   it('Opus 4.7 is exactly 3× cheaper than Opus 4.1 for pure input/output', () => {
-    const u = { inputTokens: 1_000_000, outputTokens: 1_000_000, cacheCreateTokens: 0, cacheReadTokens: 0 }
+    const u = { inputTokens: 1_000_000, outputTokens: 1_000_000, cacheCreateTokens: 0, cacheCreate1hTokens: 0, cacheReadTokens: 0 }
     expect(costOfUsage(u, 'claude-opus-4-1') / costOfUsage(u, 'claude-opus-4-7')).toBeCloseTo(3, 5)
   })
 })
@@ -100,7 +100,7 @@ describe('classifySession', () => {
       toolCallCount: Object.values(tb).reduce((s, n) => s + n, 0),
       toolBreakdown: tb,
       totalTextLength: 0,
-      usage: { inputTokens: 0, outputTokens: 0, cacheCreateTokens: 0, cacheReadTokens: 0 },
+      usage: { inputTokens: 0, outputTokens: 0, cacheCreateTokens: 0, cacheCreate1hTokens: 0, cacheReadTokens: 0 },
       modelUsage: {},
       peakContextTokens: 0,
       contextLimit: 200_000,
@@ -180,8 +180,8 @@ describe('costByTaskType', () => {
         userTurns: 1, assistantTurns: 1, toolCallCount: 10,
         toolBreakdown: { Edit: 6, Write: 2, Read: 1, Bash: 1 },
         totalTextLength: 0,
-        usage: { inputTokens: 1_000_000, outputTokens: 1_000_000, cacheCreateTokens: 0, cacheReadTokens: 0 },
-        modelUsage: { 'claude-opus-4-7': { inputTokens: 1_000_000, outputTokens: 1_000_000, cacheCreateTokens: 0, cacheReadTokens: 0 } },
+        usage: { inputTokens: 1_000_000, outputTokens: 1_000_000, cacheCreateTokens: 0, cacheCreate1hTokens: 0, cacheReadTokens: 0 },
+        modelUsage: { 'claude-opus-4-7': { inputTokens: 1_000_000, outputTokens: 1_000_000, cacheCreateTokens: 0, cacheCreate1hTokens: 0, cacheReadTokens: 0 } },
         peakContextTokens: 0, contextLimit: 200_000, totalThinkingBlocks: 0,
       },
     })
@@ -192,8 +192,8 @@ describe('costByTaskType', () => {
         userTurns: 1, assistantTurns: 1, toolCallCount: 10,
         toolBreakdown: { WebSearch: 5, Read: 1 },
         totalTextLength: 0,
-        usage: { inputTokens: 1_000_000, outputTokens: 1_000_000, cacheCreateTokens: 0, cacheReadTokens: 0 },
-        modelUsage: { 'claude-sonnet-4-6': { inputTokens: 1_000_000, outputTokens: 1_000_000, cacheCreateTokens: 0, cacheReadTokens: 0 } },
+        usage: { inputTokens: 1_000_000, outputTokens: 1_000_000, cacheCreateTokens: 0, cacheCreate1hTokens: 0, cacheReadTokens: 0 },
+        modelUsage: { 'claude-sonnet-4-6': { inputTokens: 1_000_000, outputTokens: 1_000_000, cacheCreateTokens: 0, cacheCreate1hTokens: 0, cacheReadTokens: 0 } },
         peakContextTokens: 0, contextLimit: 200_000, totalThinkingBlocks: 0,
       },
     })
@@ -214,8 +214,8 @@ describe('costByTaskType', () => {
         userTurns: 1, assistantTurns: 1, toolCallCount: 10,
         toolBreakdown: { Edit: 8 },
         totalTextLength: 0,
-        usage: { inputTokens: 100, outputTokens: 50, cacheCreateTokens: 0, cacheReadTokens: 0 },
-        modelUsage: { 'claude-sonnet-4-6': { inputTokens: 100, outputTokens: 50, cacheCreateTokens: 0, cacheReadTokens: 0 } },
+        usage: { inputTokens: 100, outputTokens: 50, cacheCreateTokens: 0, cacheCreate1hTokens: 0, cacheReadTokens: 0 },
+        modelUsage: { 'claude-sonnet-4-6': { inputTokens: 100, outputTokens: 50, cacheCreateTokens: 0, cacheCreate1hTokens: 0, cacheReadTokens: 0 } },
         peakContextTokens: 0, contextLimit: 200_000, totalThinkingBlocks: 0,
       },
     })
@@ -230,7 +230,7 @@ function statsWithPeak(peak: number, limit: number) {
   return {
     userTurns: 0, assistantTurns: 0,
     toolCallCount: 0, toolBreakdown: {}, totalTextLength: 0,
-    usage: { inputTokens: 0, outputTokens: 0, cacheCreateTokens: 0, cacheReadTokens: 0 },
+    usage: { inputTokens: 0, outputTokens: 0, cacheCreateTokens: 0, cacheCreate1hTokens: 0, cacheReadTokens: 0 },
     modelUsage: {},
     peakContextTokens: peak,
     contextLimit: limit,
@@ -245,7 +245,7 @@ describe('thinkingStats', () => {
       stats: {
         userTurns: 0, assistantTurns: turns,
         toolCallCount: 0, toolBreakdown: {}, totalTextLength: 0,
-        usage: { inputTokens: 0, outputTokens: 0, cacheCreateTokens: 0, cacheReadTokens: 0 },
+        usage: { inputTokens: 0, outputTokens: 0, cacheCreateTokens: 0, cacheCreate1hTokens: 0, cacheReadTokens: 0 },
         modelUsage: {}, peakContextTokens: 0, contextLimit: 200_000,
         totalThinkingBlocks: blocks,
       },

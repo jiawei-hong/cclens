@@ -14,10 +14,6 @@ Move items up into "Next up" when ready to work on them; delete when shipped.
   call of that type across all sessions — input args, result, duration. Current
   cards show counts only.
 ## 🐛 Accuracy / correctness
-- [ ] **Cache 5m vs 1h write ambiguity**
-  `costOfUsage` assumes all cache writes are the 5m variant (1.25×).
-  1h writes are 2×. The JSONL may not distinguish them — needs a closer
-  look at the raw `usage` object.
 ## 🆕 New features
 ## 💡 Big bets
 - [ ] **Live-tail / active-session monitoring**

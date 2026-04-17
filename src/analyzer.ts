@@ -668,13 +668,14 @@ export function multiFileSessions(sessions: Session[], limit = 15): MultiFileSes
 // Haiku 4.5 rose to $1/$5 (from $0.80/$4 for 3.5). 1M context on Opus 4.5+ and
 // Sonnet 4.6 is billed at standard rates — no surcharge applied for `[1m]` model IDs.
 // Displayed $ is an estimate, not the billed amount.
-export type ModelPrice = { input: number; output: number; cacheCreate: number; cacheRead: number }
+// cacheCreate5m = input × 1.25 (default TTL); cacheCreate1h = input × 2.
+export type ModelPrice = { input: number; output: number; cacheCreate: number; cacheCreate1h: number; cacheRead: number }
 
-const PRICE_OPUS_NEW: ModelPrice     = { input: 5,    output: 25,  cacheCreate: 6.25,  cacheRead: 0.5  }  // Opus 4.5 / 4.6 / 4.7
-const PRICE_OPUS_LEGACY: ModelPrice  = { input: 15,   output: 75,  cacheCreate: 18.75, cacheRead: 1.5  }  // Opus 3 / 4 / 4.1
-const PRICE_SONNET: ModelPrice       = { input: 3,    output: 15,  cacheCreate: 3.75,  cacheRead: 0.3  }  // Sonnet 3.7 – 4.6
-const PRICE_HAIKU_NEW: ModelPrice    = { input: 1,    output: 5,   cacheCreate: 1.25,  cacheRead: 0.1  }  // Haiku 4.5
-const PRICE_HAIKU_LEGACY: ModelPrice = { input: 0.8,  output: 4,   cacheCreate: 1.0,   cacheRead: 0.08 }  // Haiku 3 / 3.5
+const PRICE_OPUS_NEW: ModelPrice     = { input: 5,    output: 25,  cacheCreate: 6.25,  cacheCreate1h: 10,   cacheRead: 0.5  }  // Opus 4.5 / 4.6 / 4.7
+const PRICE_OPUS_LEGACY: ModelPrice  = { input: 15,   output: 75,  cacheCreate: 18.75, cacheCreate1h: 30,   cacheRead: 1.5  }  // Opus 3 / 4 / 4.1
+const PRICE_SONNET: ModelPrice       = { input: 3,    output: 15,  cacheCreate: 3.75,  cacheCreate1h: 6,    cacheRead: 0.3  }  // Sonnet 3.7 – 4.6
+const PRICE_HAIKU_NEW: ModelPrice    = { input: 1,    output: 5,   cacheCreate: 1.25,  cacheCreate1h: 2,    cacheRead: 0.1  }  // Haiku 4.5
+const PRICE_HAIKU_LEGACY: ModelPrice = { input: 0.8,  output: 4,   cacheCreate: 1.0,   cacheCreate1h: 1.6,  cacheRead: 0.08 }  // Haiku 3 / 3.5
 
 export const PRICING = {
   opus:    PRICE_OPUS_NEW,      // current Opus default
@@ -705,11 +706,14 @@ export function priceFor(model: string): ModelPrice {
 
 export function costOfUsage(u: AggregatedUsage, model: string): number {
   const p = priceFor(model)
+  const cc1h = u.cacheCreate1hTokens
+  const cc5m = Math.max(0, u.cacheCreateTokens - cc1h)
   return (
-    (u.inputTokens       * p.input       +
-     u.outputTokens      * p.output      +
-     u.cacheCreateTokens * p.cacheCreate +
-     u.cacheReadTokens   * p.cacheRead) / 1_000_000
+    (u.inputTokens     * p.input         +
+     u.outputTokens    * p.output        +
+     cc5m              * p.cacheCreate   +
+     cc1h              * p.cacheCreate1h +
+     u.cacheReadTokens * p.cacheRead) / 1_000_000
   )
 }
 
@@ -816,11 +820,12 @@ export function usageByModel(sessions: Session[]): ModelUsageRow[] {
   const map = new Map<string, AggregatedUsage>()
   for (const s of sessions) {
     for (const [model, u] of Object.entries(s.stats.modelUsage)) {
-      const acc = map.get(model) ?? { inputTokens: 0, outputTokens: 0, cacheCreateTokens: 0, cacheReadTokens: 0 }
-      acc.inputTokens       += u.inputTokens
-      acc.outputTokens      += u.outputTokens
-      acc.cacheCreateTokens += u.cacheCreateTokens
-      acc.cacheReadTokens   += u.cacheReadTokens
+      const acc = map.get(model) ?? { inputTokens: 0, outputTokens: 0, cacheCreateTokens: 0, cacheCreate1hTokens: 0, cacheReadTokens: 0 }
+      acc.inputTokens         += u.inputTokens
+      acc.outputTokens        += u.outputTokens
+      acc.cacheCreateTokens   += u.cacheCreateTokens
+      acc.cacheCreate1hTokens += u.cacheCreate1hTokens
+      acc.cacheReadTokens     += u.cacheReadTokens
       map.set(model, acc)
     }
   }

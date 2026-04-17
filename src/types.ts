@@ -11,6 +11,10 @@ export type TokenUsage = {
   output_tokens: number
   cache_creation_input_tokens?: number
   cache_read_input_tokens?: number
+  cache_creation?: {
+    ephemeral_5m_input_tokens?: number
+    ephemeral_1h_input_tokens?: number
+  }
 }
 
 export type RawEntry = {
@@ -65,7 +69,8 @@ export type Session = {
 export type AggregatedUsage = {
   inputTokens: number
   outputTokens: number
-  cacheCreateTokens: number
+  cacheCreateTokens: number   // total cache-creation tokens (5m + 1h)
+  cacheCreate1hTokens: number // portion of cacheCreateTokens billed at 2× (1h TTL), 0 if unknown
   cacheReadTokens: number
 }
 
