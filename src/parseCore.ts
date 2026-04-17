@@ -99,6 +99,7 @@ export function parseRawJsonl(rawText: string, sessionId: string, projectPath: s
   // Use cwd from first entry that has it
   const cwd = entries.find(e => e.cwd)?.cwd
   const resolvedPath = cwd ?? projectPath
+  const gitBranch = entries.find(e => e.gitBranch)?.gitBranch
 
   // Breakdown
   const toolBreakdown: Record<string, number> = {}
@@ -147,6 +148,7 @@ export function parseRawJsonl(rawText: string, sessionId: string, projectPath: s
     id: sessionId,
     project: projectNameFromPath(resolvedPath),
     projectPath: resolvedPath,
+    gitBranch,
     startedAt,
     endedAt,
     durationMs,

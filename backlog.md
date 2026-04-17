@@ -6,10 +6,6 @@ Format: `- [ ] item — one-line context / why it was deferred`.
 Move items up into "Next up" when ready to work on them; delete when shipped.
 ---
 ## 🎯 Next up (ordered)
-- [ ] **Git branch per session**
-  `gitBranch` is already in the raw JSONL (`entry.gitBranch`). Surface it in
-  the session list and detail header. Cheap parse addition; helps correlate
-  sessions to feature branches.
 - [ ] **Session comparison view**
   Select two sessions and diff their stats side-by-side: cost, tool breakdown,
   duration, cache rate, files touched. Useful for "did my workflow improve?"

@@ -20,6 +20,7 @@ export type RawEntry = {
   timestamp: string
   sessionId: string
   cwd?: string
+  gitBranch?: string
   version?: string
   message?: {
     role: 'user' | 'assistant'
@@ -53,6 +54,7 @@ export type Session = {
   id: string
   project: string
   projectPath: string
+  gitBranch?: string
   startedAt: string
   endedAt: string
   durationMs: number

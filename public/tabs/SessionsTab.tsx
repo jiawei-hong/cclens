@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
+import { RiGitBranchLine } from 'react-icons/ri'
 import type { Session } from '../../src/types'
 import { fmt, fmtDuration, fmtPace } from '../lib/format'
 import { SessionDetailView } from '../components/SessionDetail'
@@ -138,6 +139,12 @@ export function SessionsTab({ sessions, initialSessionId, scrollToTurnId }: { se
                             <span className={`text-xs ${selected?.id === s.id ? 'text-indigo-300' : 'text-gray-400 dark:text-gray-700'}`}>·</span>
                             <span className={`text-xs ${selected?.id === s.id ? 'text-indigo-200' : 'text-gray-500 dark:text-gray-600'}`}>{fmtPace(s.durationMs, s.stats.toolCallCount)}</span>
                           </div>
+                          {s.gitBranch && (
+                            <div className={`flex items-center gap-1 mt-0.5 text-xs truncate ${selected?.id === s.id ? 'text-indigo-200' : 'text-gray-500 dark:text-gray-600'}`}>
+                              <RiGitBranchLine size={11} className="shrink-0" />
+                              <span className="font-mono truncate">{s.gitBranch}</span>
+                            </div>
+                          )}
                         </button>
                       )
                     })}

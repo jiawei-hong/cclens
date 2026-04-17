@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { RiTimeLine, RiTerminalLine, RiChat3Line, RiFlashlightLine } from 'react-icons/ri'
+import { RiTimeLine, RiTerminalLine, RiChat3Line, RiFlashlightLine, RiGitBranchLine } from 'react-icons/ri'
 import type { Session } from '../../src/types'
 import { fmtDuration, fmtPace } from '../lib/format'
 import { toolColor, toolTickColor } from '../lib/colors'
@@ -478,6 +478,12 @@ export function SessionDetailView({ session, scrollToTurnId }: { session: Sessio
           <div className="min-w-0">
             <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100 truncate">{session.project}</h2>
             <p className="text-xs text-gray-500 mt-0.5 truncate">{session.projectPath}</p>
+            {session.gitBranch && (
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 flex items-center gap-1 truncate">
+                <RiGitBranchLine size={12} className="shrink-0" />
+                <span className="font-mono truncate">{session.gitBranch}</span>
+              </p>
+            )}
           </div>
           <div className="flex gap-1.5 shrink-0 ml-4">
             <button onClick={() => exportSessionAsMarkdown(session)}
