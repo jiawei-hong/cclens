@@ -539,6 +539,11 @@ export function SessionDetailView({ session, allSessions, scrollToTurnId }: { se
               className="text-xs px-2.5 py-1 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 rounded-lg transition-colors">
               ↓ MD
             </button>
+            <button onClick={() => exportSessionAsMarkdown(session, { anonymize: true })}
+              title="Export markdown with paths, URLs, emails, UUIDs redacted"
+              className="text-xs px-2.5 py-1 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 rounded-lg transition-colors">
+              ↓ MD (anon)
+            </button>
             <button onClick={() => exportSessionAsHTML(session)}
               className="text-xs px-2.5 py-1 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 rounded-lg transition-colors">
               ↓ HTML

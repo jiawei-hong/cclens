@@ -10,10 +10,6 @@ Move items up into "Next up" when ready to work on them; delete when shipped.
   claude-view's killer feature: watch a session file for new turns and
   auto-refresh. FSA API supports persistent handles but polling needed.
   Significant re-architecture; warrants a dedicated branch.
-- [ ] **Anonymized session export**
-  Redact file paths, URLs, emails, usernames on export. No competitor
-  does this — would make cclens the go-to for safely sharing session
-  repros.
 - [ ] **IndexedDB session cache**
   Persist parsed sessions via IndexedDB so the folder doesn't need to
   be re-selected every page load. Also enables instant load on repeat

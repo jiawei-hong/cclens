@@ -46,13 +46,48 @@ export function exportSessionsCSV(sessions: Session[]) {
   downloadBlob(toCsv(rows), 'text/csv', `cclens-sessions-${today}.csv`)
 }
 
+// ── Redaction for anonymized export ───────────────────────────────────────────
+// Best-effort: removes file paths, URLs, emails, and likely home-dir usernames.
+// Not a guarantee — users should still review the output before sharing.
+
+const EMAIL_RE = /[\w.+-]+@[\w.-]+\.[a-z]{2,}/gi
+const URL_RE = /\bhttps?:\/\/[^\s)\]'"`]+/gi
+const ABS_PATH_RE = /(?:\/[\w.@+-]+){2,}/g       // /path/to/file
+const WIN_PATH_RE = /[A-Z]:\\[\w\\.+-]+/gi       // C:\path\to\file
+const HOME_USER_RE = /\/(?:home|Users)\/([^/\s]+)/g
+const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi
+
+function redact(text: string): string {
+  if (!text) return text
+  return text
+    .replace(HOME_USER_RE, (_m, _u) => '/Users/REDACTED')
+    .replace(EMAIL_RE, '<email>')
+    .replace(URL_RE, '<url>')
+    .replace(WIN_PATH_RE, '<path>')
+    .replace(ABS_PATH_RE, '<path>')
+    .replace(UUID_RE, '<uuid>')
+}
+
+function redactDeep(value: unknown): unknown {
+  if (typeof value === 'string') return redact(value)
+  if (Array.isArray(value)) return value.map(redactDeep)
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(value)) out[k] = redactDeep(v)
+    return out
+  }
+  return value
+}
+
 // ── Session → Markdown ────────────────────────────────────────────────────────
 
-export function exportSessionAsMarkdown(session: Session) {
+export function exportSessionAsMarkdown(session: Session, opts: { anonymize?: boolean } = {}) {
+  const r = opts.anonymize ? redact : (s: string) => s
+  const rd = opts.anonymize ? redactDeep : (v: unknown) => v
   const lines: string[] = [
-    `# ${session.project}`,
+    `# ${r(session.project)}`,
     ``,
-    `**Path:** ${session.projectPath}  `,
+    `**Path:** ${r(session.projectPath)}  `,
     `**Started:** ${new Date(session.startedAt).toLocaleString()}  `,
     `**Duration:** ${fmtDuration(session.durationMs)}  `,
     `**Tool calls:** ${session.stats.toolCallCount}  `,
@@ -69,19 +104,19 @@ export function exportSessionAsMarkdown(session: Session) {
         .replace(/<local-command-caveat>[\s\S]*?<\/local-command-caveat>/g, '')
         .replace(/<[^>]+>/g, '')
         .trim()
-      if (clean) lines.push(clean)
+      if (clean) lines.push(r(clean))
     }
     for (const tc of turn.toolCalls) {
       lines.push(``)
       lines.push(`**\`${tc.name}\`**`)
       lines.push(`\`\`\`json`)
-      lines.push(JSON.stringify(tc.input, null, 2))
+      lines.push(JSON.stringify(rd(tc.input), null, 2))
       lines.push(`\`\`\``)
       if (tc.result) {
         lines.push(`<details><summary>Result</summary>`)
         lines.push(``)
         lines.push(`\`\`\``)
-        lines.push(tc.result)
+        lines.push(r(tc.result))
         lines.push(`\`\`\``)
         lines.push(`</details>`)
       }
@@ -93,7 +128,8 @@ export function exportSessionAsMarkdown(session: Session) {
     lines.push(``)
   }
 
-  downloadBlob(lines.join('\n'), 'text/markdown', `${session.project}-${session.id}.md`)
+  const suffix = opts.anonymize ? '-anon' : ''
+  downloadBlob(lines.join('\n'), 'text/markdown', `${session.project}-${session.id}${suffix}.md`)
 }
 
 // ── Insights → Markdown report ────────────────────────────────────────────────
