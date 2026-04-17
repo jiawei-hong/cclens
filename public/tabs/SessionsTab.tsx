@@ -108,14 +108,24 @@ export function SessionsTab({ sessions, initialSessionId, scrollToTurnId }: { se
         <div className="flex-1 overflow-y-auto flex flex-col gap-0.5 pr-1">
           {groups.map(({ project, sessions: projectSessions }) => {
             const isCollapsed = collapsedProjects.has(project)
+            const totalTurns = projectSessions.reduce((s, x) => s + x.turns.length, 0)
+            const totalCalls = projectSessions.reduce((s, x) => s + x.stats.toolCallCount, 0)
             return (
               <div key={project}>
                 <button
                   onClick={() => toggleProject(project)}
+                  title={`${projectSessions.length} sessions · ${totalTurns} turns · ${totalCalls} tool calls`}
                   className="w-full flex items-center gap-2 px-3 py-2 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors text-left"
                 >
                   <span className="text-gray-500 dark:text-gray-600 text-xs w-3 shrink-0">{isCollapsed ? '▶' : '▼'}</span>
-                  <span className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate flex-1">{project}</span>
+                  <div className="flex-1 min-w-0">
+                    <span className="block text-sm font-medium text-gray-800 dark:text-gray-200 truncate">{project}</span>
+                    {!isCollapsed && (
+                      <span className="block text-[10px] text-gray-400 dark:text-gray-600 truncate mt-0.5 tabular-nums">
+                        {totalTurns.toLocaleString()} turns · {totalCalls.toLocaleString()} calls
+                      </span>
+                    )}
+                  </div>
                   <span className="text-xs text-gray-500 dark:text-gray-600 shrink-0">{projectSessions.length}</span>
                 </button>
 

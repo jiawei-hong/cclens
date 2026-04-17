@@ -35,9 +35,6 @@ Move items up into "Next up" when ready to work on them; delete when shipped.
 - [ ] **Diff viewer: side-by-side mode**
   Current `EditDiffView` is stacked (removed then added). Add a toggle for
   side-by-side. Easier to read for multi-line edits.
-- [ ] **Turn count per project in sidebar**
-  Sessions tab left sidebar shows session count per project. Add total turns
-  and tool calls as secondary stats on hover or expand.
 ## 💡 Big bets
 - [ ] **Live-tail / active-session monitoring**
   claude-view's killer feature: watch a session file for new turns and
