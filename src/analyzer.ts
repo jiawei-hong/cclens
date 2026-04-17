@@ -704,6 +704,38 @@ export function totalUsage(sessions: Session[]): TotalUsage {
   }
 }
 
+// ── Per-session cache efficiency ──────────────────────────────────────────────
+
+export type SessionCacheStats = {
+  sessionId: string
+  project: string
+  startedAt: string
+  cacheHitRate: number   // 0..1
+  cacheReadTokens: number
+  totalInputTokens: number
+  costUSD: number
+}
+
+export function sessionCacheRanking(sessions: Session[], limit = 12): SessionCacheStats[] {
+  return sessions
+    .map(s => {
+      const { inputTokens, cacheCreateTokens, cacheReadTokens } = s.stats.usage
+      const denom = inputTokens + cacheCreateTokens + cacheReadTokens
+      return {
+        sessionId: s.id,
+        project: s.project,
+        startedAt: s.startedAt,
+        cacheHitRate: denom === 0 ? 0 : cacheReadTokens / denom,
+        cacheReadTokens,
+        totalInputTokens: denom,
+        costUSD: sessionCostUSD(s),
+      }
+    })
+    .filter(s => s.totalInputTokens > 5000)  // skip tiny sessions with no meaningful cache signal
+    .sort((a, b) => b.cacheHitRate - a.cacheHitRate)
+    .slice(0, limit)
+}
+
 export type ModelUsageRow = {
   model: string
   shortLabel: string   // opus / sonnet / haiku / other — for color mapping

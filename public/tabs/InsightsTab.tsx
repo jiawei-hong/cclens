@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
-import { summarizeProjects, globalToolStats, activityByHour, sessionDepthStats, taskBreakdown, trendStats, bashAntiPatterns, bashCommandBreakdown, skillUsageStats, skillGaps, agentBreakdown, hotFiles, multiFileSessions, thrashingSessions, totalUsage, usageByModel, dailyCost, toolErrorRates, activityHeatmap, slowestToolCalls, mcpUsageStats, contextWindowHotspots, costByTaskType, thinkingStats } from '../../src/analyzer'
-import type { SessionType, BashAntiPattern, BashCategory, SkillUsage, SkillGap, AgentTypeUsage, HotFile, MultiFileSession, ThrashSession, TotalUsage, ModelUsageRow, ToolErrorStats, HeatmapCell, SlowToolCall, McpServerUsage, ContextHotspotStats, CostByTaskRow, ThinkingStats } from '../../src/analyzer'
+import { summarizeProjects, globalToolStats, activityByHour, sessionDepthStats, taskBreakdown, trendStats, bashAntiPatterns, bashCommandBreakdown, skillUsageStats, skillGaps, agentBreakdown, hotFiles, multiFileSessions, thrashingSessions, totalUsage, usageByModel, dailyCost, toolErrorRates, activityHeatmap, slowestToolCalls, mcpUsageStats, contextWindowHotspots, costByTaskType, thinkingStats, sessionCacheRanking } from '../../src/analyzer'
+import type { SessionType, BashAntiPattern, BashCategory, SkillUsage, SkillGap, AgentTypeUsage, HotFile, MultiFileSession, ThrashSession, TotalUsage, ModelUsageRow, ToolErrorStats, HeatmapCell, SlowToolCall, McpServerUsage, ContextHotspotStats, CostByTaskRow, ThinkingStats, SessionCacheStats } from '../../src/analyzer'
 import type { Session, ProjectSummary } from '../../src/types'
 import { fmt, fmtDuration, fmtPace, fmtToolDuration, fmtTokenCount, fmtUSD, fmtChars, fmtTokensFromChars } from '../lib/format'
 import { toolColor, toolTickColor, taskTypeColor, taskTypeBar, TASK_DESCRIPTIONS } from '../lib/colors'
@@ -74,6 +74,49 @@ const MODEL_BADGE: Record<string, string> = {
   sonnet: 'bg-sky-100 text-sky-700 dark:bg-sky-500/20 dark:text-sky-300',
   haiku:  'bg-teal-100 text-teal-700 dark:bg-teal-500/20 dark:text-teal-300',
   other:  'bg-gray-100 text-gray-700 dark:bg-gray-500/20 dark:text-gray-300',
+}
+
+function CacheEfficiencyCard({ rows, onOpenSession }: { rows: SessionCacheStats[]; onOpenSession: (id: string) => void }) {
+  if (rows.length === 0) return null
+  return (
+    <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Cache Efficiency by Session</h3>
+          <p className="text-xs text-gray-400 dark:text-gray-600 mt-0.5">cache_read / (input + cache_create + cache_read) · sessions with &gt;5k input tokens</p>
+        </div>
+        <span className="text-xs text-gray-400 dark:text-gray-600">{rows.length} sessions</span>
+      </div>
+      <div className="flex flex-col gap-2">
+        {rows.map(r => {
+          const pct = Math.round(r.cacheHitRate * 100)
+          const isHigh = r.cacheHitRate >= 0.6
+          const isMid = r.cacheHitRate >= 0.3
+          const barColor = isHigh ? 'bg-emerald-500' : isMid ? 'bg-amber-400' : 'bg-rose-400'
+          const textColor = isHigh ? 'text-emerald-600 dark:text-emerald-400' : isMid ? 'text-amber-600 dark:text-amber-400' : 'text-rose-500 dark:text-rose-400'
+          return (
+            <button key={r.sessionId} onClick={() => onOpenSession(r.sessionId)}
+              className="flex items-center gap-3 px-2 py-1.5 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors text-left w-full group">
+              <span className={`text-xs font-bold tabular-nums w-10 shrink-0 text-right ${textColor}`}>{pct}%</span>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-xs font-medium text-gray-700 dark:text-gray-300 truncate">{r.project}</span>
+                  <span className="text-[11px] text-gray-400 dark:text-gray-600 shrink-0">{fmt(r.startedAt)}</span>
+                </div>
+                <div className="w-full bg-gray-100 dark:bg-gray-800 rounded-full h-1.5">
+                  <div className={`h-1.5 rounded-full ${barColor} transition-all`} style={{ width: `${pct}%` }} />
+                </div>
+              </div>
+              <span className="text-[11px] text-gray-400 dark:text-gray-600 tabular-nums shrink-0 font-mono w-20 text-right">
+                {(r.cacheReadTokens / 1000).toFixed(0)}k / {(r.totalInputTokens / 1000).toFixed(0)}k
+              </span>
+              <span className="text-gray-400 dark:text-gray-600 text-xs group-hover:text-indigo-400 transition-colors shrink-0">→</span>
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
 }
 
 function CostPanel({ usage, modelRows, dailySeries, maxDailyCost, hasData, dailySeriesDays, costByTask, thinking }: {
@@ -1166,6 +1209,7 @@ export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; 
   const contextHotspots = React.useMemo(() => contextWindowHotspots(filtered, 10), [filtered])
   const costByTask = React.useMemo(() => costByTaskType(filtered), [filtered])
   const thinking = React.useMemo(() => thinkingStats(filtered, 10), [filtered])
+  const cacheRanking = React.useMemo(() => sessionCacheRanking(filtered), [filtered])
   const heatmap = React.useMemo(() => activityHeatmap(sessions, 14), [sessions])  // fixed 14-week view
   const hasUsageData = usage.totalTokens > 0
   const maxHour = Math.max(...hourActivity.map(h => h.count), 1)
@@ -1368,7 +1412,10 @@ export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; 
 
       {/* ── Cost ── */}
       {insightTab === 'cost' && (
-        <CostPanel usage={usage} modelRows={modelRows} dailySeries={dailyCostSeries} maxDailyCost={maxDailyCost} hasData={hasUsageData} dailySeriesDays={costSeriesDays} costByTask={costByTask} thinking={thinking} />
+        <div className="flex flex-col gap-5">
+          <CostPanel usage={usage} modelRows={modelRows} dailySeries={dailyCostSeries} maxDailyCost={maxDailyCost} hasData={hasUsageData} dailySeriesDays={costSeriesDays} costByTask={costByTask} thinking={thinking} />
+          <CacheEfficiencyCard rows={cacheRanking} onOpenSession={id => onOpenSession(id)} />
+        </div>
       )}
 
       {/* ── Efficiency ── */}
