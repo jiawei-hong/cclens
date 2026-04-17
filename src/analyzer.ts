@@ -530,6 +530,38 @@ export function hotFiles(sessions: Session[], limit = 15): HotFile[] {
     .slice(0, limit)
 }
 
+// ── Multi-file sessions ───────────────────────────────────────────────────────
+
+export type MultiFileSession = {
+  sessionId: string
+  project: string
+  startedAt: string
+  durationMs: number
+  fileCount: number
+  topFiles: { path: string; fileName: string; ops: number }[]
+}
+
+export function multiFileSessions(sessions: Session[], limit = 15): MultiFileSession[] {
+  return sessions
+    .map(s => {
+      const fileOps = new Map<string, number>()
+      for (const turn of s.turns)
+        for (const tc of turn.toolCalls) {
+          if (tc.name !== 'Edit' && tc.name !== 'Write') continue
+          const path = tc.input['file_path'] as string | undefined
+          if (path) fileOps.set(path, (fileOps.get(path) ?? 0) + 1)
+        }
+      const topFiles = [...fileOps.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 4)
+        .map(([path, ops]) => ({ path, fileName: path.split('/').pop() ?? path, ops }))
+      return { sessionId: s.id, project: s.project, startedAt: s.startedAt, durationMs: s.durationMs, fileCount: fileOps.size, topFiles }
+    })
+    .filter(s => s.fileCount >= 2)
+    .sort((a, b) => b.fileCount - a.fileCount)
+    .slice(0, limit)
+}
+
 // ── Cost & token usage ────────────────────────────────────────────────────────
 // Public list prices per 1M tokens. Cache write (5m) = 1.25× input, cache read = 0.1× input.
 // Prices are version-aware: Opus 4.5+ dropped to $5/$25 (from $15/$75 for Opus 4/4.1);

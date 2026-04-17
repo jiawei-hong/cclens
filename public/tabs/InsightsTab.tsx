@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
-import { summarizeProjects, globalToolStats, activityByHour, sessionDepthStats, taskBreakdown, trendStats, bashAntiPatterns, bashCommandBreakdown, skillUsageStats, skillGaps, agentBreakdown, hotFiles, totalUsage, usageByModel, dailyCost, toolErrorRates, activityHeatmap, slowestToolCalls, mcpUsageStats, contextWindowHotspots, costByTaskType, thinkingStats } from '../../src/analyzer'
-import type { SessionType, BashAntiPattern, BashCategory, SkillUsage, SkillGap, AgentTypeUsage, HotFile, TotalUsage, ModelUsageRow, ToolErrorStats, HeatmapCell, SlowToolCall, McpServerUsage, ContextHotspotStats, CostByTaskRow, ThinkingStats } from '../../src/analyzer'
+import { summarizeProjects, globalToolStats, activityByHour, sessionDepthStats, taskBreakdown, trendStats, bashAntiPatterns, bashCommandBreakdown, skillUsageStats, skillGaps, agentBreakdown, hotFiles, multiFileSessions, totalUsage, usageByModel, dailyCost, toolErrorRates, activityHeatmap, slowestToolCalls, mcpUsageStats, contextWindowHotspots, costByTaskType, thinkingStats } from '../../src/analyzer'
+import type { SessionType, BashAntiPattern, BashCategory, SkillUsage, SkillGap, AgentTypeUsage, HotFile, MultiFileSession, TotalUsage, ModelUsageRow, ToolErrorStats, HeatmapCell, SlowToolCall, McpServerUsage, ContextHotspotStats, CostByTaskRow, ThinkingStats } from '../../src/analyzer'
 import type { Session, ProjectSummary } from '../../src/types'
 import { fmt, fmtDuration, fmtPace, fmtToolDuration, fmtTokenCount, fmtUSD, fmtChars, fmtTokensFromChars } from '../lib/format'
 import { toolColor, toolTickColor, taskTypeColor, taskTypeBar, TASK_DESCRIPTIONS } from '../lib/colors'
@@ -859,6 +859,46 @@ function McpServersCard({ servers }: { servers: McpServerUsage[] }) {
   )
 }
 
+function MultiFileSessionsCard({ sessions, onOpenSession }: { sessions: MultiFileSession[]; onOpenSession: (id: string) => void }) {
+  if (sessions.length === 0) return null
+  return (
+    <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Most Files Touched</h3>
+        <span className="text-xs text-gray-400 dark:text-gray-600">by session</span>
+      </div>
+      <div className="flex flex-col gap-2">
+        {sessions.map(s => (
+          <button key={s.sessionId} onClick={() => onOpenSession(s.sessionId)}
+            className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors text-left w-full group">
+            <span className="text-lg font-bold tabular-nums text-indigo-600 dark:text-indigo-400 w-8 shrink-0 text-center leading-none">
+              {s.fileCount}
+            </span>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-medium text-gray-800 dark:text-gray-200 truncate">{s.project}</span>
+                <span className="text-[11px] text-gray-400 dark:text-gray-600 shrink-0">{fmt(s.startedAt)}</span>
+              </div>
+              <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                {s.topFiles.map(f => (
+                  <span key={f.path} className="flex items-center gap-1 text-[11px] text-gray-500 dark:text-gray-500 bg-gray-100 dark:bg-gray-800 rounded px-1.5 py-0.5">
+                    <FileIcon path={f.path} size={11} />
+                    {f.fileName}
+                  </span>
+                ))}
+                {s.fileCount > 4 && (
+                  <span className="text-[11px] text-gray-400 dark:text-gray-600">+{s.fileCount - 4} more</span>
+                )}
+              </div>
+            </div>
+            <span className="text-gray-400 dark:text-gray-600 text-xs ml-1 group-hover:text-indigo-400 transition-colors shrink-0">→</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function HotFilesCard({ files }: { files: HotFile[] }) {
   const max = Math.max(...files.map(f => f.totalOps), 1)
   return (
@@ -1068,6 +1108,7 @@ export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; 
   const gaps = React.useMemo(() => skillGaps(filtered, skillUsage), [filtered, skillUsage])
   const agents = React.useMemo(() => agentBreakdown(filtered), [filtered])
   const files = React.useMemo(() => hotFiles(filtered), [filtered])
+  const multiFileSess = React.useMemo(() => multiFileSessions(filtered), [filtered])
   const usage = React.useMemo(() => totalUsage(filtered), [filtered])
   const modelRows = React.useMemo(() => usageByModel(filtered), [filtered])
   const costSeriesDays = range === 'all' ? 30 : RANGE_DAYS[range]
@@ -1308,7 +1349,10 @@ export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; 
       {/* ── Projects ── */}
       {insightTab === 'projects' && (
         <div className="flex flex-col gap-5">
-          <HotFilesCard files={files} />
+          <div className="grid grid-cols-2 gap-5">
+            <MultiFileSessionsCard sessions={multiFileSess} onOpenSession={id => onOpenSession(id)} />
+            <HotFilesCard files={files} />
+          </div>
           <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
             <ProjectTree projects={projects} sessions={sessions} onOpenSession={onOpenSession} />
           </div>
