@@ -47,17 +47,6 @@ export function globalToolStats(sessions: Session[]): { name: string; count: num
   return topN(totals, 20)
 }
 
-export function activityByDay(sessions: Session[]): { date: string; count: number }[] {
-  const counts: Record<string, number> = {}
-  for (const s of sessions) {
-    const date = s.startedAt.slice(0, 10) // YYYY-MM-DD
-    counts[date] = (counts[date] ?? 0) + 1
-  }
-  return Object.entries(counts)
-    .map(([date, count]) => ({ date, count }))
-    .sort((a, b) => a.date.localeCompare(b.date))
-}
-
 export function activityByHour(sessions: Session[]): { hour: number; count: number }[] {
   const counts: Record<number, number> = {}
   for (let h = 0; h < 24; h++) counts[h] = 0
