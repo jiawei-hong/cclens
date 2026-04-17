@@ -189,7 +189,7 @@ export function SessionsTab({ sessions, initialSessionId, scrollToTurnId }: { se
       {/* Right: detail */}
       <div ref={detailRef} className="flex-1 overflow-y-auto">
         {selected
-          ? <SessionDetailView session={selected} scrollToTurnId={scrollToTurnId} />
+          ? <SessionDetailView session={selected} allSessions={sessions} scrollToTurnId={scrollToTurnId} />
           : <div className="flex items-center justify-center h-full text-gray-500 dark:text-gray-600 text-sm">Select a session to view details</div>}
       </div>
     </div>

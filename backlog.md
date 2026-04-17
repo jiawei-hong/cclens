@@ -5,12 +5,6 @@ months untouched, it probably doesn't matter.
 Format: `- [ ] item — one-line context / why it was deferred`.
 Move items up into "Next up" when ready to work on them; delete when shipped.
 ---
-## 🎯 Next up (ordered)
-- [ ] **Session comparison view**
-  Select two sessions and diff their stats side-by-side: cost, tool breakdown,
-  duration, cache rate, files touched. Useful for "did my workflow improve?"
-## 🐛 Accuracy / correctness
-## 🆕 New features
 ## 💡 Big bets
 - [ ] **Live-tail / active-session monitoring**
   claude-view's killer feature: watch a session file for new turns and

@@ -6,6 +6,7 @@ import { toolColor, toolTickColor } from '../lib/colors'
 import { exportSessionAsMarkdown, exportSessionAsHTML } from '../lib/exports'
 import { useNotes, useDiffMode } from '../lib/prefs'
 import { MarkdownText, FileIcon } from '../lib/ui'
+import { SessionCompareModal } from './SessionCompare'
 
 // ── Session Timeline ──────────────────────────────────────────────────────────
 
@@ -481,10 +482,11 @@ function SessionFilesView({ session }: { session: Session }) {
 
 // ── Session Detail View ───────────────────────────────────────────────────────
 
-export function SessionDetailView({ session, scrollToTurnId }: { session: Session; scrollToTurnId: string | null }) {
+export function SessionDetailView({ session, allSessions, scrollToTurnId }: { session: Session; allSessions: Session[]; scrollToTurnId: string | null }) {
   const [expandedTools, setExpandedTools] = useState<Set<string>>(new Set())
   const [highlightedTurnId, setHighlightedTurnId] = useState<string | null>(null)
   const [detailTab, setDetailTab] = useState<'conversation' | 'files'>('conversation')
+  const [compareOpen, setCompareOpen] = useState(false)
   const { notes, setNote } = useNotes()
   const [noteDraft, setNoteDraft] = useState(notes[session.id] ?? '')
   useEffect(() => { setNoteDraft(notes[session.id] ?? '') }, [session.id, notes])
@@ -529,6 +531,10 @@ export function SessionDetailView({ session, scrollToTurnId }: { session: Sessio
             />
           </div>
           <div className="flex gap-1.5 shrink-0 ml-4">
+            <button onClick={() => setCompareOpen(true)}
+              className="text-xs px-2.5 py-1 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 rounded-lg transition-colors">
+              ⇆ Compare
+            </button>
             <button onClick={() => exportSessionAsMarkdown(session)}
               className="text-xs px-2.5 py-1 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 rounded-lg transition-colors">
               ↓ MD
@@ -653,6 +659,14 @@ export function SessionDetailView({ session, scrollToTurnId }: { session: Sessio
           ].filter(Boolean)
         })
       })()}
+
+      {compareOpen && (
+        <SessionCompareModal
+          sessions={allSessions}
+          initialSession={session}
+          onClose={() => setCompareOpen(false)}
+        />
+      )}
     </div>
   )
 }
