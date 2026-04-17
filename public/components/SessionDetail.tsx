@@ -4,6 +4,7 @@ import type { Session } from '../../src/types'
 import { fmtDuration, fmtPace } from '../lib/format'
 import { toolColor, toolTickColor } from '../lib/colors'
 import { exportSessionAsMarkdown, exportSessionAsHTML } from '../lib/exports'
+import { useNotes } from '../lib/prefs'
 import { MarkdownText, FileIcon } from '../lib/ui'
 
 // ── Session Timeline ──────────────────────────────────────────────────────────
@@ -454,6 +455,9 @@ export function SessionDetailView({ session, scrollToTurnId }: { session: Sessio
   const [expandedTools, setExpandedTools] = useState<Set<string>>(new Set())
   const [highlightedTurnId, setHighlightedTurnId] = useState<string | null>(null)
   const [detailTab, setDetailTab] = useState<'conversation' | 'files'>('conversation')
+  const { notes, setNote } = useNotes()
+  const [noteDraft, setNoteDraft] = useState(notes[session.id] ?? '')
+  useEffect(() => { setNoteDraft(notes[session.id] ?? '') }, [session.id, notes])
   const toggleTool = (id: string) => setExpandedTools(prev => {
     const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next
   })
@@ -484,6 +488,15 @@ export function SessionDetailView({ session, scrollToTurnId }: { session: Sessio
                 <span className="font-mono truncate">{session.gitBranch}</span>
               </p>
             )}
+            <input
+              type="text"
+              value={noteDraft}
+              onChange={e => setNoteDraft(e.target.value)}
+              onBlur={() => setNote(session.id, noteDraft)}
+              onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+              placeholder="Add a note…"
+              className="mt-2 w-full text-xs bg-transparent text-gray-700 dark:text-gray-300 placeholder:text-gray-400 dark:placeholder:text-gray-600 border border-dashed border-gray-200 dark:border-gray-700 rounded-md px-2 py-1 focus:outline-none focus:border-indigo-500 focus:border-solid focus:bg-white dark:focus:bg-gray-800"
+            />
           </div>
           <div className="flex gap-1.5 shrink-0 ml-4">
             <button onClick={() => exportSessionAsMarkdown(session)}

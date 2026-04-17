@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react'
 import { RiGitBranchLine, RiStarFill, RiStarLine } from 'react-icons/ri'
 import type { Session } from '../../src/types'
 import { fmt, fmtDuration, fmtPace } from '../lib/format'
-import { useBookmarks } from '../lib/prefs'
+import { useBookmarks, useNotes } from '../lib/prefs'
 import { SessionDetailView } from '../components/SessionDetail'
 
 function sessionPreview(session: Session): string {
@@ -32,6 +32,7 @@ export function SessionsTab({ sessions, initialSessionId, scrollToTurnId }: { se
   const [filter, setFilter] = useState('')
   const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(new Set())
   const { bookmarks, toggle: toggleBookmark } = useBookmarks()
+  const { notes } = useNotes()
 
   useEffect(() => {
     if (initialSessionId) {
@@ -137,6 +138,7 @@ export function SessionsTab({ sessions, initialSessionId, scrollToTurnId }: { se
                       ...projectSessions.filter(s => bookmarks.has(s.id)),
                       ...projectSessions.filter(s => !bookmarks.has(s.id)),
                     ].map(s => {
+                      const note = notes[s.id]?.trim()
                       const preview = sessionPreview(s)
                       const isBookmarked = bookmarks.has(s.id)
                       return (
@@ -155,7 +157,9 @@ export function SessionsTab({ sessions, initialSessionId, scrollToTurnId }: { se
                               {isBookmarked ? <RiStarFill size={13} /> : <RiStarLine size={13} />}
                             </span>
                           </div>
-                          {preview && (
+                          {note ? (
+                            <p className={`text-xs mt-0.5 truncate italic ${selected?.id === s.id ? 'text-amber-100' : 'text-amber-700 dark:text-amber-400'}`}>{note}</p>
+                          ) : preview && (
                             <p className={`text-xs mt-0.5 truncate ${selected?.id === s.id ? 'text-white/90' : 'text-gray-500'}`}>{preview}</p>
                           )}
                           <div className="flex items-center gap-2 mt-0.5">

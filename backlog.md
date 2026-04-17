@@ -23,9 +23,6 @@ Move items up into "Next up" when ready to work on them; delete when shipped.
   1h writes are 2×. The JSONL may not distinguish them — needs a closer
   look at the raw `usage` object.
 ## 🆕 New features
-- [ ] **Session notes**
-  Add a freetext note to any session, persisted in `localStorage`. Shows up
-  in the session list as a subtitle. Low effort, high recall value.
 - [ ] **Diff viewer: side-by-side mode**
   Current `EditDiffView` is stacked (removed then added). Add a toggle for
   side-by-side. Easier to read for multi-line edits.

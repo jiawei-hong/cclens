@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 
 const BOOKMARKS_KEY = 'cclens.bookmarks'
+const NOTES_KEY = 'cclens.notes'
 
 function readBookmarks(): Set<string> {
   try {
@@ -36,4 +37,42 @@ export function useBookmarks() {
   }, [])
 
   return { bookmarks, toggle }
+}
+
+function readNotes(): Record<string, string> {
+  try {
+    const raw = localStorage.getItem(NOTES_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw)
+    if (!parsed || typeof parsed !== 'object') return {}
+    const out: Record<string, string> = {}
+    for (const [k, v] of Object.entries(parsed)) if (typeof v === 'string') out[k] = v
+    return out
+  } catch {
+    return {}
+  }
+}
+
+export function useNotes() {
+  const [notes, setNotes] = useState<Record<string, string>>(() => readNotes())
+
+  const setNote = useCallback((id: string, text: string) => {
+    setNotes(prev => {
+      const next = { ...prev }
+      if (text.trim()) next[id] = text
+      else delete next[id]
+      try { localStorage.setItem(NOTES_KEY, JSON.stringify(next)) } catch { /* quota / disabled */ }
+      return next
+    })
+  }, [])
+
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === NOTES_KEY) setNotes(readNotes())
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [])
+
+  return { notes, setNote }
 }
