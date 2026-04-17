@@ -81,7 +81,7 @@ const MODEL_BADGE: Record<string, string> = {
 function CacheEfficiencyCard({ rows, onOpenSession }: { rows: SessionCacheStats[]; onOpenSession: (id: string) => void }) {
   if (rows.length === 0) return null
   return (
-    <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
+    <Card>
       <div className="flex items-center justify-between mb-4">
         <div>
           <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Cache Efficiency by Session</h3>
@@ -117,7 +117,7 @@ function CacheEfficiencyCard({ rows, onOpenSession }: { rows: SessionCacheStats[
           )
         })}
       </div>
-    </div>
+    </Card>
   )
 }
 
@@ -394,14 +394,14 @@ function EfficiencyPanel({ breakdown, antiPatterns }: { breakdown: BashCategory[
 
 function InterruptCard({ stats, onOpenSession }: { stats: InterruptStats; onOpenSession: (id: string) => void }) {
   if (stats.totalInterrupts === 0) return (
-    <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
+    <Card>
       <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">Interrupt / Abort Rate</h3>
       <p className="text-sm text-emerald-600 dark:text-emerald-400 font-medium">No interrupted sessions found.</p>
-    </div>
+    </Card>
   )
 
   return (
-    <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
+    <Card>
       <div className="flex items-start justify-between mb-4">
         <div>
           <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Interrupt / Abort Rate</h3>
@@ -448,19 +448,19 @@ function InterruptCard({ stats, onOpenSession }: { stats: InterruptStats; onOpen
           </div>
         </div>
       </div>
-    </div>
+    </Card>
   )
 }
 
 function ThrashCard({ sessions, onOpenSession }: { sessions: ThrashSession[]; onOpenSession: (id: string) => void }) {
   if (sessions.length === 0) return (
-    <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
+    <Card>
       <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">Loop / Thrash Detection</h3>
       <p className="text-sm text-emerald-600 dark:text-emerald-400 font-medium">No thrashing detected — no tool called 3+ times with the same argument.</p>
-    </div>
+    </Card>
   )
   return (
-    <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
+    <Card>
       <div className="flex items-center justify-between mb-4">
         <div>
           <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Loop / Thrash Detection</h3>
@@ -494,7 +494,7 @@ function ThrashCard({ sessions, onOpenSession }: { sessions: ThrashSession[]; on
           </button>
         ))}
       </div>
-    </div>
+    </Card>
   )
 }
 
@@ -502,7 +502,7 @@ function ToolErrorsCard({ stats }: { stats: ToolErrorStats }) {
   const maxErrors = Math.max(...stats.rows.map(r => r.errors), 1)
   const overallPct = (stats.overallRate * 100).toFixed(1)
   return (
-    <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
+    <Card>
       <div className="flex items-start justify-between mb-4">
         <div>
           <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Tool Error Rate</h3>
@@ -547,7 +547,7 @@ function ToolErrorsCard({ stats }: { stats: ToolErrorStats }) {
           })}
         </div>
       )}
-    </div>
+    </Card>
   )
 }
 
@@ -555,7 +555,7 @@ function BashBreakdownCard({ breakdown }: { breakdown: BashCategory[] }) {
   const total = breakdown.reduce((s, c) => s + c.count, 0)
   const max = Math.max(...breakdown.map(c => c.count), 1)
   return (
-    <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
+    <Card>
       <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wide mb-4">
         Bash Usage  <span className="text-gray-400 dark:text-gray-600 normal-case font-normal">{total} lines</span>
       </h3>
@@ -574,7 +574,7 @@ function BashBreakdownCard({ breakdown }: { breakdown: BashCategory[] }) {
           )
         })}
       </div>
-    </div>
+    </Card>
   )
 }
 
@@ -594,7 +594,7 @@ function WorkflowTipsCard({ antiPatterns }: { antiPatterns: BashAntiPattern[] })
   }
 
   return (
-    <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
+    <Card>
       <div className="flex items-start justify-between mb-1">
         <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wide">
           Context Waste
@@ -669,7 +669,7 @@ function WorkflowTipsCard({ antiPatterns }: { antiPatterns: BashAntiPattern[] })
           </div>
         </>
       )}
-    </div>
+    </Card>
   )
 }
 
@@ -691,7 +691,7 @@ function SkillsCard({ skillUsage, agents }: { skillUsage: SkillUsage[]; agents: 
   const maxAgent = Math.max(...agents.map(a => a.count), 1)
 
   return (
-    <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5 flex flex-col gap-5">
+    <Card className="flex flex-col gap-5">
       {/* Skills used */}
       <div>
         <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wide mb-3">
@@ -740,13 +740,13 @@ function SkillsCard({ skillUsage, agents }: { skillUsage: SkillUsage[]; agents: 
           </div>
         </div>
       )}
-    </div>
+    </Card>
   )
 }
 
 function SkillGapsCard({ gaps }: { gaps: SkillGap[] }) {
   return (
-    <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
+    <Card>
       <div className="flex items-center justify-between mb-1">
         <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wide">
           Skill Gaps
@@ -778,7 +778,7 @@ function SkillGapsCard({ gaps }: { gaps: SkillGap[] }) {
           ))}
         </div>
       )}
-    </div>
+    </Card>
   )
 }
 
@@ -820,7 +820,7 @@ function ActivityHeatmapCard({ cells }: { cells: HeatmapCell[] }) {
   const dowLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
   return (
-    <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
+    <Card>
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
           Activity <span className="font-normal text-gray-400">— last {weeks.length} weeks</span>
@@ -868,7 +868,7 @@ function ActivityHeatmapCard({ cells }: { cells: HeatmapCell[] }) {
           </div>
         </div>
       </div>
-    </div>
+    </Card>
   )
 }
 
@@ -876,7 +876,7 @@ function SlowestToolsCard({ calls, onOpenSession }: { calls: SlowToolCall[]; onO
   if (calls.length === 0) return null
   const max = Math.max(...calls.map(c => c.durationMs), 1)
   return (
-    <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
+    <Card>
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Slowest Tool Calls</h3>
         <span className="text-[10px] text-gray-400 dark:text-gray-600">click to jump</span>
@@ -898,7 +898,7 @@ function SlowestToolsCard({ calls, onOpenSession }: { calls: SlowToolCall[]; onO
       <p className="text-[10px] text-gray-400 dark:text-gray-600 mt-3 leading-relaxed">
         Duration = time between the tool call and its result. Long runs usually mean long-running Bash, large WebFetch, or nested Agent work.
       </p>
-    </div>
+    </Card>
   )
 }
 
@@ -906,7 +906,7 @@ function ThinkingDepthCard({ stats, onOpenSession }: { stats: ThinkingStats; onO
   if (stats.deepest.length === 0) return null
   const max = Math.max(...stats.deepest.map(r => r.thinkingBlocks), 1)
   return (
-    <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
+    <Card>
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Deepest Thinking Sessions</h3>
         <span className="text-[10px] text-gray-400 dark:text-gray-600">
@@ -934,14 +934,14 @@ function ThinkingDepthCard({ stats, onOpenSession }: { stats: ThinkingStats; onO
       <p className="text-[10px] text-gray-400 dark:text-gray-600 mt-3 leading-relaxed">
         Claude 4.x emits thinking blocks during multi-step reasoning. These tokens are <em>billed by Anthropic</em> but are <strong>not</strong> included in the session's reported <code className="font-mono">usage.output_tokens</code> — cclens's cost estimate is low for these sessions. See <a className="text-indigo-400 hover:underline" href="https://github.com/anthropics/claude-code/issues/31143" target="_blank" rel="noreferrer">anthropics/claude-code#31143</a>.
       </p>
-    </div>
+    </Card>
   )
 }
 
 function ContextHotspotsCard({ stats, onOpenSession }: { stats: ContextHotspotStats; onOpenSession: (id: string, turnId?: string) => void }) {
   if (stats.rows.length === 0) return null
   return (
-    <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
+    <Card>
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Context Window Hotspots</h3>
         <div className="flex items-center gap-3">
@@ -983,22 +983,22 @@ function ContextHotspotsCard({ stats, onOpenSession }: { stats: ContextHotspotSt
       <p className="text-[10px] text-gray-400 dark:text-gray-600 mt-3 leading-relaxed">
         Peak = max of <span className="font-mono">input + cache_read + cache_create</span> across assistant turns — the closest the session ever got to its context limit. Claude Code auto-compacts near ~95%.
       </p>
-    </div>
+    </Card>
   )
 }
 
 function McpServersCard({ servers }: { servers: McpServerUsage[] }) {
   if (servers.length === 0) {
     return (
-      <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
+      <Card>
         <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">MCP Servers</h3>
         <p className="text-xs text-gray-500 dark:text-gray-400">No MCP tool calls found in this range.</p>
-      </div>
+      </Card>
     )
   }
   const total = servers.reduce((s, v) => s + v.count, 0)
   return (
-    <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
+    <Card>
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">MCP Servers</h3>
         <span className="text-[10px] text-gray-400 dark:text-gray-600">{total} calls · {servers.length} server{servers.length === 1 ? '' : 's'}</span>
@@ -1023,14 +1023,14 @@ function McpServersCard({ servers }: { servers: McpServerUsage[] }) {
           </div>
         ))}
       </div>
-    </div>
+    </Card>
   )
 }
 
 function MultiFileSessionsCard({ sessions, onOpenSession }: { sessions: MultiFileSession[]; onOpenSession: (id: string) => void }) {
   if (sessions.length === 0) return null
   return (
-    <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
+    <Card>
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Most Files Touched</h3>
         <span className="text-xs text-gray-400 dark:text-gray-600">by session</span>
@@ -1063,14 +1063,14 @@ function MultiFileSessionsCard({ sessions, onOpenSession }: { sessions: MultiFil
           </button>
         ))}
       </div>
-    </div>
+    </Card>
   )
 }
 
 function HotFilesCard({ files }: { files: HotFile[] }) {
   const max = Math.max(...files.map(f => f.totalOps), 1)
   return (
-    <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
+    <Card>
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Most Edited Files</h3>
         <span className="text-xs text-gray-400 dark:text-gray-600">{files.length} files</span>
@@ -1099,7 +1099,7 @@ function HotFilesCard({ files }: { files: HotFile[] }) {
           </div>
         ))}
       </div>
-    </div>
+    </Card>
   )
 }
 
@@ -1361,7 +1361,7 @@ export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; 
         <div className="flex flex-col gap-5">
           <div className="grid grid-cols-2 gap-5">
             {/* Task Types */}
-            <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
+            <Card>
               <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-4">Task Types</h3>
               <div className="flex flex-col gap-3">
                 {tasks.map(({ type, count }) => {
@@ -1379,13 +1379,13 @@ export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; 
                   )
                 })}
               </div>
-            </div>
+            </Card>
 
             {/* Activity charts stacked */}
             <div className="flex flex-col gap-3">
               <ActivityHeatmapCard cells={heatmap} />
 
-              <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
+              <Card>
                 <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">By Hour of Day</h3>
                 <div className="relative h-16 flex items-end gap-px">
                   {hourActivity.map(h => {
@@ -1405,13 +1405,13 @@ export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; 
                   <span className="text-[10px] text-gray-400 dark:text-gray-700">12h</span>
                   <span className="text-[10px] text-gray-400 dark:text-gray-700">23h</span>
                 </div>
-              </div>
+              </Card>
             </div>
           </div>
 
           {/* Top Tools + Trend */}
           <div className={range === 'all' ? 'grid grid-cols-2 gap-5' : 'grid grid-cols-1 gap-5'}>
-            <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
+            <Card>
               <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-4">Top Tools</h3>
               <div className="flex flex-col gap-2">
                 {topTools.slice(0, 8).map(tool => (
@@ -1431,10 +1431,10 @@ export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; 
                   </div>
                 ))}
               </div>
-            </div>
+            </Card>
 
             {range === 'all' && (
-            <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
+            <Card>
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Monthly Trend</h3>
                 <span className="text-xs text-gray-400 dark:text-gray-600">{trend.label}</span>
@@ -1467,7 +1467,7 @@ export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; 
                   )
                 })}
               </div>
-            </div>
+            </Card>
             )}
           </div>
 
@@ -1513,9 +1513,9 @@ export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; 
             <MultiFileSessionsCard sessions={multiFileSess} onOpenSession={id => onOpenSession(id)} />
             <HotFilesCard files={files} />
           </div>
-          <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
+          <Card>
             <ProjectTree projects={projects} sessions={sessions} onOpenSession={onOpenSession} />
-          </div>
+          </Card>
         </div>
       )}
 
