@@ -3,7 +3,48 @@ import type {
   SessionType, TotalUsage, ModelUsageRow, BashAntiPattern,
   SlowToolCall, SkillUsage, SkillGap, McpServerUsage, HotFile, ToolErrorStats,
 } from '../../src/analyzer'
+import { sessionCostUSD } from '../../src/analyzer'
 import { fmt, fmtDuration, fmtUSD, fmtTokenCount, fmtToolDuration } from './format'
+
+// ── CSV helpers ───────────────────────────────────────────────────────────────
+
+function csvCell(v: string | number): string {
+  const s = String(v)
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+}
+
+function toCsv(rows: (string | number)[][]): string {
+  return rows.map(r => r.map(csvCell).join(',')).join('\n')
+}
+
+export function exportDailyCostCSV(dailySeries: { date: string; costUSD: number }[]) {
+  const rows: (string | number)[][] = [['date', 'cost_usd']]
+  for (const d of dailySeries) rows.push([d.date, d.costUSD.toFixed(6)])
+  const today = new Date().toISOString().slice(0, 10)
+  downloadBlob(toCsv(rows), 'text/csv', `cclens-daily-cost-${today}.csv`)
+}
+
+export function exportSessionsCSV(sessions: Session[]) {
+  const rows: (string | number)[][] = [[
+    'session_id', 'project', 'project_path', 'git_branch',
+    'started_at', 'ended_at', 'duration_ms',
+    'turns', 'tool_calls',
+    'input_tokens', 'output_tokens', 'cache_create_tokens', 'cache_read_tokens',
+    'cost_usd',
+  ]]
+  for (const s of sessions) {
+    rows.push([
+      s.id, s.project, s.projectPath, s.gitBranch ?? '',
+      s.startedAt, s.endedAt, s.durationMs,
+      s.turns.length, s.stats.toolCallCount,
+      s.stats.usage.inputTokens, s.stats.usage.outputTokens,
+      s.stats.usage.cacheCreateTokens, s.stats.usage.cacheReadTokens,
+      sessionCostUSD(s).toFixed(6),
+    ])
+  }
+  const today = new Date().toISOString().slice(0, 10)
+  downloadBlob(toCsv(rows), 'text/csv', `cclens-sessions-${today}.csv`)
+}
 
 // ── Session → Markdown ────────────────────────────────────────────────────────
 

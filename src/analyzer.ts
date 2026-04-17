@@ -713,7 +713,7 @@ export function costOfUsage(u: AggregatedUsage, model: string): number {
   )
 }
 
-function sessionCostUSD(s: Session): number {
+export function sessionCostUSD(s: Session): number {
   let total = 0
   for (const [model, u] of Object.entries(s.stats.modelUsage)) total += costOfUsage(u, model)
   return total

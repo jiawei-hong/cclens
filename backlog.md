@@ -29,9 +29,6 @@ Move items up into "Next up" when ready to work on them; delete when shipped.
 - [ ] **Session notes**
   Add a freetext note to any session, persisted in `localStorage`. Shows up
   in the session list as a subtitle. Low effort, high recall value.
-- [ ] **CSV export for cost data**
-  Export the daily cost series and per-session stats as CSV so power users can
-  pull into a spreadsheet. Complements the existing MD/HTML export.
 - [ ] **Diff viewer: side-by-side mode**
   Current `EditDiffView` is stacked (removed then added). Add a toggle for
   side-by-side. Easier to read for multi-line edits.

@@ -4,7 +4,7 @@ import type { SessionType, BashAntiPattern, BashCategory, SkillUsage, SkillGap, 
 import type { Session, ProjectSummary } from '../../src/types'
 import { fmt, fmtDuration, fmtPace, fmtToolDuration, fmtTokenCount, fmtUSD, fmtChars, fmtTokensFromChars } from '../lib/format'
 import { toolColor, toolTickColor, taskTypeColor, taskTypeBar, TASK_DESCRIPTIONS } from '../lib/colors'
-import { exportInsightsAsMarkdown } from '../lib/exports'
+import { exportInsightsAsMarkdown, exportDailyCostCSV, exportSessionsCSV } from '../lib/exports'
 import { Tooltip, FileIcon } from '../lib/ui'
 
 // ── Workflow Insight Cards ────────────────────────────────────────────────────
@@ -119,7 +119,7 @@ function CacheEfficiencyCard({ rows, onOpenSession }: { rows: SessionCacheStats[
   )
 }
 
-function CostPanel({ usage, modelRows, dailySeries, maxDailyCost, hasData, dailySeriesDays, costByTask, thinking }: {
+function CostPanel({ usage, modelRows, dailySeries, maxDailyCost, hasData, dailySeriesDays, costByTask, thinking, sessions }: {
   usage: TotalUsage
   modelRows: ModelUsageRow[]
   dailySeries: { date: string; costUSD: number }[]
@@ -128,6 +128,7 @@ function CostPanel({ usage, modelRows, dailySeries, maxDailyCost, hasData, daily
   dailySeriesDays: number
   costByTask: CostByTaskRow[]
   thinking: ThinkingStats
+  sessions: Session[]
 }) {
   if (!hasData) {
     return (
@@ -150,6 +151,16 @@ function CostPanel({ usage, modelRows, dailySeries, maxDailyCost, hasData, daily
 
   return (
     <div className="flex flex-col gap-5">
+      <div className="flex justify-end gap-2">
+        <button onClick={() => exportDailyCostCSV(dailySeries)}
+          className="text-xs px-2.5 py-1 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 rounded-lg transition-colors">
+          ↓ Daily cost CSV
+        </button>
+        <button onClick={() => exportSessionsCSV(sessions)}
+          className="text-xs px-2.5 py-1 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 rounded-lg transition-colors">
+          ↓ Per-session CSV
+        </button>
+      </div>
       {thinking.totalBlocks > 0 && (
         <div className="bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded-2xl px-4 py-3 text-[11px] text-amber-900 dark:text-amber-200 leading-relaxed">
           <strong>Cost is under-reported for sessions with extended thinking.</strong>{' '}
@@ -1505,7 +1516,7 @@ export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; 
       {/* ── Cost ── */}
       {insightTab === 'cost' && (
         <div className="flex flex-col gap-5">
-          <CostPanel usage={usage} modelRows={modelRows} dailySeries={dailyCostSeries} maxDailyCost={maxDailyCost} hasData={hasUsageData} dailySeriesDays={costSeriesDays} costByTask={costByTask} thinking={thinking} />
+          <CostPanel usage={usage} modelRows={modelRows} dailySeries={dailyCostSeries} maxDailyCost={maxDailyCost} hasData={hasUsageData} dailySeriesDays={costSeriesDays} costByTask={costByTask} thinking={thinking} sessions={filtered} />
           <CacheEfficiencyCard rows={cacheRanking} onOpenSession={id => onOpenSession(id)} />
         </div>
       )}
