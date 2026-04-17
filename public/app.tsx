@@ -8,7 +8,6 @@ import { InsightsTab } from './tabs/InsightsTab'
 import { SearchTab } from './tabs/SearchTab'
 import { MemoryTab } from './tabs/MemoryTab'
 import { SessionsTab } from './tabs/SessionsTab'
-import { DesignSystemTab } from './tabs/DesignSystemTab'
 
 // ── Theme ─────────────────────────────────────────────────────────────────────
 
@@ -206,7 +205,7 @@ function NavTab({ label, active, onClick }: { label: string; active: boolean; on
 
 // ── App ───────────────────────────────────────────────────────────────────────
 
-type Tab = 'insights' | 'sessions' | 'search' | 'memory' | 'ds'
+type Tab = 'insights' | 'sessions' | 'search' | 'memory'
 
 function ScrollToTopButton() {
   const [visible, setVisible] = useState(false)
@@ -300,7 +299,6 @@ function App() {
         {memory.length > 0 && (
           <NavTab label="Memory" active={tab === 'memory'} onClick={() => setTab('memory')} />
         )}
-        <NavTab label="DS" active={tab === 'ds'} onClick={() => setTab('ds')} />
         <div className="ml-auto flex items-center gap-3">
           <ThemeToggle theme={theme} setTheme={setTheme} />
           <button onClick={() => { setSessions(null); setMemory([]) }} className="text-xs text-gray-500 dark:text-gray-600 hover:text-gray-600 dark:hover:text-gray-400 transition-colors">
@@ -314,7 +312,6 @@ function App() {
         {tab === 'sessions' && <SessionsTab sessions={sessions} initialSessionId={selectedSessionId} scrollToTurnId={selectedTurnId} />}
         {tab === 'search' && <SearchTab sessions={sessions} onOpenSession={openSession} />}
         {tab === 'memory' && <MemoryTab memory={memory} />}
-        {tab === 'ds' && <DesignSystemTab />}
       </main>
       <ScrollToTopButton />
     </div>
