@@ -235,6 +235,37 @@ function CostPanel({ usage, modelRows, dailySeries, maxDailyCost, hasData, daily
           })}
         </div>
       </div>
+
+      {/* Cost projection */}
+      <CostProjectionCard dailySeries={dailySeries} dailySeriesDays={dailySeriesDays} />
+    </div>
+  )
+}
+
+function CostProjectionCard({ dailySeries, dailySeriesDays }: { dailySeries: { date: string; costUSD: number }[]; dailySeriesDays: number }) {
+  const totalRecent = dailySeries.reduce((s, d) => s + d.costUSD, 0)
+  const avgDaily = dailySeriesDays > 0 ? totalRecent / dailySeriesDays : 0
+  if (avgDaily === 0) return null
+  return (
+    <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
+      <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">Cost Projection <span className="font-normal text-gray-400">— if the last {dailySeriesDays} days continue</span></h3>
+      <div className="grid grid-cols-3 gap-4">
+        <div>
+          <p className="text-[10px] text-gray-400 dark:text-gray-600 uppercase tracking-wide">Avg / Day</p>
+          <p className="text-xl font-bold text-gray-900 dark:text-gray-100 mt-1 tabular-nums">{fmtUSD(avgDaily)}</p>
+        </div>
+        <div>
+          <p className="text-[10px] text-gray-400 dark:text-gray-600 uppercase tracking-wide">Projected / Month</p>
+          <p className="text-xl font-bold text-gray-900 dark:text-gray-100 mt-1 tabular-nums">{fmtUSD(avgDaily * 30)}</p>
+        </div>
+        <div>
+          <p className="text-[10px] text-gray-400 dark:text-gray-600 uppercase tracking-wide">Projected / Year</p>
+          <p className="text-xl font-bold text-gray-900 dark:text-gray-100 mt-1 tabular-nums">{fmtUSD(avgDaily * 365)}</p>
+        </div>
+      </div>
+      <p className="text-[10px] text-gray-400 dark:text-gray-600 mt-3 leading-relaxed">
+        Linear extrapolation from the calendar-day average. Does not account for thinking-mode underreporting or fast-mode pricing.
+      </p>
     </div>
   )
 }

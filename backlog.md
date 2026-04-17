@@ -13,9 +13,6 @@ Move items up into "Next up" when ready to work on them; delete when shipped.
   Click a tool name in the Insights breakdown to open a filtered view of every
   call of that type across all sessions — input args, result, duration. Current
   cards show counts only.
-- [ ] **Cost projection**
-  Given N sessions/week at average cost C, project monthly and yearly spend.
-  Show as a callout in the Cost tab. Pure arithmetic on existing data.
 ## 🐛 Accuracy / correctness
 - [ ] **Fast mode pricing not detected**
   Opus 4.6 fast mode is billed at 6× standard. No obvious signal in the
