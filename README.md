@@ -69,7 +69,7 @@ open ~/.claude/projects
 ## Tech stack
 
 - **Runtime:** [Bun](https://bun.sh) — serves the app and bundles TSX on the fly
-- **UI:** React 19 + Tailwind CSS (CDN)
+- **UI:** React 19 + Tailwind CSS (CDN in dev for instant HMR; compiled via `@tailwindcss/cli` for `bun run build`)
 - **Parsing:** Client-side `.jsonl` parser using the File System Access API
 - **Markdown:** [react-markdown](https://github.com/remarkjs/react-markdown)
 - **No database, no backend analysis** — everything runs in the browser

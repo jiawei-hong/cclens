@@ -18,10 +18,12 @@
     "react-markdown": "^10.1.0"
   },
   "devDependencies": {
+    "@tailwindcss/cli": "^4.2.2",
     "@types/bun": "latest",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "@types/wicg-file-system-access": "^2023.10.7"
+    "@types/wicg-file-system-access": "^2023.10.7",
+    "tailwindcss": "^4.2.2"
   },
   "peerDependencies": {
     "typescript": "^5"

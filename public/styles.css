@@ -1,0 +1,10 @@
+@import "tailwindcss";
+
+/* Scan the whole frontend tree for utility classes. Paths are resolved
+   relative to this file (which lives in public/). */
+@source "./**/*.{tsx,ts,html}";
+
+/* Preserve the legacy `darkMode: 'class'` behaviour — the app toggles the
+   `.dark` class on <html> at boot (see index.html). Without this override
+   Tailwind v4 defaults to the `prefers-color-scheme` media strategy. */
+@custom-variant dark (&:where(.dark, .dark *));
