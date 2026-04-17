@@ -4,8 +4,8 @@ import Markdown from 'react-markdown'
 import { RiSunLine, RiMoonLine, RiComputerLine, RiTimeLine, RiTerminalLine, RiChat3Line, RiFlashlightLine, RiFileCodeLine, RiArrowUpLine } from 'react-icons/ri'
 import { SiTypescript, SiJavascript, SiPython, SiRust, SiGo, SiRuby, SiPhp, SiSwift, SiKotlin, SiCplusplus, SiC, SiHtml5, SiCss, SiMarkdown, SiJson, SiYaml, SiShell, SiReact, SiVuedotjs, SiSvelte, SiDart, SiScala, SiElixir, SiHaskell, SiLua, SiDocker, SiPrisma } from 'react-icons/si'
 import { parseSessionFiles, parseMemoryFiles, type TrackedFile } from './lib/parser'
-import { summarizeProjects, globalToolStats, activityByHour, sessionDepthStats, taskBreakdown, trendStats, bashAntiPatterns, bashCommandBreakdown, skillUsageStats, skillGaps, agentBreakdown, hotFiles, totalUsage, usageByModel, dailyCost, toolErrorRates, activityHeatmap } from '../src/analyzer'
-import type { SessionType, BashAntiPattern, BashCategory, SkillUsage, SkillGap, AgentTypeUsage, HotFile, TotalUsage, ModelUsageRow, ToolErrorStats, HeatmapCell } from '../src/analyzer'
+import { summarizeProjects, globalToolStats, activityByHour, sessionDepthStats, taskBreakdown, trendStats, bashAntiPatterns, bashCommandBreakdown, skillUsageStats, skillGaps, agentBreakdown, hotFiles, totalUsage, usageByModel, dailyCost, toolErrorRates, activityHeatmap, slowestToolCalls, mcpUsageStats } from '../src/analyzer'
+import type { SessionType, BashAntiPattern, BashCategory, SkillUsage, SkillGap, AgentTypeUsage, HotFile, TotalUsage, ModelUsageRow, ToolErrorStats, HeatmapCell, SlowToolCall, McpServerUsage } from '../src/analyzer'
 import { search as searchSessions } from '../src/searcher'
 import type { Session, ProjectSummary, SearchResult, MemoryEntry, MemoryEntryType } from '../src/types'
 
@@ -46,6 +46,30 @@ const TOOL_COLORS: Record<string, string> = {
   WebSearch: 'bg-orange-100 text-orange-700 dark:bg-orange-500/20 dark:text-orange-300',
 }
 const toolColor = (name: string) => TOOL_COLORS[name] ?? 'bg-gray-100 text-gray-700 dark:bg-gray-500/20 dark:text-gray-300'
+
+const TOOL_TICK_COLORS: Record<string, string> = {
+  Bash: 'bg-violet-500',
+  Read: 'bg-blue-500',
+  Write: 'bg-emerald-500',
+  Edit: 'bg-amber-500',
+  Grep: 'bg-rose-500',
+  Glob: 'bg-cyan-500',
+  Agent: 'bg-pink-500',
+  WebFetch: 'bg-orange-500',
+  WebSearch: 'bg-orange-500',
+}
+const toolTickColor = (name: string) => {
+  if (name.startsWith('mcp__')) return 'bg-fuchsia-500'
+  return TOOL_TICK_COLORS[name] ?? 'bg-gray-400'
+}
+
+function fmtToolDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`
+  const m = Math.floor(ms / 60_000)
+  const s = Math.round((ms % 60_000) / 1000)
+  return s > 0 ? `${m}m ${s}s` : `${m}m`
+}
 
 const TASK_COLORS: Record<SessionType, string> = {
   coding: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300',
@@ -427,7 +451,7 @@ function CostPanel({ usage, modelRows, dailySeries, maxDailyCost, hasData, daily
           <div className="flex flex-col gap-2.5">
             {modelRows.map(m => (
               <div key={m.model} className="flex items-center gap-3">
-                <span title={m.model} className={`text-[11px] px-2 py-0.5 rounded font-mono w-20 text-center shrink-0 truncate ${MODEL_BADGE[m.shortLabel] ?? MODEL_BADGE.other}`}>{m.versionLabel}</span>
+                <span title={m.model} className={`text-[11px] px-2 py-0.5 rounded font-mono w-24 text-center shrink-0 truncate ${MODEL_BADGE[m.shortLabel] ?? MODEL_BADGE.other}`}>{m.versionLabel}</span>
                 <div className="flex-1 bg-gray-100 dark:bg-gray-800 rounded-full h-1.5">
                   <div className="bg-indigo-500 h-1.5 rounded-full" style={{ width: `${(m.costUSD / topModelCost) * 100}%` }} />
                 </div>
@@ -1018,6 +1042,132 @@ function ActivityHeatmapCard({ cells }: { cells: HeatmapCell[] }) {
   )
 }
 
+function SlowestToolsCard({ calls, onOpenSession }: { calls: SlowToolCall[]; onOpenSession: (id: string, turnId?: string) => void }) {
+  if (calls.length === 0) return null
+  const max = Math.max(...calls.map(c => c.durationMs), 1)
+  return (
+    <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Slowest Tool Calls</h3>
+        <span className="text-[10px] text-gray-400 dark:text-gray-600">click to jump</span>
+      </div>
+      <div className="flex flex-col gap-2">
+        {calls.map((c, i) => (
+          <button key={i}
+            onClick={() => onOpenSession(c.sessionId, c.turnUuid)}
+            className="flex items-center gap-3 text-left hover:bg-gray-50 dark:hover:bg-gray-800/60 rounded-lg px-2 py-1.5 -mx-2 transition-colors">
+            <span className={`text-xs px-2 py-0.5 rounded font-mono w-20 text-center shrink-0 truncate ${toolColor(c.toolName)}`}>{c.toolName}</span>
+            <span className="flex-1 text-xs text-gray-600 dark:text-gray-400 font-mono truncate">{c.preview || <span className="text-gray-400 dark:text-gray-600">—</span>}</span>
+            <div className="w-24 bg-gray-100 dark:bg-gray-800 rounded-full h-1.5 shrink-0">
+              <div className={`h-1.5 rounded-full ${c.isError ? 'bg-rose-500' : 'bg-indigo-500'}`} style={{ width: `${(c.durationMs / max) * 100}%` }} />
+            </div>
+            <span className="text-xs text-gray-900 dark:text-gray-100 tabular-nums font-medium w-14 text-right shrink-0">{fmtToolDuration(c.durationMs)}</span>
+          </button>
+        ))}
+      </div>
+      <p className="text-[10px] text-gray-400 dark:text-gray-600 mt-3 leading-relaxed">
+        Duration = time between the tool call and its result. Long runs usually mean long-running Bash, large WebFetch, or nested Agent work.
+      </p>
+    </div>
+  )
+}
+
+function McpServersCard({ servers }: { servers: McpServerUsage[] }) {
+  if (servers.length === 0) {
+    return (
+      <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
+        <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">MCP Servers</h3>
+        <p className="text-xs text-gray-500 dark:text-gray-400">No MCP tool calls found in this range.</p>
+      </div>
+    )
+  }
+  const total = servers.reduce((s, v) => s + v.count, 0)
+  return (
+    <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">MCP Servers</h3>
+        <span className="text-[10px] text-gray-400 dark:text-gray-600">{total} calls · {servers.length} server{servers.length === 1 ? '' : 's'}</span>
+      </div>
+      <div className="flex flex-col gap-3">
+        {servers.map(s => (
+          <div key={s.server} className="flex flex-col gap-1">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium text-gray-900 dark:text-gray-100 font-mono truncate">{s.server}</span>
+              <div className="flex-1 bg-gray-100 dark:bg-gray-800 rounded-full h-1.5">
+                <div className="bg-fuchsia-500 h-1.5 rounded-full" style={{ width: `${(s.count / total) * 100}%` }} />
+              </div>
+              <span className="text-xs text-gray-500 dark:text-gray-400 tabular-nums w-16 text-right shrink-0">{s.count} × {s.sessionCount}s</span>
+            </div>
+            <div className="flex flex-wrap gap-1 pl-1">
+              {s.tools.map(t => (
+                <span key={t.name} className="text-[10px] px-1.5 py-0.5 rounded bg-fuchsia-50 dark:bg-fuchsia-500/10 text-fuchsia-700 dark:text-fuchsia-300 font-mono">
+                  {t.name} ×{t.count}
+                </span>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function SessionTimeline({ session }: { session: Session }) {
+  const start = new Date(session.startedAt).getTime()
+  const end = new Date(session.endedAt).getTime()
+  const span = Math.max(end - start, 1)
+  const events: { turnUuid: string; toolName: string; ts: number; pct: number }[] = []
+  for (const turn of session.turns) {
+    const ts = new Date(turn.timestamp).getTime()
+    const pct = Math.max(0, Math.min(100, ((ts - start) / span) * 100))
+    for (const tc of turn.toolCalls) {
+      events.push({ turnUuid: turn.uuid, toolName: tc.name, ts, pct })
+    }
+  }
+  if (events.length === 0) return null
+
+  const scrollToTurn = (turnUuid: string) => {
+    const el = document.getElementById(`turn-${turnUuid}`)
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }
+
+  // Legend: unique tool names in play, limited
+  const counts: Record<string, number> = {}
+  for (const e of events) counts[e.toolName] = (counts[e.toolName] ?? 0) + 1
+  const legend = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 6)
+
+  return (
+    <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl px-5 py-4">
+      <div className="flex items-center justify-between mb-2">
+        <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Timeline</h3>
+        <span className="text-[10px] text-gray-400 dark:text-gray-600">{events.length} tool calls · span {fmtDuration(end - start)}</span>
+      </div>
+      <div className="relative h-8 bg-gray-100 dark:bg-gray-800 rounded-lg overflow-hidden">
+        {events.map((e, i) => (
+          <button key={i}
+            onClick={() => scrollToTurn(e.turnUuid)}
+            title={`${e.toolName} · ${new Date(e.ts).toLocaleTimeString()}`}
+            className={`absolute top-1 bottom-1 w-[2px] rounded-sm ${toolTickColor(e.toolName)} opacity-70 hover:opacity-100 hover:w-[3px] transition-all cursor-pointer`}
+            style={{ left: `${e.pct}%` }}
+          />
+        ))}
+      </div>
+      <div className="flex items-center justify-between mt-1.5">
+        <span className="text-[10px] text-gray-400 dark:text-gray-600 tabular-nums">{new Date(start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+        <div className="flex items-center gap-2 flex-wrap justify-center">
+          {legend.map(([name, n]) => (
+            <span key={name} className="flex items-center gap-1 text-[10px] text-gray-500 dark:text-gray-500">
+              <span className={`inline-block w-2 h-2 rounded-sm ${toolTickColor(name)}`} />
+              {name} <span className="text-gray-400 dark:text-gray-600 tabular-nums">{n}</span>
+            </span>
+          ))}
+        </div>
+        <span className="text-[10px] text-gray-400 dark:text-gray-600 tabular-nums">{new Date(end).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+      </div>
+    </div>
+  )
+}
+
 function HotFilesCard({ files }: { files: HotFile[] }) {
   const max = Math.max(...files.map(f => f.totalOps), 1)
 
@@ -1094,7 +1244,7 @@ function RangePicker({ range, setRange }: { range: DateRange; setRange: (r: Date
   )
 }
 
-function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; onOpenSession: (id: string) => void }) {
+function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; onOpenSession: (id: string, turnId?: string) => void }) {
   const [range, setRange] = useState<DateRange>('all')
   const filtered = React.useMemo(() => filterByRange(sessions, range), [sessions, range])
 
@@ -1115,6 +1265,8 @@ function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; onOpenS
   const costSeriesDays = range === 'all' ? 30 : RANGE_DAYS[range]
   const dailyCostSeries = React.useMemo(() => dailyCost(filtered, costSeriesDays), [filtered, costSeriesDays])
   const errorStats = React.useMemo(() => toolErrorRates(filtered), [filtered])
+  const slowCalls = React.useMemo(() => slowestToolCalls(filtered, 10), [filtered])
+  const mcpServers = React.useMemo(() => mcpUsageStats(filtered), [filtered])
   const heatmap = React.useMemo(() => activityHeatmap(sessions, 14), [sessions])  // fixed 14-week view
   const hasUsageData = usage.totalTokens > 0
   const maxHour = Math.max(...hourActivity.map(h => h.count), 1)
@@ -1165,7 +1317,7 @@ function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; onOpenS
         </div>
       </div>
 
-      {/* ── Sub-tab nav + range picker ── */}
+      {/* ── Sub-tab nav + range picker + export ── */}
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-1">
           {insightTabBtn('Overview', 'overview')}
@@ -1174,7 +1326,32 @@ function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; onOpenS
           {insightTabBtn('Skills', 'skills', gaps.length)}
           {insightTabBtn('Projects', 'projects')}
         </div>
-        <RangePicker range={range} setRange={setRange} />
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => exportInsightsAsMarkdown({
+              rangeLabel: range === 'all' ? 'All time' : `Last ${RANGE_DAYS[range]} days`,
+              sessionCount: filtered.length,
+              projectCount: projects.length,
+              totalToolCalls,
+              depth,
+              topTools,
+              tasks,
+              usage,
+              modelRows,
+              antiPatterns,
+              slowCalls,
+              skillUsage,
+              gaps,
+              mcpServers,
+              hotFiles: files,
+              errorStats,
+            })}
+            className="text-xs px-2.5 py-1 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 rounded-lg transition-colors"
+            title="Download the current insights view as a Markdown report">
+            ↓ Report
+          </button>
+          <RangePicker range={range} setRange={setRange} />
+        </div>
       </div>
 
       {/* ── Overview ── */}
@@ -1299,15 +1476,19 @@ function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; onOpenS
       {insightTab === 'efficiency' && (
         <div className="flex flex-col gap-5">
           <EfficiencyPanel breakdown={bashBreakdown} antiPatterns={antiPatterns} />
+          <SlowestToolsCard calls={slowCalls} onOpenSession={onOpenSession} />
           <ToolErrorsCard stats={errorStats} />
         </div>
       )}
 
       {/* ── Skills ── */}
       {insightTab === 'skills' && (
-        <div className="grid grid-cols-2 gap-5">
-          <SkillsCard skillUsage={skillUsage} agents={agents} />
-          <SkillGapsCard gaps={gaps} />
+        <div className="flex flex-col gap-5">
+          <div className="grid grid-cols-2 gap-5">
+            <SkillsCard skillUsage={skillUsage} agents={agents} />
+            <SkillGapsCard gaps={gaps} />
+          </div>
+          <McpServersCard servers={mcpServers} />
         </div>
       )}
 
@@ -1365,7 +1546,7 @@ function groupByParent(projects: ProjectSummary[]): ProjectGroup[] {
 function ProjectTree({ projects, sessions, onOpenSession }: {
   projects: ProjectSummary[]
   sessions: Session[]
-  onOpenSession: (id: string) => void
+  onOpenSession: (id: string, turnId?: string) => void
 }) {
   const groups = groupByParent(projects)
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
@@ -2011,6 +2192,8 @@ function SessionDetailView({ session, scrollToTurnId }: { session: Session; scro
         </div>
       </div>
 
+      <SessionTimeline session={session} />
+
       {/* Detail tab switcher */}
       <div className="flex gap-1">
         <button onClick={() => setDetailTab('conversation')}
@@ -2156,6 +2339,140 @@ function exportSessionAsMarkdown(session: Session) {
   const a = document.createElement('a')
   a.href = url
   a.download = `${session.project}-${session.id}.md`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+type InsightsExportInput = {
+  rangeLabel: string
+  sessionCount: number
+  projectCount: number
+  totalToolCalls: number
+  depth: { avgDurationMs: number; avgToolCalls: number; avgTurns: number }
+  topTools: { name: string; count: number }[]
+  tasks: { type: SessionType; count: number }[]
+  usage: TotalUsage
+  modelRows: ModelUsageRow[]
+  antiPatterns: BashAntiPattern[]
+  slowCalls: SlowToolCall[]
+  skillUsage: SkillUsage[]
+  gaps: SkillGap[]
+  mcpServers: McpServerUsage[]
+  hotFiles: HotFile[]
+  errorStats: ToolErrorStats
+}
+
+function exportInsightsAsMarkdown(data: InsightsExportInput) {
+  const L: string[] = []
+  const now = new Date()
+  L.push(`# Claude Code Insights — ${data.rangeLabel}`)
+  L.push(``)
+  L.push(`Generated ${now.toLocaleString()}`)
+  L.push(``)
+  L.push(`## Summary`)
+  L.push(``)
+  L.push(`| Metric | Value |`)
+  L.push(`| --- | --- |`)
+  L.push(`| Sessions | ${data.sessionCount.toLocaleString()} |`)
+  L.push(`| Projects | ${data.projectCount.toLocaleString()} |`)
+  L.push(`| Tool calls | ${data.totalToolCalls.toLocaleString()} |`)
+  L.push(`| Avg duration | ${fmtDuration(data.depth.avgDurationMs)} |`)
+  L.push(`| Avg tools / session | ${data.depth.avgToolCalls.toFixed(1)} |`)
+  L.push(`| Avg turns / session | ${data.depth.avgTurns.toFixed(1)} |`)
+  L.push(``)
+
+  if (data.usage.totalTokens > 0) {
+    L.push(`## Cost & tokens`)
+    L.push(``)
+    L.push(`- **Est. cost:** ${fmtUSD(data.usage.costUSD)}`)
+    L.push(`- **Total tokens:** ${fmtTokenCount(data.usage.totalTokens)}`)
+    L.push(`- **Cache hit rate:** ${(data.usage.cacheHitRate * 100).toFixed(1)}%`)
+    L.push(``)
+    if (data.modelRows.length > 0) {
+      L.push(`### By model`)
+      L.push(``)
+      L.push(`| Model | Tokens | Cost |`)
+      L.push(`| --- | ---: | ---: |`)
+      for (const m of data.modelRows) L.push(`| ${m.versionLabel} | ${fmtTokenCount(m.totalTokens)} | ${fmtUSD(m.costUSD)} |`)
+      L.push(``)
+    }
+  }
+
+  if (data.tasks.length > 0) {
+    L.push(`## Task types`)
+    L.push(``)
+    for (const t of data.tasks) {
+      const pct = Math.round((t.count / Math.max(data.sessionCount, 1)) * 100)
+      L.push(`- **${t.type}** — ${t.count} (${pct}%)`)
+    }
+    L.push(``)
+  }
+
+  if (data.topTools.length > 0) {
+    L.push(`## Top tools`)
+    L.push(``)
+    for (const t of data.topTools.slice(0, 10)) L.push(`- \`${t.name}\` — ${t.count}`)
+    L.push(``)
+  }
+
+  if (data.antiPatterns.length > 0) {
+    L.push(`## Bash anti-patterns`)
+    L.push(``)
+    L.push(`| Bash | Better tool | Count | Wasted chars |`)
+    L.push(`| --- | --- | ---: | ---: |`)
+    for (const p of data.antiPatterns) L.push(`| ${p.bashCmd} | ${p.betterTool} | ${p.count} | ${p.totalResultChars.toLocaleString()} |`)
+    L.push(``)
+  }
+
+  if (data.slowCalls.length > 0) {
+    L.push(`## Slowest tool calls`)
+    L.push(``)
+    for (const c of data.slowCalls) L.push(`- \`${c.toolName}\` — ${fmtToolDuration(c.durationMs)}${c.preview ? ` — ${c.preview}` : ''}`)
+    L.push(``)
+  }
+
+  if (data.errorStats.rows.length > 0) {
+    L.push(`## Tool errors`)
+    L.push(``)
+    L.push(`Overall error rate: ${(data.errorStats.overallRate * 100).toFixed(2)}% (${data.errorStats.totalErrors} / ${data.errorStats.totalCalls})`)
+    L.push(``)
+    for (const r of data.errorStats.rows) L.push(`- \`${r.name}\` — ${r.errors} errors / ${r.total} calls (${(r.errorRate * 100).toFixed(1)}%)`)
+    L.push(``)
+  }
+
+  if (data.skillUsage.length > 0) {
+    L.push(`## Skills used`)
+    L.push(``)
+    for (const s of data.skillUsage) L.push(`- \`/${s.name}\` — ${s.count}× across ${s.projectCount} project(s)`)
+    L.push(``)
+  }
+
+  if (data.gaps.length > 0) {
+    L.push(`## Skill suggestions`)
+    L.push(``)
+    for (const g of data.gaps) L.push(`- \`${g.skill}\` — ${g.description} (${g.evidence})`)
+    L.push(``)
+  }
+
+  if (data.mcpServers.length > 0) {
+    L.push(`## MCP servers`)
+    L.push(``)
+    for (const m of data.mcpServers) L.push(`- \`${m.server}\` — ${m.count} calls across ${m.sessionCount} session(s)`)
+    L.push(``)
+  }
+
+  if (data.hotFiles.length > 0) {
+    L.push(`## Hot files`)
+    L.push(``)
+    for (const f of data.hotFiles.slice(0, 10)) L.push(`- \`${f.path}\` — ${f.totalOps} ops (${f.editCount} edits, ${f.writeCount} writes)`)
+    L.push(``)
+  }
+
+  const blob = new Blob([L.join('\n')], { type: 'text/markdown' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `cclens-insights-${now.toISOString().slice(0, 10)}.md`
   a.click()
   URL.revokeObjectURL(url)
 }

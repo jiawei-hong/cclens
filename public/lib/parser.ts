@@ -37,8 +37,8 @@ export async function parseSessionFile(file: File): Promise<Session | null> {
   const messageEntries = entries.filter(e => e.type === 'user' || e.type === 'assistant')
   if (messageEntries.length === 0) return null
 
-  // Build tool result map
-  const toolResults: Record<string, { text: string; isError: boolean }> = {}
+  // Build tool result map (include the tool_result entry's timestamp for durations)
+  const toolResults: Record<string, { text: string; isError: boolean; resultAt: string }> = {}
   for (const entry of messageEntries) {
     const content = entry.message?.content
     if (!Array.isArray(content)) continue
@@ -46,7 +46,7 @@ export async function parseSessionFile(file: File): Promise<Session | null> {
       if (block.type === 'tool_result') {
         const b = block as { type: 'tool_result'; tool_use_id: string; content: string | ContentBlock[]; is_error?: boolean }
         const text = typeof b.content === 'string' ? b.content : extractText(b.content)
-        toolResults[b.tool_use_id] = { text: text.slice(0, 500), isError: b.is_error === true }
+        toolResults[b.tool_use_id] = { text: text.slice(0, 500), isError: b.is_error === true, resultAt: entry.timestamp }
       }
     }
   }
@@ -60,7 +60,12 @@ export async function parseSessionFile(file: File): Promise<Session | null> {
     const thinkingBlocks = Array.isArray(content) ? extractThinkingCount(content) : 0
     for (const tc of toolCalls) {
       const r = toolResults[tc.id]
-      if (r) { tc.result = r.text; tc.isError = r.isError }
+      if (r) {
+        tc.result = r.text
+        tc.isError = r.isError
+        const dur = new Date(r.resultAt).getTime() - new Date(entry.timestamp).getTime()
+        if (dur >= 0) tc.durationMs = dur
+      }
     }
     if (!text && toolCalls.length === 0) continue
     turns.push({

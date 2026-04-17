@@ -746,3 +746,91 @@ export function activityHeatmap(sessions: Session[], weeks = 14): HeatmapCell[] 
   return out
 }
 
+// ── Slowest tool calls ────────────────────────────────────────────────────────
+
+export type SlowToolCall = {
+  sessionId: string
+  project: string
+  turnUuid: string
+  toolName: string
+  durationMs: number
+  preview: string
+  isError: boolean
+}
+
+function previewForToolCall(name: string, input: Record<string, unknown>): string {
+  const str = (k: string) => (input[k] as string | undefined) ?? ''
+  if (name === 'Bash')       return str('command').split('\n')[0]!.slice(0, 80)
+  if (name === 'Read' || name === 'Edit' || name === 'Write')
+    return str('file_path').split('/').slice(-2).join('/')
+  if (name === 'Grep')       return str('pattern').slice(0, 80)
+  if (name === 'WebFetch')   return str('url').slice(0, 80)
+  if (name === 'WebSearch')  return str('query').slice(0, 80)
+  if (name === 'Agent')      return (str('description') || str('subagent_type')).slice(0, 80)
+  if (name.startsWith('mcp__')) return Object.keys(input).slice(0, 2).join(', ')
+  return ''
+}
+
+export function slowestToolCalls(sessions: Session[], limit = 10): SlowToolCall[] {
+  const all: SlowToolCall[] = []
+  for (const s of sessions) {
+    for (const turn of s.turns) {
+      for (const tc of turn.toolCalls) {
+        if (tc.durationMs == null) continue
+        all.push({
+          sessionId: s.id,
+          project: s.project,
+          turnUuid: turn.uuid,
+          toolName: tc.name,
+          durationMs: tc.durationMs,
+          preview: previewForToolCall(tc.name, tc.input),
+          isError: tc.isError === true,
+        })
+      }
+    }
+  }
+  return all.sort((a, b) => b.durationMs - a.durationMs).slice(0, limit)
+}
+
+// ── MCP server usage ──────────────────────────────────────────────────────────
+// Tool names look like `mcp__<server>__<tool>`, e.g. `mcp__claude_ai_Slack__authenticate`.
+
+export type McpServerUsage = {
+  server: string
+  count: number
+  sessionCount: number
+  tools: { name: string; count: number }[]  // top 5 tools within this server
+}
+
+export function mcpUsageStats(sessions: Session[]): McpServerUsage[] {
+  const serverCounts: Record<string, number> = {}
+  const toolCounts: Record<string, Record<string, number>> = {}
+  const serverSessions: Record<string, Set<string>> = {}
+  for (const s of sessions) {
+    for (const turn of s.turns) {
+      for (const tc of turn.toolCalls) {
+        if (!tc.name.startsWith('mcp__')) continue
+        const parts = tc.name.split('__')
+        const server = parts[1] ?? 'unknown'
+        const tool = parts.slice(2).join('__') || tc.name
+        serverCounts[server] = (serverCounts[server] ?? 0) + 1
+        if (!toolCounts[server]) toolCounts[server] = {}
+        toolCounts[server]![tool] = (toolCounts[server]![tool] ?? 0) + 1
+        if (!serverSessions[server]) serverSessions[server] = new Set()
+        serverSessions[server].add(s.id)
+      }
+    }
+  }
+  return Object.entries(serverCounts)
+    .map(([server, count]) => ({
+      server,
+      count,
+      sessionCount: serverSessions[server]?.size ?? 0,
+      tools: Object.entries(toolCounts[server] ?? {})
+        .map(([name, c]) => ({ name, count: c }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 5),
+    }))
+    .sort((a, b) => b.count - a.count)
+}
+
