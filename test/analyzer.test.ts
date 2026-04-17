@@ -5,6 +5,7 @@ import {
   classifySession,
   bashAntiPatterns,
   contextWindowHotspots,
+  costByTaskType,
   modelVersionLabel,
 } from '../src/analyzer'
 import type { Session } from '../src/types'
@@ -164,6 +165,61 @@ describe('contextWindowHotspots', () => {
     const sessions = [makeSession({ id: 's', stats: statsWithPeak(0, 200_000) })]
     const out = contextWindowHotspots(sessions, 10)
     expect(out.rows.length).toBe(0)
+  })
+})
+
+describe('costByTaskType', () => {
+  it('groups spend by session classification with avg and share', () => {
+    // Coding session on Opus 4.7: 1M input + 1M output ≈ $5 + $25 = $30
+    const coding = makeSession({
+      id: 'c1',
+      stats: {
+        userTurns: 1, assistantTurns: 1, toolCallCount: 10,
+        toolBreakdown: { Edit: 6, Write: 2, Read: 1, Bash: 1 },
+        totalTextLength: 0,
+        usage: { inputTokens: 1_000_000, outputTokens: 1_000_000, cacheCreateTokens: 0, cacheReadTokens: 0 },
+        modelUsage: { 'claude-opus-4-7': { inputTokens: 1_000_000, outputTokens: 1_000_000, cacheCreateTokens: 0, cacheReadTokens: 0 } },
+        peakContextTokens: 0, contextLimit: 200_000,
+      },
+    })
+    // Research session on Sonnet 4.6: 1M input + 1M output ≈ $3 + $15 = $18
+    const research = makeSession({
+      id: 'r1',
+      stats: {
+        userTurns: 1, assistantTurns: 1, toolCallCount: 10,
+        toolBreakdown: { WebSearch: 5, Read: 1 },
+        totalTextLength: 0,
+        usage: { inputTokens: 1_000_000, outputTokens: 1_000_000, cacheCreateTokens: 0, cacheReadTokens: 0 },
+        modelUsage: { 'claude-sonnet-4-6': { inputTokens: 1_000_000, outputTokens: 1_000_000, cacheCreateTokens: 0, cacheReadTokens: 0 } },
+        peakContextTokens: 0, contextLimit: 200_000,
+      },
+    })
+    const rows = costByTaskType([coding, research])
+    expect(rows.length).toBe(2)
+    expect(rows[0]!.type).toBe('coding')       // higher spend first
+    expect(rows[0]!.totalCostUSD).toBeCloseTo(30, 5)
+    expect(rows[1]!.type).toBe('research')
+    expect(rows[1]!.totalCostUSD).toBeCloseTo(18, 5)
+    expect(rows[0]!.share + rows[1]!.share).toBeCloseTo(1, 5)
+    expect(rows[0]!.avgCostUSD).toBeCloseTo(30, 5)  // one session in bucket
+  })
+
+  it('omits task types with zero sessions', () => {
+    const s = makeSession({
+      id: 's',
+      stats: {
+        userTurns: 1, assistantTurns: 1, toolCallCount: 10,
+        toolBreakdown: { Edit: 8 },
+        totalTextLength: 0,
+        usage: { inputTokens: 100, outputTokens: 50, cacheCreateTokens: 0, cacheReadTokens: 0 },
+        modelUsage: { 'claude-sonnet-4-6': { inputTokens: 100, outputTokens: 50, cacheCreateTokens: 0, cacheReadTokens: 0 } },
+        peakContextTokens: 0, contextLimit: 200_000,
+      },
+    })
+    const rows = costByTaskType([s])
+    expect(rows.length).toBe(1)
+    expect(rows[0]!.type).toBe('coding')
+    expect(rows[0]!.share).toBe(1)
   })
 })
 

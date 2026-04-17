@@ -814,6 +814,47 @@ export function slowestToolCalls(sessions: Session[], limit = 10): SlowToolCall[
   return all.sort((a, b) => b.durationMs - a.durationMs).slice(0, limit)
 }
 
+// ── Cost by task type ─────────────────────────────────────────────────────────
+// Combines classifySession + per-session cost to answer "where is my spend
+// actually going — coding, debugging, research, exploration, or chat?"
+
+export type CostByTaskRow = {
+  type: SessionType
+  sessionCount: number
+  totalCostUSD: number
+  avgCostUSD: number
+  share: number   // 0..1, share of total cost
+}
+
+export function costByTaskType(sessions: Session[]): CostByTaskRow[] {
+  type Acc = { sessions: number; cost: number }
+  const map: Record<SessionType, Acc> = {
+    coding:       { sessions: 0, cost: 0 },
+    debugging:    { sessions: 0, cost: 0 },
+    research:     { sessions: 0, cost: 0 },
+    exploration:  { sessions: 0, cost: 0 },
+    conversation: { sessions: 0, cost: 0 },
+  }
+  let totalCost = 0
+  for (const s of sessions) {
+    const t = classifySession(s)
+    const c = sessionCostUSD(s)
+    map[t].sessions++
+    map[t].cost += c
+    totalCost += c
+  }
+  return (Object.entries(map) as [SessionType, Acc][])
+    .filter(([, a]) => a.sessions > 0)
+    .map(([type, a]) => ({
+      type,
+      sessionCount: a.sessions,
+      totalCostUSD: a.cost,
+      avgCostUSD: a.sessions === 0 ? 0 : a.cost / a.sessions,
+      share: totalCost === 0 ? 0 : a.cost / totalCost,
+    }))
+    .sort((a, b) => b.totalCostUSD - a.totalCostUSD)
+}
+
 // ── Context window hotspots ───────────────────────────────────────────────────
 // Claude Code auto-compacts near ~95% of the model's context limit. Sessions
 // whose peak context gets close to that threshold are at highest risk of

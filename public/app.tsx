@@ -4,8 +4,8 @@ import Markdown from 'react-markdown'
 import { RiSunLine, RiMoonLine, RiComputerLine, RiTimeLine, RiTerminalLine, RiChat3Line, RiFlashlightLine, RiFileCodeLine, RiArrowUpLine } from 'react-icons/ri'
 import { SiTypescript, SiJavascript, SiPython, SiRust, SiGo, SiRuby, SiPhp, SiSwift, SiKotlin, SiCplusplus, SiC, SiHtml5, SiCss, SiMarkdown, SiJson, SiYaml, SiShell, SiReact, SiVuedotjs, SiSvelte, SiDart, SiScala, SiElixir, SiHaskell, SiLua, SiDocker, SiPrisma } from 'react-icons/si'
 import { parseSessionFiles, parseMemoryFiles, type TrackedFile } from './lib/parser'
-import { summarizeProjects, globalToolStats, activityByHour, sessionDepthStats, taskBreakdown, trendStats, bashAntiPatterns, bashCommandBreakdown, skillUsageStats, skillGaps, agentBreakdown, hotFiles, totalUsage, usageByModel, dailyCost, toolErrorRates, activityHeatmap, slowestToolCalls, mcpUsageStats, contextWindowHotspots } from '../src/analyzer'
-import type { SessionType, BashAntiPattern, BashCategory, SkillUsage, SkillGap, AgentTypeUsage, HotFile, TotalUsage, ModelUsageRow, ToolErrorStats, HeatmapCell, SlowToolCall, McpServerUsage, ContextHotspotStats } from '../src/analyzer'
+import { summarizeProjects, globalToolStats, activityByHour, sessionDepthStats, taskBreakdown, trendStats, bashAntiPatterns, bashCommandBreakdown, skillUsageStats, skillGaps, agentBreakdown, hotFiles, totalUsage, usageByModel, dailyCost, toolErrorRates, activityHeatmap, slowestToolCalls, mcpUsageStats, contextWindowHotspots, costByTaskType } from '../src/analyzer'
+import type { SessionType, BashAntiPattern, BashCategory, SkillUsage, SkillGap, AgentTypeUsage, HotFile, TotalUsage, ModelUsageRow, ToolErrorStats, HeatmapCell, SlowToolCall, McpServerUsage, ContextHotspotStats, CostByTaskRow } from '../src/analyzer'
 import { search as searchSessions } from '../src/searcher'
 import type { Session, ProjectSummary, SearchResult, MemoryEntry, MemoryEntryType } from '../src/types'
 
@@ -385,13 +385,62 @@ const BASH_CATEGORY_COLORS: Record<string, string> = {
   'other':             'bg-gray-400',
 }
 
-function CostPanel({ usage, modelRows, dailySeries, maxDailyCost, hasData, dailySeriesDays }: {
+function CostByTaskCard({ rows }: { rows: CostByTaskRow[] }) {
+  const maxAvg = Math.max(...rows.map(r => r.avgCostUSD), 0.0001)
+  const totalCost = rows.reduce((s, r) => s + r.totalCostUSD, 0)
+  const mostExpensive = [...rows].sort((a, b) => b.avgCostUSD - a.avgCostUSD)[0]
+  return (
+    <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Cost by Task Type</h3>
+        {mostExpensive && (
+          <span className="text-[10px] text-gray-400 dark:text-gray-600">
+            <span className="font-medium text-gray-500 dark:text-gray-400">{mostExpensive.type}</span> costs the most per session ({fmtUSD(mostExpensive.avgCostUSD)})
+          </span>
+        )}
+      </div>
+
+      {/* Share-of-spend stacked bar */}
+      <div className="flex h-3 rounded-full overflow-hidden bg-gray-100 dark:bg-gray-800 mb-4">
+        {rows.map(r => (
+          <div key={r.type} className={taskTypeBar(r.type)} style={{ width: `${r.share * 100}%` }}
+            title={`${r.type}: ${fmtUSD(r.totalCostUSD)} (${(r.share * 100).toFixed(1)}%)`} />
+        ))}
+      </div>
+
+      {/* Per-type rows */}
+      <div className="flex flex-col gap-2.5">
+        {rows.map(r => (
+          <div key={r.type} className="flex items-center gap-3">
+            <Tooltip content={<span className="text-[11px] text-gray-600 dark:text-gray-400">{TASK_DESCRIPTIONS[r.type]}</span>}>
+              <span className={`text-xs px-2 py-0.5 rounded-md w-24 text-center shrink-0 font-medium cursor-default ${taskTypeColor(r.type)}`}>{r.type}</span>
+            </Tooltip>
+            <span className="text-[11px] text-gray-500 dark:text-gray-500 tabular-nums w-16 shrink-0">{r.sessionCount} sess</span>
+            <div className="flex-1 bg-gray-100 dark:bg-gray-800 rounded-full h-1.5">
+              <div className={`h-1.5 rounded-full ${taskTypeBar(r.type)}`} style={{ width: `${(r.avgCostUSD / maxAvg) * 100}%` }} />
+            </div>
+            <span className="text-xs text-gray-500 dark:text-gray-400 tabular-nums w-20 text-right shrink-0">avg {fmtUSD(r.avgCostUSD)}</span>
+            <span className="text-xs text-gray-900 dark:text-gray-100 tabular-nums w-16 text-right font-medium shrink-0">{fmtUSD(r.totalCostUSD)}</span>
+            <span className="text-[10px] text-gray-400 dark:text-gray-600 tabular-nums w-10 text-right shrink-0">{(r.share * 100).toFixed(0)}%</span>
+          </div>
+        ))}
+      </div>
+
+      <p className="text-[10px] text-gray-400 dark:text-gray-600 mt-4 leading-relaxed">
+        Sessions are classified by tool-mix heuristics (hover a label for the rule). Spend total: {fmtUSD(totalCost)}.
+      </p>
+    </div>
+  )
+}
+
+function CostPanel({ usage, modelRows, dailySeries, maxDailyCost, hasData, dailySeriesDays, costByTask }: {
   usage: TotalUsage
   modelRows: ModelUsageRow[]
   dailySeries: { date: string; costUSD: number }[]
   maxDailyCost: number
   hasData: boolean
   dailySeriesDays: number
+  costByTask: CostByTaskRow[]
 }) {
   if (!hasData) {
     return (
@@ -465,6 +514,9 @@ function CostPanel({ usage, modelRows, dailySeries, maxDailyCost, hasData, daily
           </p>
         </div>
       </div>
+
+      {/* Cost by task type */}
+      {costByTask.length > 0 && <CostByTaskCard rows={costByTask} />}
 
       {/* Daily cost */}
       <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
@@ -1323,6 +1375,7 @@ function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; onOpenS
   const slowCalls = React.useMemo(() => slowestToolCalls(filtered, 10), [filtered])
   const mcpServers = React.useMemo(() => mcpUsageStats(filtered), [filtered])
   const contextHotspots = React.useMemo(() => contextWindowHotspots(filtered, 10), [filtered])
+  const costByTask = React.useMemo(() => costByTaskType(filtered), [filtered])
   const heatmap = React.useMemo(() => activityHeatmap(sessions, 14), [sessions])  // fixed 14-week view
   const hasUsageData = usage.totalTokens > 0
   const maxHour = Math.max(...hourActivity.map(h => h.count), 1)
@@ -1525,7 +1578,7 @@ function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; onOpenS
 
       {/* ── Cost ── */}
       {insightTab === 'cost' && (
-        <CostPanel usage={usage} modelRows={modelRows} dailySeries={dailyCostSeries} maxDailyCost={maxDailyCost} hasData={hasUsageData} dailySeriesDays={costSeriesDays} />
+        <CostPanel usage={usage} modelRows={modelRows} dailySeries={dailyCostSeries} maxDailyCost={maxDailyCost} hasData={hasUsageData} dailySeriesDays={costSeriesDays} costByTask={costByTask} />
       )}
 
       {/* ── Efficiency ── */}
