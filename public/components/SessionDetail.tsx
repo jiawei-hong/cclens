@@ -4,7 +4,7 @@ import type { Session } from '../../src/types'
 import { fmtDuration, fmtPace } from '../lib/format'
 import { toolColor, toolTickColor } from '../lib/colors'
 import { exportSessionAsMarkdown, exportSessionAsHTML } from '../lib/exports'
-import { useNotes } from '../lib/prefs'
+import { useNotes, useDiffMode } from '../lib/prefs'
 import { MarkdownText, FileIcon } from '../lib/ui'
 
 // ── Session Timeline ──────────────────────────────────────────────────────────
@@ -256,26 +256,56 @@ function EditDiffView({ input }: { input: Record<string, unknown> }) {
   const oldLines = oldStr.split('\n')
   const newLines = newStr.split('\n')
 
+  const { mode, toggle } = useDiffMode()
+
   return (
     <div className="flex flex-col gap-1 text-xs font-mono">
-      {filePath && (
-        <p className="text-gray-500 px-1 pb-1 truncate">{filePath}</p>
-      )}
-      <div className="rounded-lg overflow-hidden bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800">
-        {oldLines.map((line, i) => (
-          <div key={`-${i}`} className="flex gap-2 px-3 py-0.5 bg-rose-100 dark:bg-rose-950/40 hover:bg-rose-200 dark:hover:bg-rose-950/60">
-            <span className="text-rose-500 select-none w-3 shrink-0">−</span>
-            <span className="text-rose-700 dark:text-rose-300 whitespace-pre-wrap break-all">{line}</span>
-          </div>
-        ))}
-        <div className="border-t border-gray-200 dark:border-gray-800" />
-        {newLines.map((line, i) => (
-          <div key={`+${i}`} className="flex gap-2 px-3 py-0.5 bg-emerald-100 dark:bg-emerald-950/40 hover:bg-emerald-200 dark:hover:bg-emerald-950/60">
-            <span className="text-emerald-600 dark:text-emerald-500 select-none w-3 shrink-0">+</span>
-            <span className="text-emerald-700 dark:text-emerald-300 whitespace-pre-wrap break-all">{line}</span>
-          </div>
-        ))}
+      <div className="flex items-center justify-between px-1 pb-1 gap-2">
+        {filePath ? <p className="text-gray-500 truncate">{filePath}</p> : <span />}
+        <button
+          onClick={toggle}
+          title={`Switch to ${mode === 'stacked' ? 'side-by-side' : 'stacked'} diff`}
+          className="shrink-0 text-[10px] text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 px-1.5 py-0.5 border border-gray-200 dark:border-gray-700 rounded font-sans"
+        >
+          {mode === 'stacked' ? '⇆ side-by-side' : '↕ stacked'}
+        </button>
       </div>
+      {mode === 'stacked' ? (
+        <div className="rounded-lg overflow-hidden bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800">
+          {oldLines.map((line, i) => (
+            <div key={`-${i}`} className="flex gap-2 px-3 py-0.5 bg-rose-100 dark:bg-rose-950/40 hover:bg-rose-200 dark:hover:bg-rose-950/60">
+              <span className="text-rose-500 select-none w-3 shrink-0">−</span>
+              <span className="text-rose-700 dark:text-rose-300 whitespace-pre-wrap break-all">{line}</span>
+            </div>
+          ))}
+          <div className="border-t border-gray-200 dark:border-gray-800" />
+          {newLines.map((line, i) => (
+            <div key={`+${i}`} className="flex gap-2 px-3 py-0.5 bg-emerald-100 dark:bg-emerald-950/40 hover:bg-emerald-200 dark:hover:bg-emerald-950/60">
+              <span className="text-emerald-600 dark:text-emerald-500 select-none w-3 shrink-0">+</span>
+              <span className="text-emerald-700 dark:text-emerald-300 whitespace-pre-wrap break-all">{line}</span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 gap-1 rounded-lg overflow-hidden">
+          <div className="bg-white dark:bg-gray-950 border border-rose-200 dark:border-rose-900/50 rounded-lg overflow-hidden">
+            {oldLines.map((line, i) => (
+              <div key={`L-${i}`} className="flex gap-2 px-3 py-0.5 bg-rose-100 dark:bg-rose-950/40">
+                <span className="text-rose-400 dark:text-rose-700 select-none w-6 text-right shrink-0 tabular-nums">{i + 1}</span>
+                <span className="text-rose-700 dark:text-rose-300 whitespace-pre-wrap break-all">{line}</span>
+              </div>
+            ))}
+          </div>
+          <div className="bg-white dark:bg-gray-950 border border-emerald-200 dark:border-emerald-900/50 rounded-lg overflow-hidden">
+            {newLines.map((line, i) => (
+              <div key={`R-${i}`} className="flex gap-2 px-3 py-0.5 bg-emerald-100 dark:bg-emerald-950/40">
+                <span className="text-emerald-400 dark:text-emerald-700 select-none w-6 text-right shrink-0 tabular-nums">{i + 1}</span>
+                <span className="text-emerald-700 dark:text-emerald-300 whitespace-pre-wrap break-all">{line}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

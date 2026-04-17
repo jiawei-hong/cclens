@@ -2,6 +2,9 @@ import { useEffect, useState, useCallback } from 'react'
 
 const BOOKMARKS_KEY = 'cclens.bookmarks'
 const NOTES_KEY = 'cclens.notes'
+const DIFF_MODE_KEY = 'cclens.diffMode'
+
+export type DiffMode = 'stacked' | 'split'
 
 function readBookmarks(): Set<string> {
   try {
@@ -75,4 +78,35 @@ export function useNotes() {
   }, [])
 
   return { notes, setNote }
+}
+
+function readDiffMode(): DiffMode {
+  try {
+    const raw = localStorage.getItem(DIFF_MODE_KEY)
+    return raw === 'split' ? 'split' : 'stacked'
+  } catch {
+    return 'stacked'
+  }
+}
+
+export function useDiffMode() {
+  const [mode, setMode] = useState<DiffMode>(() => readDiffMode())
+
+  const toggle = useCallback(() => {
+    setMode(prev => {
+      const next: DiffMode = prev === 'stacked' ? 'split' : 'stacked'
+      try { localStorage.setItem(DIFF_MODE_KEY, next) } catch { /* quota / disabled */ }
+      return next
+    })
+  }, [])
+
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === DIFF_MODE_KEY) setMode(readDiffMode())
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [])
+
+  return { mode, toggle }
 }
