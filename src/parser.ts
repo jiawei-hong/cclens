@@ -124,6 +124,7 @@ export async function parseSession(projectDir: string, filename: string): Promis
   const modelUsage: Record<string, AggregatedUsage> = {}
   let peakContextTokens = 0
   let has1MContext = false
+  const contextSeries: { ts: string; tokens: number }[] = []
   for (const entry of messageEntries) {
     if (entry.type !== 'assistant') continue
     const u = entry.message?.usage
@@ -145,6 +146,7 @@ export async function parseSession(projectDir: string, filename: string): Promis
     m.cacheReadTokens   += crIn
     const contextThisTurn = input + ccIn + crIn
     if (contextThisTurn > peakContextTokens) peakContextTokens = contextThisTurn
+    contextSeries.push({ ts: entry.timestamp, tokens: contextThisTurn })
   }
 
   return {
@@ -165,6 +167,7 @@ export async function parseSession(projectDir: string, filename: string): Promis
       modelUsage,
       peakContextTokens,
       contextLimit: has1MContext ? 1_000_000 : 200_000,
+      contextSeries,
       totalThinkingBlocks: turns.reduce((sum, t) => sum + t.thinkingBlocks, 0),
     },
   }

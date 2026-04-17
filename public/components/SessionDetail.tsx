@@ -63,6 +63,75 @@ function SessionTimeline({ session }: { session: Session }) {
   )
 }
 
+// ── Context Growth Chart ──────────────────────────────────────────────────────
+
+function ContextGrowthChart({ session }: { session: Session }) {
+  const { contextSeries, contextLimit } = session.stats
+  if (contextSeries.length < 2) return null
+
+  const W = 600
+  const H = 56
+  const PAD = { top: 6, right: 8, bottom: 6, left: 8 }
+  const iw = W - PAD.left - PAD.right
+  const ih = H - PAD.top - PAD.bottom
+
+  const maxTokens = Math.max(...contextSeries.map(p => p.tokens), contextLimit * 0.1)
+  const yScale = (v: number) => PAD.top + ih - (v / maxTokens) * ih
+  const xScale = (i: number) => PAD.left + (i / (contextSeries.length - 1)) * iw
+
+  const points = contextSeries.map((p, i) => `${xScale(i)},${yScale(p.tokens)}`).join(' ')
+  const areaBottom = PAD.top + ih
+  const areaPath = `M${xScale(0)},${areaBottom} L${contextSeries.map((p, i) => `${xScale(i)},${yScale(p.tokens)}`).join(' L')} L${xScale(contextSeries.length - 1)},${areaBottom} Z`
+
+  const thresholdY = yScale(contextLimit * 0.95)
+  const thresholdVisible = thresholdY >= PAD.top && thresholdY <= PAD.top + ih
+
+  const peak = session.stats.peakContextTokens
+  const pct = Math.round((peak / contextLimit) * 100)
+  const overThreshold = peak >= contextLimit * 0.95
+
+  return (
+    <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl px-5 py-4">
+      <div className="flex items-center justify-between mb-2">
+        <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Context Growth</h3>
+        <span className={`text-[10px] tabular-nums font-mono ${overThreshold ? 'text-rose-500 dark:text-rose-400 font-semibold' : 'text-gray-400 dark:text-gray-600'}`}>
+          peak {(peak / 1000).toFixed(0)}k / {(contextLimit / 1000).toFixed(0)}k ({pct}%)
+        </span>
+      </div>
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-14" preserveAspectRatio="none">
+        <defs>
+          <linearGradient id="ctx-fill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={overThreshold ? '#f43f5e' : '#6366f1'} stopOpacity="0.25" />
+            <stop offset="100%" stopColor={overThreshold ? '#f43f5e' : '#6366f1'} stopOpacity="0.03" />
+          </linearGradient>
+        </defs>
+        {/* Area fill */}
+        <path d={areaPath} fill="url(#ctx-fill)" />
+        {/* Line */}
+        <polyline points={points} fill="none"
+          stroke={overThreshold ? '#f43f5e' : '#6366f1'}
+          strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
+        {/* 95% threshold */}
+        {thresholdVisible && (
+          <line x1={PAD.left} y1={thresholdY} x2={PAD.left + iw} y2={thresholdY}
+            stroke="#f43f5e" strokeWidth="1" strokeDasharray="4 3" opacity="0.5" />
+        )}
+      </svg>
+      <div className="flex items-center justify-between mt-0.5">
+        <span className="text-[10px] text-gray-400 dark:text-gray-600 tabular-nums">
+          {new Date(contextSeries[0].ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+        </span>
+        {thresholdVisible && (
+          <span className="text-[10px] text-rose-400 dark:text-rose-500">— 95% limit</span>
+        )}
+        <span className="text-[10px] text-gray-400 dark:text-gray-600 tabular-nums">
+          {new Date(contextSeries[contextSeries.length - 1].ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+        </span>
+      </div>
+    </div>
+  )
+}
+
 // ── Turn content parser ───────────────────────────────────────────────────────
 
 type TurnContent =
@@ -441,6 +510,7 @@ export function SessionDetailView({ session, scrollToTurnId }: { session: Sessio
       </div>
 
       <SessionTimeline session={session} />
+      <ContextGrowthChart session={session} />
 
       <div className="flex gap-1">
         <button onClick={() => setDetailTab('conversation')}

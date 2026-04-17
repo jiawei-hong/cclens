@@ -113,6 +113,7 @@ export async function parseSessionFile(file: File): Promise<Session | null> {
   const modelUsage: Record<string, AggregatedUsage> = {}
   let peakContextTokens = 0
   let has1MContext = false
+  const contextSeries: { ts: string; tokens: number }[] = []
   for (const entry of messageEntries) {
     if (entry.type !== 'assistant') continue
     const u = entry.message?.usage
@@ -132,9 +133,9 @@ export async function parseSessionFile(file: File): Promise<Session | null> {
     m.outputTokens      += output
     m.cacheCreateTokens += ccIn
     m.cacheReadTokens   += crIn
-    // Context window size seen by the model on this turn — the sum of all input-side tokens.
     const contextThisTurn = input + ccIn + crIn
     if (contextThisTurn > peakContextTokens) peakContextTokens = contextThisTurn
+    contextSeries.push({ ts: entry.timestamp, tokens: contextThisTurn })
   }
 
   // Derive session ID from filename
@@ -158,6 +159,7 @@ export async function parseSessionFile(file: File): Promise<Session | null> {
       modelUsage,
       peakContextTokens,
       contextLimit: has1MContext ? 1_000_000 : 200_000,
+      contextSeries,
       totalThinkingBlocks: turns.reduce((sum, t) => sum + t.thinkingBlocks, 0),
     },
   }
