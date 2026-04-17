@@ -75,6 +75,8 @@ export type SessionStats = {
   totalTextLength: number
   usage: AggregatedUsage
   modelUsage: Record<string, AggregatedUsage>  // model name → usage
+  peakContextTokens: number   // max (input + cache_read + cache_create) across assistant turns
+  contextLimit: number        // 1_000_000 if any turn used a [1m] model, else 200_000
 }
 
 export type ProjectSummary = {

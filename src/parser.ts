@@ -1,6 +1,6 @@
 import { readdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { RawEntry, Session, Turn, ToolCall, ContentBlock } from './types'
+import type { RawEntry, Session, Turn, ToolCall, ContentBlock, AggregatedUsage } from './types'
 
 const CLAUDE_DIR = join(process.env.HOME ?? '~', '.claude', 'projects')
 
@@ -120,6 +120,33 @@ export async function parseSession(projectDir: string, filename: string): Promis
   const cwdEntry = entries.find(e => e.cwd)
   const projectPath = cwdEntry?.cwd ?? projectPathFromDir(projectDir)
 
+  const usage: AggregatedUsage = { inputTokens: 0, outputTokens: 0, cacheCreateTokens: 0, cacheReadTokens: 0 }
+  const modelUsage: Record<string, AggregatedUsage> = {}
+  let peakContextTokens = 0
+  let has1MContext = false
+  for (const entry of messageEntries) {
+    if (entry.type !== 'assistant') continue
+    const u = entry.message?.usage
+    if (!u) continue
+    const input  = u.input_tokens ?? 0
+    const output = u.output_tokens ?? 0
+    const ccIn   = u.cache_creation_input_tokens ?? 0
+    const crIn   = u.cache_read_input_tokens ?? 0
+    usage.inputTokens       += input
+    usage.outputTokens      += output
+    usage.cacheCreateTokens += ccIn
+    usage.cacheReadTokens   += crIn
+    const model = entry.message?.model ?? 'unknown'
+    if (model.includes('[1m]')) has1MContext = true
+    const m = modelUsage[model] ?? (modelUsage[model] = { inputTokens: 0, outputTokens: 0, cacheCreateTokens: 0, cacheReadTokens: 0 })
+    m.inputTokens       += input
+    m.outputTokens      += output
+    m.cacheCreateTokens += ccIn
+    m.cacheReadTokens   += crIn
+    const contextThisTurn = input + ccIn + crIn
+    if (contextThisTurn > peakContextTokens) peakContextTokens = contextThisTurn
+  }
+
   return {
     id: filename.replace('.jsonl', ''),
     project: projectNameFromPath(projectPath),
@@ -134,6 +161,10 @@ export async function parseSession(projectDir: string, filename: string): Promis
       toolCallCount,
       toolBreakdown,
       totalTextLength,
+      usage,
+      modelUsage,
+      peakContextTokens,
+      contextLimit: has1MContext ? 1_000_000 : 200_000,
     },
   }
 }

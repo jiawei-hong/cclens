@@ -109,6 +109,8 @@ export async function parseSessionFile(file: File): Promise<Session | null> {
 
   const usage: AggregatedUsage = { inputTokens: 0, outputTokens: 0, cacheCreateTokens: 0, cacheReadTokens: 0 }
   const modelUsage: Record<string, AggregatedUsage> = {}
+  let peakContextTokens = 0
+  let has1MContext = false
   for (const entry of messageEntries) {
     if (entry.type !== 'assistant') continue
     const u = entry.message?.usage
@@ -122,11 +124,15 @@ export async function parseSessionFile(file: File): Promise<Session | null> {
     usage.cacheCreateTokens += ccIn
     usage.cacheReadTokens   += crIn
     const model = entry.message?.model ?? 'unknown'
+    if (model.includes('[1m]')) has1MContext = true
     const m = modelUsage[model] ?? (modelUsage[model] = { inputTokens: 0, outputTokens: 0, cacheCreateTokens: 0, cacheReadTokens: 0 })
     m.inputTokens       += input
     m.outputTokens      += output
     m.cacheCreateTokens += ccIn
     m.cacheReadTokens   += crIn
+    // Context window size seen by the model on this turn — the sum of all input-side tokens.
+    const contextThisTurn = input + ccIn + crIn
+    if (contextThisTurn > peakContextTokens) peakContextTokens = contextThisTurn
   }
 
   // Derive session ID from filename
@@ -148,6 +154,8 @@ export async function parseSessionFile(file: File): Promise<Session | null> {
       totalTextLength,
       usage,
       modelUsage,
+      peakContextTokens,
+      contextLimit: has1MContext ? 1_000_000 : 200_000,
     },
   }
 }

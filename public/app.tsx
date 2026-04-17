@@ -4,8 +4,8 @@ import Markdown from 'react-markdown'
 import { RiSunLine, RiMoonLine, RiComputerLine, RiTimeLine, RiTerminalLine, RiChat3Line, RiFlashlightLine, RiFileCodeLine, RiArrowUpLine } from 'react-icons/ri'
 import { SiTypescript, SiJavascript, SiPython, SiRust, SiGo, SiRuby, SiPhp, SiSwift, SiKotlin, SiCplusplus, SiC, SiHtml5, SiCss, SiMarkdown, SiJson, SiYaml, SiShell, SiReact, SiVuedotjs, SiSvelte, SiDart, SiScala, SiElixir, SiHaskell, SiLua, SiDocker, SiPrisma } from 'react-icons/si'
 import { parseSessionFiles, parseMemoryFiles, type TrackedFile } from './lib/parser'
-import { summarizeProjects, globalToolStats, activityByHour, sessionDepthStats, taskBreakdown, trendStats, bashAntiPatterns, bashCommandBreakdown, skillUsageStats, skillGaps, agentBreakdown, hotFiles, totalUsage, usageByModel, dailyCost, toolErrorRates, activityHeatmap, slowestToolCalls, mcpUsageStats } from '../src/analyzer'
-import type { SessionType, BashAntiPattern, BashCategory, SkillUsage, SkillGap, AgentTypeUsage, HotFile, TotalUsage, ModelUsageRow, ToolErrorStats, HeatmapCell, SlowToolCall, McpServerUsage } from '../src/analyzer'
+import { summarizeProjects, globalToolStats, activityByHour, sessionDepthStats, taskBreakdown, trendStats, bashAntiPatterns, bashCommandBreakdown, skillUsageStats, skillGaps, agentBreakdown, hotFiles, totalUsage, usageByModel, dailyCost, toolErrorRates, activityHeatmap, slowestToolCalls, mcpUsageStats, contextWindowHotspots } from '../src/analyzer'
+import type { SessionType, BashAntiPattern, BashCategory, SkillUsage, SkillGap, AgentTypeUsage, HotFile, TotalUsage, ModelUsageRow, ToolErrorStats, HeatmapCell, SlowToolCall, McpServerUsage, ContextHotspotStats } from '../src/analyzer'
 import { search as searchSessions } from '../src/searcher'
 import type { Session, ProjectSummary, SearchResult, MemoryEntry, MemoryEntryType } from '../src/types'
 
@@ -1072,6 +1072,61 @@ function SlowestToolsCard({ calls, onOpenSession }: { calls: SlowToolCall[]; onO
   )
 }
 
+function fmtTokensShort(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`
+  if (n >= 1_000)     return `${(n / 1_000).toFixed(1)}k`
+  return `${n}`
+}
+
+function ContextHotspotsCard({ stats, onOpenSession }: { stats: ContextHotspotStats; onOpenSession: (id: string, turnId?: string) => void }) {
+  if (stats.rows.length === 0) return null
+  return (
+    <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Context Window Hotspots</h3>
+        <div className="flex items-center gap-3">
+          <span className="text-[10px] text-gray-400 dark:text-gray-600">
+            avg peak {fmtTokensShort(stats.avgPeakTokens)} · p90 {fmtTokensShort(stats.p90PeakTokens)}
+          </span>
+          {stats.nearCompactCount > 0 && (
+            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-rose-100 dark:bg-rose-500/20 text-rose-700 dark:text-rose-300">
+              {stats.nearCompactCount} near auto-compact
+            </span>
+          )}
+        </div>
+      </div>
+      <div className="flex flex-col gap-2">
+        {stats.rows.map(r => {
+          const pct = Math.min(1, r.pctOfLimit)
+          const tone =
+            pct >= 0.9 ? 'bg-rose-500' :
+            pct >= 0.7 ? 'bg-amber-500' :
+                         'bg-emerald-500'
+          const limitLabel = r.contextLimit >= 1_000_000 ? '1M' : '200k'
+          return (
+            <button key={r.sessionId}
+              onClick={() => onOpenSession(r.sessionId)}
+              className="flex items-center gap-3 text-left hover:bg-gray-50 dark:hover:bg-gray-800/60 rounded-lg px-2 py-1.5 -mx-2 transition-colors">
+              <span className="text-xs text-gray-700 dark:text-gray-300 truncate w-40 shrink-0">{r.project}</span>
+              <span className="text-[11px] text-gray-500 dark:text-gray-500 font-mono w-20 shrink-0 tabular-nums">{fmt(r.startedAt)}</span>
+              <div className="flex-1 bg-gray-100 dark:bg-gray-800 rounded-full h-1.5 relative">
+                <div className={`h-1.5 rounded-full ${tone}`} style={{ width: `${pct * 100}%` }} />
+              </div>
+              <span className="text-xs text-gray-500 dark:text-gray-400 tabular-nums w-20 text-right shrink-0 font-mono">
+                {fmtTokensShort(r.peakContextTokens)}/{limitLabel}
+              </span>
+              <span className="text-xs text-gray-900 dark:text-gray-100 tabular-nums font-medium w-10 text-right shrink-0">{Math.round(pct * 100)}%</span>
+            </button>
+          )
+        })}
+      </div>
+      <p className="text-[10px] text-gray-400 dark:text-gray-600 mt-3 leading-relaxed">
+        Peak = max of <span className="font-mono">input + cache_read + cache_create</span> across assistant turns — the closest the session ever got to its context limit. Claude Code auto-compacts near ~95%.
+      </p>
+    </div>
+  )
+}
+
 function McpServersCard({ servers }: { servers: McpServerUsage[] }) {
   if (servers.length === 0) {
     return (
@@ -1267,6 +1322,7 @@ function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; onOpenS
   const errorStats = React.useMemo(() => toolErrorRates(filtered), [filtered])
   const slowCalls = React.useMemo(() => slowestToolCalls(filtered, 10), [filtered])
   const mcpServers = React.useMemo(() => mcpUsageStats(filtered), [filtered])
+  const contextHotspots = React.useMemo(() => contextWindowHotspots(filtered, 10), [filtered])
   const heatmap = React.useMemo(() => activityHeatmap(sessions, 14), [sessions])  // fixed 14-week view
   const hasUsageData = usage.totalTokens > 0
   const maxHour = Math.max(...hourActivity.map(h => h.count), 1)
@@ -1475,6 +1531,7 @@ function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; onOpenS
       {/* ── Efficiency ── */}
       {insightTab === 'efficiency' && (
         <div className="flex flex-col gap-5">
+          <ContextHotspotsCard stats={contextHotspots} onOpenSession={onOpenSession} />
           <EfficiencyPanel breakdown={bashBreakdown} antiPatterns={antiPatterns} />
           <SlowestToolsCard calls={slowCalls} onOpenSession={onOpenSession} />
           <ToolErrorsCard stats={errorStats} />

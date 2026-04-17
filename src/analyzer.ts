@@ -531,22 +531,44 @@ export function hotFiles(sessions: Session[], limit = 15): HotFile[] {
 }
 
 // ── Cost & token usage ────────────────────────────────────────────────────────
-// Public list prices per 1M tokens. Cache write = 1.25× input, cache read = 0.1× input.
-// These are estimates — the displayed $ is a rough approximation, not the billed amount.
+// Public list prices per 1M tokens. Cache write (5m) = 1.25× input, cache read = 0.1× input.
+// Prices are version-aware: Opus 4.5+ dropped to $5/$25 (from $15/$75 for Opus 4/4.1);
+// Haiku 4.5 rose to $1/$5 (from $0.80/$4 for 3.5). 1M context on Opus 4.5+ and
+// Sonnet 4.6 is billed at standard rates — no surcharge applied for `[1m]` model IDs.
+// Displayed $ is an estimate, not the billed amount.
 export type ModelPrice = { input: number; output: number; cacheCreate: number; cacheRead: number }
-export const PRICING: Record<'opus' | 'sonnet' | 'haiku' | 'default', ModelPrice> = {
-  opus:    { input: 15,   output: 75,   cacheCreate: 18.75, cacheRead: 1.5  },
-  sonnet:  { input: 3,    output: 15,   cacheCreate: 3.75,  cacheRead: 0.3  },
-  haiku:   { input: 0.8,  output: 4,    cacheCreate: 1.0,   cacheRead: 0.08 },
-  default: { input: 3,    output: 15,   cacheCreate: 3.75,  cacheRead: 0.3  },
-}
+
+const PRICE_OPUS_NEW: ModelPrice     = { input: 5,    output: 25,  cacheCreate: 6.25,  cacheRead: 0.5  }  // Opus 4.5 / 4.6 / 4.7
+const PRICE_OPUS_LEGACY: ModelPrice  = { input: 15,   output: 75,  cacheCreate: 18.75, cacheRead: 1.5  }  // Opus 3 / 4 / 4.1
+const PRICE_SONNET: ModelPrice       = { input: 3,    output: 15,  cacheCreate: 3.75,  cacheRead: 0.3  }  // Sonnet 3.7 – 4.6
+const PRICE_HAIKU_NEW: ModelPrice    = { input: 1,    output: 5,   cacheCreate: 1.25,  cacheRead: 0.1  }  // Haiku 4.5
+const PRICE_HAIKU_LEGACY: ModelPrice = { input: 0.8,  output: 4,   cacheCreate: 1.0,   cacheRead: 0.08 }  // Haiku 3 / 3.5
+
+export const PRICING = {
+  opus:    PRICE_OPUS_NEW,      // current Opus default
+  sonnet:  PRICE_SONNET,
+  haiku:   PRICE_HAIKU_NEW,     // current Haiku default
+  default: PRICE_SONNET,
+} as const
 
 export function priceFor(model: string): ModelPrice {
   const m = model.toLowerCase()
-  if (m.includes('opus'))   return PRICING.opus
-  if (m.includes('haiku'))  return PRICING.haiku
-  if (m.includes('sonnet')) return PRICING.sonnet
-  return PRICING.default
+  const opusMatch = m.match(/opus-(\d+)(?:-(\d+))?/)
+  if (opusMatch) {
+    const major = parseInt(opusMatch[1]!, 10)
+    const minor = opusMatch[2] ? parseInt(opusMatch[2], 10) : 0
+    return major > 4 || (major === 4 && minor >= 5) ? PRICE_OPUS_NEW : PRICE_OPUS_LEGACY
+  }
+  if (m.includes('opus'))   return PRICE_OPUS_LEGACY  // e.g. "claude-3-opus"
+  const haikuMatch = m.match(/haiku-(\d+)(?:-(\d+))?/)
+  if (haikuMatch) {
+    const major = parseInt(haikuMatch[1]!, 10)
+    const minor = haikuMatch[2] ? parseInt(haikuMatch[2], 10) : 0
+    return major > 4 || (major === 4 && minor >= 5) ? PRICE_HAIKU_NEW : PRICE_HAIKU_LEGACY
+  }
+  if (m.includes('haiku'))  return PRICE_HAIKU_LEGACY
+  if (m.includes('sonnet')) return PRICE_SONNET
+  return PRICE_SONNET
 }
 
 export function costOfUsage(u: AggregatedUsage, model: string): number {
@@ -790,6 +812,59 @@ export function slowestToolCalls(sessions: Session[], limit = 10): SlowToolCall[
     }
   }
   return all.sort((a, b) => b.durationMs - a.durationMs).slice(0, limit)
+}
+
+// ── Context window hotspots ───────────────────────────────────────────────────
+// Claude Code auto-compacts near ~95% of the model's context limit. Sessions
+// whose peak context gets close to that threshold are at highest risk of
+// losing context / mid-task summarization. This surfaces them.
+
+export type ContextHotspot = {
+  sessionId: string
+  project: string
+  startedAt: string
+  peakContextTokens: number
+  contextLimit: number
+  pctOfLimit: number       // 0..1
+  totalToolCalls: number
+}
+
+export type ContextHotspotStats = {
+  avgPeakTokens: number
+  p90PeakTokens: number
+  nearCompactCount: number  // sessions whose peak ≥ 90% of their limit
+  rows: ContextHotspot[]    // top N by pctOfLimit
+}
+
+function percentile(sorted: number[], p: number): number {
+  if (sorted.length === 0) return 0
+  const idx = Math.min(sorted.length - 1, Math.floor(sorted.length * p))
+  return sorted[idx]!
+}
+
+export function contextWindowHotspots(sessions: Session[], limit = 10): ContextHotspotStats {
+  const peaks = sessions.map(s => s.stats.peakContextTokens).filter(n => n > 0)
+  const sorted = [...peaks].sort((a, b) => a - b)
+  const avg = peaks.length === 0 ? 0 : peaks.reduce((s, n) => s + n, 0) / peaks.length
+  const rows: ContextHotspot[] = sessions
+    .filter(s => s.stats.peakContextTokens > 0)
+    .map(s => ({
+      sessionId: s.id,
+      project: s.project,
+      startedAt: s.startedAt,
+      peakContextTokens: s.stats.peakContextTokens,
+      contextLimit: s.stats.contextLimit,
+      pctOfLimit: s.stats.peakContextTokens / s.stats.contextLimit,
+      totalToolCalls: s.stats.toolCallCount,
+    }))
+    .sort((a, b) => b.pctOfLimit - a.pctOfLimit)
+  const nearCompactCount = rows.filter(r => r.pctOfLimit >= 0.9).length
+  return {
+    avgPeakTokens: avg,
+    p90PeakTokens: percentile(sorted, 0.9),
+    nearCompactCount,
+    rows: rows.slice(0, limit),
+  }
 }
 
 // ── MCP server usage ──────────────────────────────────────────────────────────
