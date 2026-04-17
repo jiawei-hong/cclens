@@ -265,6 +265,19 @@ function App() {
     }
   }, [theme])
 
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+      if (e.key === '/') {
+        e.preventDefault()
+        setTab('search')
+        setTimeout(() => document.querySelector<HTMLInputElement>('input[placeholder*="Search"]')?.focus(), 50)
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [])
+
   const openSession = (id: string, turnId?: string) => {
     setSelectedSessionId(id)
     setSelectedTurnId(turnId ?? null)

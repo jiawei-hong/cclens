@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import type { Session } from '../../src/types'
 import { fmt, fmtDuration, fmtPace } from '../lib/format'
 import { SessionDetailView } from '../components/SessionDetail'
@@ -46,10 +46,55 @@ export function SessionsTab({ sessions, initialSessionId, scrollToTurnId }: { se
     const next = new Set(prev); next.has(project) ? next.delete(project) : next.add(project); return next
   })
 
+  const detailRef = useRef<HTMLDivElement>(null)
+
   const filtered = filter
     ? sessions.filter(s => s.project.toLowerCase().includes(filter.toLowerCase()))
     : sessions
   const groups = groupSessionsByProject(filtered)
+
+  const flatVisible = React.useMemo(
+    () => groups.flatMap(g => collapsedProjects.has(g.project) ? [] : g.sessions),
+    [groups, collapsedProjects]
+  )
+
+  useEffect(() => {
+    let lastGTime = 0
+    const handler = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+
+      if (e.key === 'j' || e.key === 'k') {
+        e.preventDefault()
+        const idx = flatVisible.findIndex(s => s.id === selected?.id)
+        const next = e.key === 'j'
+          ? (idx === -1 ? 0 : Math.min(idx + 1, flatVisible.length - 1))
+          : (idx === -1 ? flatVisible.length - 1 : Math.max(idx - 1, 0))
+        const nextSession = flatVisible[next]
+        if (nextSession) {
+          setSelected(nextSession)
+          document.getElementById(`sess-${nextSession.id}`)?.scrollIntoView({ block: 'nearest' })
+        }
+      }
+
+      if (e.key === 'g') {
+        const now = Date.now()
+        if (now - lastGTime < 400) {
+          detailRef.current?.scrollTo({ top: 0, behavior: 'smooth' })
+          lastGTime = 0
+        } else {
+          lastGTime = now
+        }
+      }
+
+      if (e.key === 'G') {
+        e.preventDefault()
+        if (detailRef.current)
+          detailRef.current.scrollTo({ top: detailRef.current.scrollHeight, behavior: 'smooth' })
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [flatVisible, selected])
 
   return (
     <div className="flex gap-4 h-[calc(100vh-140px)]">
@@ -78,7 +123,7 @@ export function SessionsTab({ sessions, initialSessionId, scrollToTurnId }: { se
                     {projectSessions.map(s => {
                       const preview = sessionPreview(s)
                       return (
-                        <button key={s.id} onClick={() => setSelected(s)}
+                        <button key={s.id} id={`sess-${s.id}`} onClick={() => setSelected(s)}
                           className={`text-left px-3 py-2 rounded-xl transition-colors ${selected?.id === s.id ? 'bg-indigo-600' : 'hover:bg-gray-50 dark:hover:bg-gray-800'}`}>
                           <div className="flex items-center gap-2">
                             <span className={`text-xs ${selected?.id === s.id ? 'text-indigo-200' : 'text-gray-600 dark:text-gray-400'}`}>{fmt(s.startedAt)}</span>
@@ -105,7 +150,7 @@ export function SessionsTab({ sessions, initialSessionId, scrollToTurnId }: { se
       </div>
 
       {/* Right: detail */}
-      <div className="flex-1 overflow-y-auto">
+      <div ref={detailRef} className="flex-1 overflow-y-auto">
         {selected
           ? <SessionDetailView session={selected} scrollToTurnId={scrollToTurnId} />
           : <div className="flex items-center justify-center h-full text-gray-500 dark:text-gray-600 text-sm">Select a session to view details</div>}
