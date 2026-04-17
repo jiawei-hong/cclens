@@ -298,7 +298,7 @@ function EfficiencyPanel({ breakdown, antiPatterns }: { breakdown: BashCategory[
   const copy = () => { navigator.clipboard.writeText(snippet); setCopied(true); setTimeout(() => setCopied(false), 2000) }
 
   return (
-    <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl flex overflow-hidden">
+    <Card padding="none" className="flex overflow-hidden">
       {/* Left: Bash breakdown */}
       <div className="w-72 shrink-0 p-5 flex flex-col gap-3">
         <div>
@@ -388,7 +388,7 @@ function EfficiencyPanel({ breakdown, antiPatterns }: { breakdown: BashCategory[
           </>
         )}
       </div>
-    </div>
+    </Card>
   )
 }
 
