@@ -8,93 +8,8 @@ import { summarizeProjects, globalToolStats, activityByHour, sessionDepthStats, 
 import type { SessionType, BashAntiPattern, BashCategory, SkillUsage, SkillGap, AgentTypeUsage, HotFile, TotalUsage, ModelUsageRow, ToolErrorStats, HeatmapCell, SlowToolCall, McpServerUsage, ContextHotspotStats, CostByTaskRow } from '../src/analyzer'
 import { search as searchSessions } from '../src/searcher'
 import type { Session, ProjectSummary, SearchResult, MemoryEntry, MemoryEntryType } from '../src/types'
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-function fmt(ts: string) {
-  return new Date(ts).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-}
-
-function fmtDuration(ms: number) {
-  if (ms < 60_000) return `${Math.round(ms / 1000)}s`
-  if (ms < 3_600_000) return `${Math.round(ms / 60_000)}m`
-  if (ms < 86_400_000) {
-    const h = Math.floor(ms / 3_600_000)
-    const m = Math.round((ms % 3_600_000) / 60_000)
-    return m > 0 ? `${h}h ${m}m` : `${h}h`
-  }
-  const d = Math.floor(ms / 86_400_000)
-  const h = Math.round((ms % 86_400_000) / 3_600_000)
-  return h > 0 ? `${d}d ${h}h` : `${d}d`
-}
-
-function fmtPace(durationMs: number, toolCallCount: number): string {
-  if (durationMs < 30_000 || toolCallCount === 0) return '—'
-  const perMin = toolCallCount / (durationMs / 60_000)
-  return `${perMin.toFixed(1)}/min`
-}
-
-const TOOL_COLORS: Record<string, string> = {
-  Bash: 'bg-violet-100 text-violet-700 dark:bg-violet-500/20 dark:text-violet-300',
-  Read: 'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300',
-  Write: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300',
-  Edit: 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300',
-  Grep: 'bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300',
-  Glob: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-500/20 dark:text-cyan-300',
-  Agent: 'bg-pink-100 text-pink-700 dark:bg-pink-500/20 dark:text-pink-300',
-  WebFetch: 'bg-orange-100 text-orange-700 dark:bg-orange-500/20 dark:text-orange-300',
-  WebSearch: 'bg-orange-100 text-orange-700 dark:bg-orange-500/20 dark:text-orange-300',
-}
-const toolColor = (name: string) => TOOL_COLORS[name] ?? 'bg-gray-100 text-gray-700 dark:bg-gray-500/20 dark:text-gray-300'
-
-const TOOL_TICK_COLORS: Record<string, string> = {
-  Bash: 'bg-violet-500',
-  Read: 'bg-blue-500',
-  Write: 'bg-emerald-500',
-  Edit: 'bg-amber-500',
-  Grep: 'bg-rose-500',
-  Glob: 'bg-cyan-500',
-  Agent: 'bg-pink-500',
-  WebFetch: 'bg-orange-500',
-  WebSearch: 'bg-orange-500',
-}
-const toolTickColor = (name: string) => {
-  if (name.startsWith('mcp__')) return 'bg-fuchsia-500'
-  return TOOL_TICK_COLORS[name] ?? 'bg-gray-400'
-}
-
-function fmtToolDuration(ms: number): string {
-  if (ms < 1000) return `${ms}ms`
-  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`
-  const m = Math.floor(ms / 60_000)
-  const s = Math.round((ms % 60_000) / 1000)
-  return s > 0 ? `${m}m ${s}s` : `${m}m`
-}
-
-const TASK_COLORS: Record<SessionType, string> = {
-  coding: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300',
-  debugging: 'bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300',
-  research: 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300',
-  exploration: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-500/20 dark:text-cyan-300',
-  conversation: 'bg-gray-100 text-gray-600 dark:bg-gray-500/20 dark:text-gray-400',
-}
-const TASK_BARS: Record<SessionType, string> = {
-  coding: 'bg-indigo-500',
-  debugging: 'bg-rose-500',
-  research: 'bg-amber-500',
-  exploration: 'bg-cyan-500',
-  conversation: 'bg-gray-500',
-}
-const taskTypeColor = (t: SessionType) => TASK_COLORS[t]
-const taskTypeBar = (t: SessionType) => TASK_BARS[t]
-
-const TASK_DESCRIPTIONS: Record<SessionType, string> = {
-  coding: 'Edit / Write > 25% of tool calls',
-  debugging: 'Bash > 25% + Read / Grep > 15%',
-  research: 'WebSearch / WebFetch > 20%',
-  exploration: 'Read / Grep / Glob > 40% — browsing codebase',
-  conversation: 'Fewer than 3 tool calls — mostly chat',
-}
+import { fmt, fmtDuration, fmtPace, fmtToolDuration, fmtTokenCount, fmtUSD, fmtChars, fmtTokensFromChars } from './lib/format'
+import { toolColor, toolTickColor, taskTypeColor, taskTypeBar, TASK_DESCRIPTIONS } from './lib/colors'
 
 // ── Markdown renderer ─────────────────────────────────────────────────────────
 
@@ -603,7 +518,7 @@ function EfficiencyPanel({ breakdown, antiPatterns }: { breakdown: BashCategory[
             )}
           </div>
           {totalChars > 0 && (
-            <span className="text-sm font-bold font-mono text-rose-500 dark:text-rose-400 shrink-0 ml-2">~{fmtTokens(totalChars)} tok</span>
+            <span className="text-sm font-bold font-mono text-rose-500 dark:text-rose-400 shrink-0 ml-2">~{fmtTokensFromChars(totalChars)} tok</span>
           )}
         </div>
 
@@ -738,32 +653,6 @@ function BashBreakdownCard({ breakdown }: { breakdown: BashCategory[] }) {
   )
 }
 
-function fmtChars(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
-  if (n >= 1_000) return `${(n / 1_000).toFixed(0)}K`
-  return `${n}`
-}
-
-function fmtTokens(chars: number): string {
-  // rough estimate: 1 token ≈ 4 chars
-  return fmtChars(Math.round(chars / 4))
-}
-
-function fmtTokenCount(n: number): string {
-  if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(2)}B`
-  if (n >= 1_000_000)     return `${(n / 1_000_000).toFixed(2)}M`
-  if (n >= 1_000)         return `${(n / 1_000).toFixed(1)}K`
-  return `${n}`
-}
-
-function fmtUSD(n: number): string {
-  if (n >= 1000) return `$${n.toFixed(0)}`
-  if (n >= 10)   return `$${n.toFixed(1)}`
-  if (n >= 0.01) return `$${n.toFixed(2)}`
-  if (n > 0)     return `<$0.01`
-  return `$0`
-}
-
 const MODEL_BADGE: Record<string, string> = {
   opus:   'bg-purple-100 text-purple-700 dark:bg-purple-500/20 dark:text-purple-300',
   sonnet: 'bg-sky-100 text-sky-700 dark:bg-sky-500/20 dark:text-sky-300',
@@ -813,7 +702,7 @@ function WorkflowTipsCard({ antiPatterns }: { antiPatterns: BashAntiPattern[] })
         </h3>
         {totalChars > 0 && (
           <span className="text-xs font-mono font-semibold text-rose-500 dark:text-rose-400">
-            ~{fmtTokens(totalChars)} tokens
+            ~{fmtTokensFromChars(totalChars)} tokens
           </span>
         )}
       </div>
@@ -1124,12 +1013,6 @@ function SlowestToolsCard({ calls, onOpenSession }: { calls: SlowToolCall[]; onO
   )
 }
 
-function fmtTokensShort(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`
-  if (n >= 1_000)     return `${(n / 1_000).toFixed(1)}k`
-  return `${n}`
-}
-
 function ContextHotspotsCard({ stats, onOpenSession }: { stats: ContextHotspotStats; onOpenSession: (id: string, turnId?: string) => void }) {
   if (stats.rows.length === 0) return null
   return (
@@ -1138,7 +1021,7 @@ function ContextHotspotsCard({ stats, onOpenSession }: { stats: ContextHotspotSt
         <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Context Window Hotspots</h3>
         <div className="flex items-center gap-3">
           <span className="text-[10px] text-gray-400 dark:text-gray-600">
-            avg peak {fmtTokensShort(stats.avgPeakTokens)} · p90 {fmtTokensShort(stats.p90PeakTokens)}
+            avg peak {fmtTokenCount(stats.avgPeakTokens)} · p90 {fmtTokenCount(stats.p90PeakTokens)}
           </span>
           {stats.nearCompactCount > 0 && (
             <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-rose-100 dark:bg-rose-500/20 text-rose-700 dark:text-rose-300">
@@ -1165,7 +1048,7 @@ function ContextHotspotsCard({ stats, onOpenSession }: { stats: ContextHotspotSt
                 <div className={`h-1.5 rounded-full ${tone}`} style={{ width: `${pct * 100}%` }} />
               </div>
               <span className="text-xs text-gray-500 dark:text-gray-400 tabular-nums w-20 text-right shrink-0 font-mono">
-                {fmtTokensShort(r.peakContextTokens)}/{limitLabel}
+                {fmtTokenCount(r.peakContextTokens)}/{limitLabel}
               </span>
               <span className="text-xs text-gray-900 dark:text-gray-100 tabular-nums font-medium w-10 text-right shrink-0">{Math.round(pct * 100)}%</span>
             </button>

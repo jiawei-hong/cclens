@@ -89,7 +89,9 @@ export async function parseSessionFile(file: File): Promise<Session | null> {
   const IDLE_THRESHOLD_MS = 5 * 60 * 1000
   let durationMs = 0
   for (let i = 1; i < timestamps.length; i++) {
-    const gap = new Date(timestamps[i]).getTime() - new Date(timestamps[i - 1]).getTime()
+    const prev = timestamps[i - 1]!
+    const curr = timestamps[i]!
+    const gap = new Date(curr).getTime() - new Date(prev).getTime()
     if (gap < IDLE_THRESHOLD_MS) durationMs += gap
   }
 
