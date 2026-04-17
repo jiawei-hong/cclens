@@ -23,9 +23,6 @@ Move items up into "Next up" when ready to work on them; delete when shipped.
   1h writes are 2×. The JSONL may not distinguish them — needs a closer
   look at the raw `usage` object.
 ## 🆕 New features
-- [ ] **Bookmark / pin sessions**
-  Let users star sessions for quick access. Store in `localStorage` keyed by
-  session ID. No server needed; purely client-side persistence.
 - [ ] **Session notes**
   Add a freetext note to any session, persisted in `localStorage`. Shows up
   in the session list as a subtitle. Low effort, high recall value.

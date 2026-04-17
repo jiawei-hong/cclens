@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { RiGitBranchLine } from 'react-icons/ri'
+import { RiGitBranchLine, RiStarFill, RiStarLine } from 'react-icons/ri'
 import type { Session } from '../../src/types'
 import { fmt, fmtDuration, fmtPace } from '../lib/format'
+import { useBookmarks } from '../lib/prefs'
 import { SessionDetailView } from '../components/SessionDetail'
 
 function sessionPreview(session: Session): string {
@@ -30,6 +31,7 @@ export function SessionsTab({ sessions, initialSessionId, scrollToTurnId }: { se
   const [selected, setSelected] = useState<Session | null>(null)
   const [filter, setFilter] = useState('')
   const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(new Set())
+  const { bookmarks, toggle: toggleBookmark } = useBookmarks()
 
   useEffect(() => {
     if (initialSessionId) {
@@ -131,13 +133,27 @@ export function SessionsTab({ sessions, initialSessionId, scrollToTurnId }: { se
 
                 {!isCollapsed && (
                   <div className="ml-3 pl-2 border-l border-gray-200 dark:border-gray-800 flex flex-col gap-0.5 mb-1">
-                    {projectSessions.map(s => {
+                    {[
+                      ...projectSessions.filter(s => bookmarks.has(s.id)),
+                      ...projectSessions.filter(s => !bookmarks.has(s.id)),
+                    ].map(s => {
                       const preview = sessionPreview(s)
+                      const isBookmarked = bookmarks.has(s.id)
                       return (
                         <button key={s.id} id={`sess-${s.id}`} onClick={() => setSelected(s)}
                           className={`text-left px-3 py-2 rounded-xl transition-colors ${selected?.id === s.id ? 'bg-indigo-600' : 'hover:bg-gray-50 dark:hover:bg-gray-800'}`}>
                           <div className="flex items-center gap-2">
                             <span className={`text-xs ${selected?.id === s.id ? 'text-indigo-200' : 'text-gray-600 dark:text-gray-400'}`}>{fmt(s.startedAt)}</span>
+                            <span
+                              role="button"
+                              tabIndex={0}
+                              onClick={e => { e.stopPropagation(); toggleBookmark(s.id) }}
+                              onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); toggleBookmark(s.id) } }}
+                              title={isBookmarked ? 'Unpin session' : 'Pin session'}
+                              className={`ml-auto shrink-0 p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 ${isBookmarked ? (selected?.id === s.id ? 'text-amber-300' : 'text-amber-500') : (selected?.id === s.id ? 'text-indigo-200' : 'text-gray-400 dark:text-gray-600')}`}
+                            >
+                              {isBookmarked ? <RiStarFill size={13} /> : <RiStarLine size={13} />}
+                            </span>
                           </div>
                           {preview && (
                             <p className={`text-xs mt-0.5 truncate ${selected?.id === s.id ? 'text-white/90' : 'text-gray-500'}`}>{preview}</p>
