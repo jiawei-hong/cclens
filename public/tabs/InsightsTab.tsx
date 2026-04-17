@@ -6,6 +6,7 @@ import { fmt, fmtDuration, fmtPace, fmtToolDuration, fmtTokenCount, fmtUSD, fmtC
 import { toolColor, toolTickColor, taskTypeColor, taskTypeBar, TASK_DESCRIPTIONS } from '../lib/colors'
 import { exportInsightsAsMarkdown, exportDailyCostCSV, exportSessionsCSV } from '../lib/exports'
 import { Tooltip, FileIcon } from '../lib/ui'
+import { Button, Card, Tab, TabGroup, StatStrip } from '../lib/ds'
 import { ToolDeepDiveModal } from '../components/ToolDeepDive'
 
 // ── Workflow Insight Cards ────────────────────────────────────────────────────
@@ -1324,58 +1325,37 @@ export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; 
   const [insightTab, setInsightTab] = useState<'overview' | 'cost' | 'efficiency' | 'skills' | 'projects'>('overview')
   const totalToolCalls = topTools.reduce((s, t) => s + t.count, 0)
 
-  const insightTabBtn = (label: string, value: typeof insightTab, badge?: number) => (
-    <button
-      onClick={() => setInsightTab(value)}
-      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-        insightTab === value
-          ? 'bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900'
-          : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800'
-      }`}
-    >
-      {label}
-      {badge != null && badge > 0 && (
-        <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${
-          insightTab === value ? 'bg-white/20 text-white dark:bg-black/20 dark:text-gray-900' : 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400'
-        }`}>{badge}</span>
-      )}
-    </button>
-  )
+  // Sub-tabs render via <TabGroup variant="subtle"> below.
 
   return (
     <div className="flex flex-col gap-5">
 
       {/* ── Compact stat strip ── */}
-      <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl px-6 py-4">
-        <div className="flex items-center gap-0 divide-x divide-gray-100 dark:divide-gray-800">
-          {[
-            { label: 'Sessions', value: filtered.length.toLocaleString() },
-            { label: 'Projects', value: projects.length.toLocaleString() },
-            { label: 'Tool Calls', value: totalToolCalls.toLocaleString() },
-            { label: 'Avg Duration', value: fmtDuration(depth.avgDurationMs) },
-            { label: 'Avg Tools', value: depth.avgToolCalls.toFixed(1) },
-            { label: 'Avg Turns', value: depth.avgTurns.toFixed(1) },
-            { label: 'Pace', value: fmtPace(depth.avgDurationMs, depth.avgToolCalls) },
-          ].map(({ label, value }) => (
-            <div key={label} className="flex flex-col px-5 first:pl-0 last:pr-0">
-              <span className="text-[10px] text-gray-400 dark:text-gray-600 uppercase tracking-wide">{label}</span>
-              <span className="text-lg font-bold text-gray-900 dark:text-gray-100 mt-0.5 tabular-nums">{value}</span>
-            </div>
-          ))}
-        </div>
-      </div>
+      <Card className="px-6 py-4" padding="none">
+        <StatStrip items={[
+          { label: 'Sessions',     value: filtered.length.toLocaleString() },
+          { label: 'Projects',     value: projects.length.toLocaleString() },
+          { label: 'Tool Calls',   value: totalToolCalls.toLocaleString() },
+          { label: 'Avg Duration', value: fmtDuration(depth.avgDurationMs) },
+          { label: 'Avg Tools',    value: depth.avgToolCalls.toFixed(1) },
+          { label: 'Avg Turns',    value: depth.avgTurns.toFixed(1) },
+          { label: 'Pace',         value: fmtPace(depth.avgDurationMs, depth.avgToolCalls) },
+        ]} />
+      </Card>
 
       {/* ── Sub-tab nav + range picker + export ── */}
       <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-1">
-          {insightTabBtn('Overview', 'overview')}
-          {insightTabBtn('Cost', 'cost')}
-          {insightTabBtn('Efficiency', 'efficiency')}
-          {insightTabBtn('Skills', 'skills', gaps.length)}
-          {insightTabBtn('Projects', 'projects')}
-        </div>
+        <TabGroup value={insightTab} onChange={setInsightTab} variant="subtle">
+          <Tab value="overview">Overview</Tab>
+          <Tab value="cost">Cost</Tab>
+          <Tab value="efficiency">Efficiency</Tab>
+          <Tab value="skills" badge={gaps.length}>Skills</Tab>
+          <Tab value="projects">Projects</Tab>
+        </TabGroup>
         <div className="flex items-center gap-2">
-          <button
+          <Button
+            size="sm"
+            title="Download the current insights view as a Markdown report"
             onClick={() => exportInsightsAsMarkdown({
               rangeLabel: range === 'all' ? 'All time' : `Last ${RANGE_DAYS[range]} days`,
               sessionCount: filtered.length,
@@ -1394,10 +1374,9 @@ export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; 
               hotFiles: files,
               errorStats,
             })}
-            className="text-xs px-2.5 py-1 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 rounded-lg transition-colors"
-            title="Download the current insights view as a Markdown report">
+          >
             ↓ Report
-          </button>
+          </Button>
           <RangePicker range={range} setRange={setRange} />
         </div>
       </div>
