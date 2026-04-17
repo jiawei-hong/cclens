@@ -14,10 +14,6 @@ Move items up into "Next up" when ready to work on them; delete when shipped.
   call of that type across all sessions — input args, result, duration. Current
   cards show counts only.
 ## 🐛 Accuracy / correctness
-- [ ] **Fast mode pricing not detected**
-  Opus 4.6 fast mode is billed at 6× standard. No obvious signal in the
-  session JSONL for fast-mode calls. Low priority until someone reports
-  a cost anomaly; track via model ID if it ever changes.
 - [ ] **Cache 5m vs 1h write ambiguity**
   `costOfUsage` assumes all cache writes are the 5m variant (1.25×).
   1h writes are 2×. The JSONL may not distinguish them — needs a closer

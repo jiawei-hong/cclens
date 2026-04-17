@@ -218,7 +218,7 @@ function CostPanel({ usage, modelRows, dailySeries, maxDailyCost, hasData, daily
             ))}
           </div>
           <p className="text-[10px] text-gray-400 dark:text-gray-600 mt-4 leading-relaxed">
-            Estimates use public list prices per 1M tokens. Actual billing may differ (subscriptions, volume discounts, cache-write TTL).
+            Estimates use public list prices per 1M tokens. Actual billing may differ (subscriptions, volume discounts, cache-write TTL, fast mode — Opus 4.6 fast-mode calls bill 6× standard and aren't distinguishable in the JSONL).
           </p>
         </div>
       </div>
