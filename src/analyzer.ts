@@ -1,4 +1,4 @@
-import type { Session, ProjectSummary } from './types'
+import type { Session, ProjectSummary, AggregatedUsage } from './types'
 
 export function summarizeProjects(sessions: Session[]): ProjectSummary[] {
   const map = new Map<string, ProjectSummary>()
@@ -125,6 +125,7 @@ export type MonthStats = {
   avgDurationMs: number
   contextWasteChars: number
   skillInvocations: number
+  costUSD: number
 }
 export type TrendStats  = { thisMonth: MonthStats; lastMonth: MonthStats; label: string; lastLabel: string }
 
@@ -194,6 +195,7 @@ export function trendStats(sessions: Session[]): TrendStats {
     avgDurationMs: ss.length === 0 ? 0 : ss.reduce((sum, s) => sum + s.durationMs, 0) / ss.length,
     contextWasteChars: ss.reduce((sum, s) => sum + sessionContextWasteChars(s), 0),
     skillInvocations: ss.reduce((sum, s) => sum + sessionSkillInvocations(s), 0),
+    costUSD: ss.reduce((sum, s) => sum + sessionCostUSD(s), 0),
   })
 
   const monthLabel = (offset: number) =>
@@ -527,3 +529,131 @@ export function hotFiles(sessions: Session[], limit = 15): HotFile[] {
     .sort((a, b) => b.totalOps - a.totalOps)
     .slice(0, limit)
 }
+
+// ── Cost & token usage ────────────────────────────────────────────────────────
+// Public list prices per 1M tokens. Cache write = 1.25× input, cache read = 0.1× input.
+// These are estimates — the displayed $ is a rough approximation, not the billed amount.
+export type ModelPrice = { input: number; output: number; cacheCreate: number; cacheRead: number }
+export const PRICING: Record<'opus' | 'sonnet' | 'haiku' | 'default', ModelPrice> = {
+  opus:    { input: 15,   output: 75,   cacheCreate: 18.75, cacheRead: 1.5  },
+  sonnet:  { input: 3,    output: 15,   cacheCreate: 3.75,  cacheRead: 0.3  },
+  haiku:   { input: 0.8,  output: 4,    cacheCreate: 1.0,   cacheRead: 0.08 },
+  default: { input: 3,    output: 15,   cacheCreate: 3.75,  cacheRead: 0.3  },
+}
+
+export function priceFor(model: string): ModelPrice {
+  const m = model.toLowerCase()
+  if (m.includes('opus'))   return PRICING.opus
+  if (m.includes('haiku'))  return PRICING.haiku
+  if (m.includes('sonnet')) return PRICING.sonnet
+  return PRICING.default
+}
+
+export function costOfUsage(u: AggregatedUsage, model: string): number {
+  const p = priceFor(model)
+  return (
+    (u.inputTokens       * p.input       +
+     u.outputTokens      * p.output      +
+     u.cacheCreateTokens * p.cacheCreate +
+     u.cacheReadTokens   * p.cacheRead) / 1_000_000
+  )
+}
+
+function sessionCostUSD(s: Session): number {
+  let total = 0
+  for (const [model, u] of Object.entries(s.stats.modelUsage)) total += costOfUsage(u, model)
+  return total
+}
+
+export type TotalUsage = {
+  inputTokens: number
+  outputTokens: number
+  cacheCreateTokens: number
+  cacheReadTokens: number
+  totalTokens: number
+  costUSD: number
+  cacheHitRate: number  // 0..1; cache_read / (cache_read + cache_create + input)
+}
+
+export function totalUsage(sessions: Session[]): TotalUsage {
+  let input = 0, output = 0, cc = 0, cr = 0, cost = 0
+  for (const s of sessions) {
+    input  += s.stats.usage.inputTokens
+    output += s.stats.usage.outputTokens
+    cc     += s.stats.usage.cacheCreateTokens
+    cr     += s.stats.usage.cacheReadTokens
+    cost   += sessionCostUSD(s)
+  }
+  const denom = cr + cc + input
+  return {
+    inputTokens: input,
+    outputTokens: output,
+    cacheCreateTokens: cc,
+    cacheReadTokens: cr,
+    totalTokens: input + output + cc + cr,
+    costUSD: cost,
+    cacheHitRate: denom === 0 ? 0 : cr / denom,
+  }
+}
+
+export type ModelUsageRow = {
+  model: string
+  shortLabel: string  // opus / sonnet / haiku / other
+  inputTokens: number
+  outputTokens: number
+  cacheCreateTokens: number
+  cacheReadTokens: number
+  totalTokens: number
+  costUSD: number
+}
+
+function shortModelLabel(model: string): string {
+  const m = model.toLowerCase()
+  if (m.includes('opus'))   return 'opus'
+  if (m.includes('haiku'))  return 'haiku'
+  if (m.includes('sonnet')) return 'sonnet'
+  return 'other'
+}
+
+export function usageByModel(sessions: Session[]): ModelUsageRow[] {
+  const map = new Map<string, AggregatedUsage>()
+  for (const s of sessions) {
+    for (const [model, u] of Object.entries(s.stats.modelUsage)) {
+      const acc = map.get(model) ?? { inputTokens: 0, outputTokens: 0, cacheCreateTokens: 0, cacheReadTokens: 0 }
+      acc.inputTokens       += u.inputTokens
+      acc.outputTokens      += u.outputTokens
+      acc.cacheCreateTokens += u.cacheCreateTokens
+      acc.cacheReadTokens   += u.cacheReadTokens
+      map.set(model, acc)
+    }
+  }
+  return [...map.entries()]
+    .map(([model, u]) => ({
+      model,
+      shortLabel: shortModelLabel(model),
+      inputTokens: u.inputTokens,
+      outputTokens: u.outputTokens,
+      cacheCreateTokens: u.cacheCreateTokens,
+      cacheReadTokens: u.cacheReadTokens,
+      totalTokens: u.inputTokens + u.outputTokens + u.cacheCreateTokens + u.cacheReadTokens,
+      costUSD: costOfUsage(u, model),
+    }))
+    .sort((a, b) => b.costUSD - a.costUSD)
+}
+
+export function dailyCost(sessions: Session[], days = 30): { date: string; costUSD: number }[] {
+  const byDate = new Map<string, number>()
+  for (const s of sessions) {
+    const date = s.startedAt.slice(0, 10)
+    byDate.set(date, (byDate.get(date) ?? 0) + sessionCostUSD(s))
+  }
+  const end = new Date()
+  const out: { date: string; costUSD: number }[] = []
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(end.getFullYear(), end.getMonth(), end.getDate() - i)
+    const key = d.toISOString().slice(0, 10)
+    out.push({ date: key, costUSD: byDate.get(key) ?? 0 })
+  }
+  return out
+}
+

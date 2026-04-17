@@ -3,11 +3,11 @@ import { createRoot } from 'react-dom/client'
 import Markdown from 'react-markdown'
 import { RiSunLine, RiMoonLine, RiComputerLine, RiTimeLine, RiTerminalLine, RiChat3Line, RiFlashlightLine, RiFileCodeLine, RiArrowUpLine } from 'react-icons/ri'
 import { SiTypescript, SiJavascript, SiPython, SiRust, SiGo, SiRuby, SiPhp, SiSwift, SiKotlin, SiCplusplus, SiC, SiHtml5, SiCss, SiMarkdown, SiJson, SiYaml, SiShell, SiReact, SiVuedotjs, SiSvelte, SiDart, SiScala, SiElixir, SiHaskell, SiLua, SiDocker, SiPrisma } from 'react-icons/si'
-import { parseSessionFiles } from './lib/parser'
-import { summarizeProjects, globalToolStats, activityByDay, activityByHour, sessionDepthStats, taskBreakdown, trendStats, bashAntiPatterns, bashCommandBreakdown, skillUsageStats, skillGaps, agentBreakdown, hotFiles } from '../src/analyzer'
-import type { SessionType, BashAntiPattern, BashCategory, SkillUsage, SkillGap, AgentTypeUsage, HotFile } from '../src/analyzer'
+import { parseSessionFiles, parseMemoryFiles, type TrackedFile } from './lib/parser'
+import { summarizeProjects, globalToolStats, activityByDay, activityByHour, sessionDepthStats, taskBreakdown, trendStats, bashAntiPatterns, bashCommandBreakdown, skillUsageStats, skillGaps, agentBreakdown, hotFiles, totalUsage, usageByModel, dailyCost } from '../src/analyzer'
+import type { SessionType, BashAntiPattern, BashCategory, SkillUsage, SkillGap, AgentTypeUsage, HotFile, TotalUsage, ModelUsageRow } from '../src/analyzer'
 import { search as searchSessions } from '../src/searcher'
-import type { Session, ProjectSummary, SearchResult } from '../src/types'
+import type { Session, ProjectSummary, SearchResult, MemoryEntry, MemoryEntryType } from '../src/types'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -134,15 +134,19 @@ function Tooltip({ content, children }: { content: React.ReactNode; children: Re
 
 // ── Directory walker (File System Access API) ─────────────────────────────────
 
-async function collectJsonlFiles(dir: FileSystemDirectoryHandle, files: File[] = []): Promise<File[]> {
+async function walkFolder(dir: FileSystemDirectoryHandle, base = '', out: TrackedFile[] = []): Promise<TrackedFile[]> {
   for await (const [, handle] of dir) {
+    const path = base ? `${base}/${handle.name}` : handle.name
     if (handle.kind === 'directory') {
-      await collectJsonlFiles(handle as FileSystemDirectoryHandle, files)
-    } else if (handle.name.endsWith('.jsonl')) {
-      files.push(await (handle as FileSystemFileHandle).getFile())
+      await walkFolder(handle as FileSystemDirectoryHandle, path, out)
+    } else {
+      const name = handle.name
+      if (name.endsWith('.jsonl') || name.endsWith('.md')) {
+        out.push({ file: await (handle as FileSystemFileHandle).getFile(), path })
+      }
     }
   }
-  return files
+  return out
 }
 
 // ── Theme ─────────────────────────────────────────────────────────────────────
@@ -203,7 +207,7 @@ function ThemeToggle({ theme, setTheme }: { theme: Theme; setTheme: (t: Theme) =
 
 // ── Upload Screen ─────────────────────────────────────────────────────────────
 
-function UploadScreen({ onLoad, theme, setTheme }: { onLoad: (sessions: Session[]) => void; theme: Theme; setTheme: (t: Theme) => void }) {
+function UploadScreen({ onLoad, theme, setTheme }: { onLoad: (data: { sessions: Session[]; memory: MemoryEntry[] }) => void; theme: Theme; setTheme: (t: Theme) => void }) {
   const [dragging, setDragging] = useState(false)
   const [loading, setLoading] = useState(false)
   const [loadingMsg, setLoadingMsg] = useState('')
@@ -211,11 +215,22 @@ function UploadScreen({ onLoad, theme, setTheme }: { onLoad: (sessions: Session[
   const inputRef = useRef<HTMLInputElement>(null)
   const hasFolderPicker = typeof window !== 'undefined' && 'showDirectoryPicker' in window
 
-  const process = async (files: File[]) => {
+  const processTracked = async (tracked: TrackedFile[]) => {
+    const jsonlFiles = tracked.filter(t => t.file.name.endsWith('.jsonl')).map(t => t.file)
+    setLoadingMsg(`Parsing ${jsonlFiles.length} sessions…`)
+    const sessions = await parseSessionFiles(jsonlFiles)
+    if (sessions.length === 0) throw new Error('No valid sessions found.')
+    setLoadingMsg('Parsing memory files…')
+    const memory = await parseMemoryFiles(tracked)
+    onLoad({ sessions, memory })
+  }
+
+  const processLooseFiles = async (files: File[]) => {
     setLoadingMsg(`Parsing ${files.length} files…`)
     const sessions = await parseSessionFiles(files)
     if (sessions.length === 0) throw new Error('No valid sessions found.')
-    onLoad(sessions)
+    // Dropped loose files have no folder context — skip memory parsing.
+    onLoad({ sessions, memory: [] })
   }
 
   const pickFolder = async () => {
@@ -223,10 +238,11 @@ function UploadScreen({ onLoad, theme, setTheme }: { onLoad: (sessions: Session[
     setLoading(true)
     try {
       const dir = await window.showDirectoryPicker({ mode: 'read' })
-      setLoadingMsg('Scanning for .jsonl files…')
-      const files = await collectJsonlFiles(dir)
-      if (files.length === 0) throw new Error('No .jsonl files found in the selected folder.')
-      await process(files)
+      setLoadingMsg('Scanning folder…')
+      const tracked = await walkFolder(dir)
+      const jsonlCount = tracked.filter(t => t.file.name.endsWith('.jsonl')).length
+      if (jsonlCount === 0) throw new Error('No .jsonl files found in the selected folder.')
+      await processTracked(tracked)
     } catch (e: unknown) {
       if (e instanceof Error && e.name !== 'AbortError') setError(e.message)
     } finally {
@@ -238,7 +254,7 @@ function UploadScreen({ onLoad, theme, setTheme }: { onLoad: (sessions: Session[
     setLoading(true)
     setError(null)
     try {
-      await process(Array.from(files))
+      await processLooseFiles(Array.from(files))
     } catch (e) {
       setError(String(e))
     } finally {
@@ -343,6 +359,120 @@ const BASH_CATEGORY_COLORS: Record<string, string> = {
   'file search':       'bg-rose-500',
   'file read':         'bg-blue-500',
   'other':             'bg-gray-400',
+}
+
+function CostPanel({ usage, modelRows, dailySeries, maxDailyCost, hasData }: {
+  usage: TotalUsage
+  modelRows: ModelUsageRow[]
+  dailySeries: { date: string; costUSD: number }[]
+  maxDailyCost: number
+  hasData: boolean
+}) {
+  if (!hasData) {
+    return (
+      <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-10 text-center">
+        <p className="text-sm text-gray-500 dark:text-gray-400">No token usage data found in these sessions.</p>
+        <p className="text-xs text-gray-400 dark:text-gray-600 mt-2">Only sessions recorded by newer Claude Code versions include per-turn <code className="font-mono text-[11px]">usage</code> — older sessions will be skipped.</p>
+      </div>
+    )
+  }
+
+  const totalCacheIn = usage.cacheReadTokens + usage.cacheCreateTokens + usage.inputTokens
+  const tokenSegments = [
+    { label: 'Cache Read',   value: usage.cacheReadTokens,   className: 'bg-emerald-500' },
+    { label: 'Cache Create', value: usage.cacheCreateTokens, className: 'bg-amber-500'   },
+    { label: 'Input',        value: usage.inputTokens,       className: 'bg-sky-500'     },
+    { label: 'Output',       value: usage.outputTokens,      className: 'bg-indigo-500'  },
+  ]
+  const tokenTotal = tokenSegments.reduce((s, x) => s + x.value, 0) || 1
+  const topModelCost = Math.max(...modelRows.map(m => m.costUSD), 0.0001)
+
+  return (
+    <div className="flex flex-col gap-5">
+      {/* 4 stat cards */}
+      <div className="grid grid-cols-4 gap-5">
+        <StatCardRich label="Est. Cost" value={fmtUSD(usage.costUSD)} sub={`${fmtTokenCount(usage.totalTokens)} tokens total`} />
+        <StatCardRich label="Input" value={fmtTokenCount(usage.inputTokens)} sub="fresh input tokens" />
+        <StatCardRich label="Output" value={fmtTokenCount(usage.outputTokens)} sub="generated tokens" />
+        <StatCardRich label="Cache Hit Rate" value={`${(usage.cacheHitRate * 100).toFixed(1)}%`} sub={`${fmtTokenCount(usage.cacheReadTokens)} read / ${fmtTokenCount(totalCacheIn)} eligible`} />
+      </div>
+
+      {/* Token composition + Per-model breakdown */}
+      <div className="grid grid-cols-2 gap-5">
+        <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
+          <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-4">Token Composition</h3>
+          <div className="flex h-3 rounded-full overflow-hidden bg-gray-100 dark:bg-gray-800 mb-4">
+            {tokenSegments.map(s => (
+              <div key={s.label} className={s.className} style={{ width: `${(s.value / tokenTotal) * 100}%` }} title={`${s.label}: ${fmtTokenCount(s.value)}`} />
+            ))}
+          </div>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+            {tokenSegments.map(s => (
+              <div key={s.label} className="flex items-center gap-2">
+                <span className={`w-2.5 h-2.5 rounded-sm ${s.className}`} />
+                <span className="text-xs text-gray-600 dark:text-gray-400 flex-1">{s.label}</span>
+                <span className="text-xs text-gray-900 dark:text-gray-100 tabular-nums font-medium">{fmtTokenCount(s.value)}</span>
+                <span className="text-[10px] text-gray-400 dark:text-gray-600 tabular-nums w-10 text-right">{((s.value / tokenTotal) * 100).toFixed(1)}%</span>
+              </div>
+            ))}
+          </div>
+          <p className="text-[10px] text-gray-400 dark:text-gray-600 mt-4 leading-relaxed">
+            Cache reads are ~10× cheaper than fresh input. A high cache-read share is good.
+          </p>
+        </div>
+
+        <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
+          <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-4">Cost by Model</h3>
+          <div className="flex flex-col gap-2.5">
+            {modelRows.map(m => (
+              <div key={m.model} className="flex items-center gap-3">
+                <span title={m.model} className={`text-[11px] px-2 py-0.5 rounded font-mono w-16 text-center shrink-0 truncate ${MODEL_BADGE[m.shortLabel] ?? MODEL_BADGE.other}`}>{m.shortLabel}</span>
+                <div className="flex-1 bg-gray-100 dark:bg-gray-800 rounded-full h-1.5">
+                  <div className="bg-indigo-500 h-1.5 rounded-full" style={{ width: `${(m.costUSD / topModelCost) * 100}%` }} />
+                </div>
+                <span className="text-xs text-gray-500 dark:text-gray-400 tabular-nums w-16 text-right">{fmtTokenCount(m.totalTokens)}</span>
+                <span className="text-xs text-gray-900 dark:text-gray-100 tabular-nums w-14 text-right font-medium">{fmtUSD(m.costUSD)}</span>
+              </div>
+            ))}
+          </div>
+          <p className="text-[10px] text-gray-400 dark:text-gray-600 mt-4 leading-relaxed">
+            Estimates use public list prices per 1M tokens. Actual billing may differ (subscriptions, volume discounts, cache-write TTL).
+          </p>
+        </div>
+      </div>
+
+      {/* Daily cost */}
+      <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Daily Cost <span className="font-normal text-gray-400">— last 30 days</span></h3>
+          <span className="text-xs text-gray-400 dark:text-gray-600">{fmtUSD(dailySeries.reduce((s, d) => s + d.costUSD, 0))} total</span>
+        </div>
+        <div className="relative h-20 flex items-end gap-px">
+          {dailySeries.map(d => {
+            const heightPx = Math.max(2, Math.round((d.costUSD / maxDailyCost) * 80))
+            return (
+              <div key={d.date} className="group relative flex-1">
+                <div className="w-full bg-indigo-500/70 rounded-sm hover:bg-indigo-400 transition-colors cursor-default" style={{ height: `${heightPx}px` }} />
+                <div className="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 shadow-sm text-xs text-gray-700 dark:text-gray-300 px-2 py-1 rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-10">
+                  {d.date}: {fmtUSD(d.costUSD)}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function StatCardRich({ label, value, sub }: { label: string; value: string; sub?: string }) {
+  return (
+    <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
+      <p className="text-[10px] text-gray-400 dark:text-gray-600 uppercase tracking-wide">{label}</p>
+      <p className="text-2xl font-bold text-gray-900 dark:text-gray-100 mt-1 tabular-nums">{value}</p>
+      {sub && <p className="text-[11px] text-gray-500 dark:text-gray-500 mt-1">{sub}</p>}
+    </div>
+  )
 }
 
 function EfficiencyPanel({ breakdown, antiPatterns }: { breakdown: BashCategory[]; antiPatterns: BashAntiPattern[] }) {
@@ -487,6 +617,28 @@ function fmtChars(n: number): string {
 function fmtTokens(chars: number): string {
   // rough estimate: 1 token ≈ 4 chars
   return fmtChars(Math.round(chars / 4))
+}
+
+function fmtTokenCount(n: number): string {
+  if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(2)}B`
+  if (n >= 1_000_000)     return `${(n / 1_000_000).toFixed(2)}M`
+  if (n >= 1_000)         return `${(n / 1_000).toFixed(1)}K`
+  return `${n}`
+}
+
+function fmtUSD(n: number): string {
+  if (n >= 1000) return `$${n.toFixed(0)}`
+  if (n >= 10)   return `$${n.toFixed(1)}`
+  if (n >= 0.01) return `$${n.toFixed(2)}`
+  if (n > 0)     return `<$0.01`
+  return `$0`
+}
+
+const MODEL_BADGE: Record<string, string> = {
+  opus:   'bg-purple-100 text-purple-700 dark:bg-purple-500/20 dark:text-purple-300',
+  sonnet: 'bg-sky-100 text-sky-700 dark:bg-sky-500/20 dark:text-sky-300',
+  haiku:  'bg-teal-100 text-teal-700 dark:bg-teal-500/20 dark:text-teal-300',
+  other:  'bg-gray-100 text-gray-700 dark:bg-gray-500/20 dark:text-gray-300',
 }
 
 const CLAUDE_MD_RULES: Record<string, string> = {
@@ -767,11 +919,16 @@ function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; onOpenS
   const gaps = React.useMemo(() => skillGaps(sessions, skillUsage), [sessions, skillUsage])
   const agents = React.useMemo(() => agentBreakdown(sessions), [sessions])
   const files = React.useMemo(() => hotFiles(sessions), [sessions])
+  const usage = React.useMemo(() => totalUsage(sessions), [sessions])
+  const modelRows = React.useMemo(() => usageByModel(sessions), [sessions])
+  const dailyCostSeries = React.useMemo(() => dailyCost(sessions, 30), [sessions])
+  const hasUsageData = usage.totalTokens > 0
   const maxActivity = Math.max(...activity.map(d => d.count), 1)
   const maxHour = Math.max(...hourActivity.map(h => h.count), 1)
   const maxTool = Math.max(...topTools.map(t => t.count), 1)
+  const maxDailyCost = Math.max(...dailyCostSeries.map(d => d.costUSD), 0.0001)
 
-  const [insightTab, setInsightTab] = useState<'overview' | 'efficiency' | 'skills' | 'projects'>('overview')
+  const [insightTab, setInsightTab] = useState<'overview' | 'cost' | 'efficiency' | 'skills' | 'projects'>('overview')
   const totalToolCalls = topTools.reduce((s, t) => s + t.count, 0)
 
   const insightTabBtn = (label: string, value: typeof insightTab, badge?: number) => (
@@ -818,6 +975,7 @@ function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; onOpenS
       {/* ── Sub-tab nav ── */}
       <div className="flex items-center gap-1">
         {insightTabBtn('Overview', 'overview')}
+        {insightTabBtn('Cost', 'cost')}
         {insightTabBtn('Efficiency', 'efficiency')}
         {insightTabBtn('Skills', 'skills', gaps.length)}
         {insightTabBtn('Projects', 'projects')}
@@ -897,7 +1055,7 @@ function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; onOpenS
               <div className="flex flex-col gap-2">
                 {topTools.slice(0, 8).map(tool => (
                   <div key={tool.name} className="flex items-center gap-3">
-                    <span className={`text-xs px-2 py-0.5 rounded font-mono w-24 text-center shrink-0 ${toolColor(tool.name)}`}>{tool.name}</span>
+                    <span title={tool.name} className={`text-xs px-2 py-0.5 rounded font-mono w-24 text-center shrink-0 truncate ${toolColor(tool.name)}`}>{tool.name}</span>
                     <div className="flex-1 bg-gray-100 dark:bg-gray-800 rounded-full h-1.5">
                       <div className="bg-indigo-500 h-1.5 rounded-full" style={{ width: `${(tool.count / maxTool) * 100}%` }} />
                     </div>
@@ -918,6 +1076,7 @@ function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; onOpenS
                   { label: 'Tool Calls',    thisVal: trend.thisMonth.toolCalls           ?? 0, lastVal: trend.lastMonth.toolCalls           ?? 0, fmt: (n: number) => n.toLocaleString(),  lowerIsBetter: false },
                   { label: 'Active Days',   thisVal: trend.thisMonth.activeDays          ?? 0, lastVal: trend.lastMonth.activeDays          ?? 0, fmt: (n: number) => n.toLocaleString(),  lowerIsBetter: false },
                   { label: 'Avg Duration',  thisVal: trend.thisMonth.avgDurationMs       ?? 0, lastVal: trend.lastMonth.avgDurationMs       ?? 0, fmt: (n: number) => fmtDuration(n),      lowerIsBetter: false },
+                  { label: 'Est. Cost',     thisVal: trend.thisMonth.costUSD              ?? 0, lastVal: trend.lastMonth.costUSD              ?? 0, fmt: (n: number) => fmtUSD(n),           lowerIsBetter: true  },
                   { label: 'Context Waste', thisVal: trend.thisMonth.contextWasteChars   ?? 0, lastVal: trend.lastMonth.contextWasteChars   ?? 0, fmt: (n: number) => fmtChars(n) + ' chars', lowerIsBetter: true  },
                   { label: 'Skills Used',   thisVal: trend.thisMonth.skillInvocations    ?? 0, lastVal: trend.lastMonth.skillInvocations    ?? 0, fmt: (n: number) => n.toLocaleString(),  lowerIsBetter: false },
                 ]).map(row => {
@@ -943,6 +1102,11 @@ function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; onOpenS
           </div>
 
         </div>
+      )}
+
+      {/* ── Cost ── */}
+      {insightTab === 'cost' && (
+        <CostPanel usage={usage} modelRows={modelRows} dailySeries={dailyCostSeries} maxDailyCost={maxDailyCost} hasData={hasUsageData} />
       )}
 
       {/* ── Efficiency ── */}
@@ -2001,9 +2165,176 @@ function SearchTab({ sessions, onOpenSession }: { sessions: Session[]; onOpenSes
   )
 }
 
+// ── Memory Tab ────────────────────────────────────────────────────────────────
+
+const MEMORY_TYPE_ORDER: MemoryEntryType[] = ['user', 'feedback', 'project', 'reference', 'other']
+
+const MEMORY_TYPE_BADGE: Record<MemoryEntryType, string> = {
+  user:      'bg-sky-100 text-sky-700 dark:bg-sky-500/20 dark:text-sky-300',
+  feedback:  'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300',
+  project:   'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300',
+  reference: 'bg-violet-100 text-violet-700 dark:bg-violet-500/20 dark:text-violet-300',
+  other:     'bg-gray-100 text-gray-700 dark:bg-gray-500/20 dark:text-gray-300',
+}
+
+const MEMORY_TYPE_LABEL: Record<MemoryEntryType, string> = {
+  user:      'User',
+  feedback:  'Feedback',
+  project:   'Project',
+  reference: 'Reference',
+  other:     'Other',
+}
+
+function MemoryTab({ memory }: { memory: MemoryEntry[] }) {
+  const projects = React.useMemo(() => {
+    const map = new Map<string, { slug: string; name: string; entries: MemoryEntry[] }>()
+    for (const e of memory) {
+      if (e.isIndex) continue  // exclude MEMORY.md from entry lists
+      const g = map.get(e.projectSlug) ?? { slug: e.projectSlug, name: e.projectName, entries: [] }
+      g.entries.push(e)
+      map.set(e.projectSlug, g)
+    }
+    return [...map.values()].sort((a, b) => b.entries.length - a.entries.length)
+  }, [memory])
+
+  const [selectedSlug, setSelectedSlug] = useState<string | null>(projects[0]?.slug ?? null)
+  const [typeFilter, setTypeFilter] = useState<MemoryEntryType | 'all'>('all')
+
+  const selected = projects.find(p => p.slug === selectedSlug) ?? projects[0]
+
+  const grouped = React.useMemo(() => {
+    const groups = new Map<MemoryEntryType, MemoryEntry[]>()
+    if (!selected) return groups
+    for (const e of selected.entries) {
+      if (typeFilter !== 'all' && e.type !== typeFilter) continue
+      const arr = groups.get(e.type) ?? []
+      arr.push(e)
+      groups.set(e.type, arr)
+    }
+    return groups
+  }, [selected, typeFilter])
+
+  const typeCounts = React.useMemo(() => {
+    const c: Record<MemoryEntryType, number> = { user: 0, feedback: 0, project: 0, reference: 0, other: 0 }
+    if (!selected) return c
+    for (const e of selected.entries) c[e.type]++
+    return c
+  }, [selected])
+
+  if (projects.length === 0) {
+    return (
+      <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-10 text-center">
+        <p className="text-sm text-gray-500 dark:text-gray-400">No Claude Code memory files found in the selected folder.</p>
+        <p className="text-xs text-gray-400 dark:text-gray-600 mt-2">Memory lives at <code className="font-mono text-[11px]">~/.claude/projects/&lt;project&gt;/memory/*.md</code> — pick that parent folder to surface it here.</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex gap-5">
+      {/* Project list */}
+      <aside className="w-64 shrink-0">
+        <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-3 sticky top-6">
+          <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide px-2 pt-1 pb-2">Projects</h3>
+          <div className="flex flex-col gap-0.5">
+            {projects.map(p => (
+              <button
+                key={p.slug}
+                onClick={() => { setSelectedSlug(p.slug); setTypeFilter('all') }}
+                className={`flex items-center gap-2 px-2 py-1.5 rounded-lg text-left transition-colors ${
+                  selected?.slug === p.slug
+                    ? 'bg-indigo-50 dark:bg-indigo-600/20 text-indigo-700 dark:text-indigo-300'
+                    : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
+                }`}
+              >
+                <span className="text-xs font-medium truncate flex-1" title={p.slug}>{p.name}</span>
+                <span className="text-[10px] text-gray-400 dark:text-gray-600 tabular-nums">{p.entries.length}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      </aside>
+
+      {/* Entry list */}
+      <section className="flex-1 min-w-0 flex flex-col gap-4">
+        {selected && (
+          <>
+            <div className="flex items-center gap-3 flex-wrap">
+              <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100">{selected.name}</h2>
+              <span className="text-xs text-gray-400 dark:text-gray-600 font-mono" title={selected.slug}>{selected.slug}</span>
+              <span className="text-xs text-gray-500 dark:text-gray-500 ml-auto">{selected.entries.length} entries</span>
+            </div>
+
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <MemoryFilterBtn label="All" count={selected.entries.length} active={typeFilter === 'all'} onClick={() => setTypeFilter('all')} />
+              {MEMORY_TYPE_ORDER.map(t => {
+                const c = typeCounts[t]
+                if (c === 0) return null
+                return (
+                  <MemoryFilterBtn
+                    key={t}
+                    label={MEMORY_TYPE_LABEL[t]}
+                    count={c}
+                    active={typeFilter === t}
+                    onClick={() => setTypeFilter(t)}
+                    accent={MEMORY_TYPE_BADGE[t]}
+                  />
+                )
+              })}
+            </div>
+
+            <div className="flex flex-col gap-3">
+              {MEMORY_TYPE_ORDER.flatMap(t => grouped.get(t) ?? []).map(e => (
+                <article key={e.projectSlug + '/' + e.fileName} className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
+                  <header className="flex items-start gap-3 mb-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">{e.name ?? e.fileName}</h3>
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium uppercase tracking-wide ${MEMORY_TYPE_BADGE[e.type]}`}>
+                          {MEMORY_TYPE_LABEL[e.type]}
+                        </span>
+                      </div>
+                      {e.description && (
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 italic">{e.description}</p>
+                      )}
+                      <p className="text-[10px] text-gray-400 dark:text-gray-600 mt-1 font-mono">{e.fileName}</p>
+                    </div>
+                  </header>
+                  <div className="text-sm text-gray-700 dark:text-gray-300">
+                    <MarkdownText>{e.body}</MarkdownText>
+                  </div>
+                </article>
+              ))}
+              {selected.entries.filter(e => typeFilter === 'all' || e.type === typeFilter).length === 0 && (
+                <p className="text-sm text-gray-500 dark:text-gray-600 text-center py-8">No entries in this category.</p>
+              )}
+            </div>
+          </>
+        )}
+      </section>
+    </div>
+  )
+}
+
+function MemoryFilterBtn({ label, count, active, onClick, accent }: { label: string; count: number; active: boolean; onClick: () => void; accent?: string }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
+        active
+          ? accent ?? 'bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900'
+          : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800'
+      }`}
+    >
+      {label}
+      <span className={`text-[10px] tabular-nums ${active ? 'opacity-80' : 'text-gray-400 dark:text-gray-600'}`}>{count}</span>
+    </button>
+  )
+}
+
 // ── App ───────────────────────────────────────────────────────────────────────
 
-type Tab = 'insights' | 'sessions' | 'search'
+type Tab = 'insights' | 'sessions' | 'search' | 'memory'
 
 function ScrollToTopButton() {
   const [visible, setVisible] = useState(false)
@@ -2041,6 +2372,7 @@ function ScrollToTopButton() {
 
 function App() {
   const [sessions, setSessions] = useState<Session[] | null>(null)
+  const [memory, setMemory] = useState<MemoryEntry[]>([])
   const [tab, setTab] = useState<Tab>('insights')
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
   const [selectedTurnId, setSelectedTurnId] = useState<string | null>(null)
@@ -2068,7 +2400,7 @@ function App() {
     setTab('sessions')
   }
 
-  if (!sessions) return <UploadScreen onLoad={setSessions} theme={theme} setTheme={setTheme} />
+  if (!sessions) return <UploadScreen onLoad={({ sessions, memory }) => { setSessions(sessions); setMemory(memory) }} theme={theme} setTheme={setTheme} />
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -2080,9 +2412,12 @@ function App() {
         <NavTab label="Insights" active={tab === 'insights'} onClick={() => setTab('insights')} />
         <NavTab label="Sessions" active={tab === 'sessions'} onClick={() => setTab('sessions')} />
         <NavTab label="Search" active={tab === 'search'} onClick={() => setTab('search')} />
+        {memory.length > 0 && (
+          <NavTab label="Memory" active={tab === 'memory'} onClick={() => setTab('memory')} />
+        )}
         <div className="ml-auto flex items-center gap-3">
           <ThemeToggle theme={theme} setTheme={setTheme} />
-          <button onClick={() => setSessions(null)} className="text-xs text-gray-500 dark:text-gray-600 hover:text-gray-600 dark:hover:text-gray-400 transition-colors">
+          <button onClick={() => { setSessions(null); setMemory([]) }} className="text-xs text-gray-500 dark:text-gray-600 hover:text-gray-600 dark:hover:text-gray-400 transition-colors">
             ↩ Upload new files
           </button>
         </div>
@@ -2092,6 +2427,7 @@ function App() {
         {tab === 'insights' && <InsightsTab sessions={sessions} onOpenSession={openSession} />}
         {tab === 'sessions' && <SessionsTab sessions={sessions} initialSessionId={selectedSessionId} scrollToTurnId={selectedTurnId} />}
         {tab === 'search' && <SearchTab sessions={sessions} onOpenSession={openSession} />}
+        {tab === 'memory' && <MemoryTab memory={memory} />}
       </main>
       <ScrollToTopButton />
     </div>

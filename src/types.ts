@@ -6,6 +6,13 @@ export type ContentBlock =
   | { type: 'tool_result'; tool_use_id: string; content: string | ContentBlock[] }
   | { type: 'thinking'; thinking: string }
 
+export type TokenUsage = {
+  input_tokens: number
+  output_tokens: number
+  cache_creation_input_tokens?: number
+  cache_read_input_tokens?: number
+}
+
 export type RawEntry = {
   uuid: string
   parentUuid: string | null
@@ -16,7 +23,9 @@ export type RawEntry = {
   version?: string
   message?: {
     role: 'user' | 'assistant'
+    model?: string
     content: string | ContentBlock[]
+    usage?: TokenUsage
   }
 }
 
@@ -50,12 +59,21 @@ export type Session = {
   stats: SessionStats
 }
 
+export type AggregatedUsage = {
+  inputTokens: number
+  outputTokens: number
+  cacheCreateTokens: number
+  cacheReadTokens: number
+}
+
 export type SessionStats = {
   userTurns: number
   assistantTurns: number
   toolCallCount: number
   toolBreakdown: Record<string, number>  // tool name → count
   totalTextLength: number
+  usage: AggregatedUsage
+  modelUsage: Record<string, AggregatedUsage>  // model name → usage
 }
 
 export type ProjectSummary = {
@@ -75,4 +93,18 @@ export type SearchResult = {
   timestamp: string
   snippet: string       // surrounding text with match highlighted
   matchIndex: number
+}
+
+export type MemoryEntryType = 'user' | 'feedback' | 'project' | 'reference' | 'other'
+
+export type MemoryEntry = {
+  projectSlug: string     // folder name as-is, e.g. "-Users-jiawei-Developers-cclens"
+  projectName: string     // derived display name, last slug segment
+  fileName: string        // e.g. "MEMORY.md" or "feedback_foo.md"
+  isIndex: boolean        // true when fileName === "MEMORY.md"
+  name?: string           // from frontmatter
+  description?: string    // from frontmatter
+  type: MemoryEntryType   // from frontmatter; "other" when unknown / missing
+  body: string            // markdown body (without frontmatter)
+  lastModified: number    // ms epoch, from File.lastModified
 }
