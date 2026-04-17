@@ -479,6 +479,63 @@ export function agentBreakdown(sessions: Session[]): AgentTypeUsage[] {
     .sort((a, b) => b.count - a.count)
 }
 
+// ── Interrupt / abort detection ──────────────────────────────────────────────
+
+export type InterruptStats = {
+  totalInterrupts: number
+  interruptedSessions: number
+  interruptRate: number   // interruptedSessions / total sessions
+  byTaskType: { type: SessionType; interrupted: number; total: number; rate: number }[]
+  topSessions: { sessionId: string; project: string; startedAt: string; count: number; type: SessionType }[]
+}
+
+const INTERRUPT_TEXT = '[Request interrupted by user]'
+
+function sessionInterruptCount(session: Session): number {
+  return session.turns.filter(t => t.role === 'user' && t.text.includes(INTERRUPT_TEXT)).length
+}
+
+export function interruptStats(sessions: Session[]): InterruptStats {
+  const typeTotals: Record<SessionType, { total: number; interrupted: number }> = {
+    coding: { total: 0, interrupted: 0 },
+    debugging: { total: 0, interrupted: 0 },
+    research: { total: 0, interrupted: 0 },
+    exploration: { total: 0, interrupted: 0 },
+    conversation: { total: 0, interrupted: 0 },
+  }
+
+  let totalInterrupts = 0
+  let interruptedSessions = 0
+  const topSessions: InterruptStats['topSessions'] = []
+
+  for (const s of sessions) {
+    const type = classifySession(s)
+    const count = sessionInterruptCount(s)
+    typeTotals[type].total++
+    if (count > 0) {
+      totalInterrupts += count
+      interruptedSessions++
+      typeTotals[type].interrupted++
+      topSessions.push({ sessionId: s.id, project: s.project, startedAt: s.startedAt, count, type })
+    }
+  }
+
+  topSessions.sort((a, b) => b.count - a.count)
+
+  const byTaskType = (Object.entries(typeTotals) as [SessionType, { total: number; interrupted: number }][])
+    .filter(([, v]) => v.total > 0)
+    .map(([type, v]) => ({ type, interrupted: v.interrupted, total: v.total, rate: v.interrupted / v.total }))
+    .sort((a, b) => b.rate - a.rate)
+
+  return {
+    totalInterrupts,
+    interruptedSessions,
+    interruptRate: sessions.length === 0 ? 0 : interruptedSessions / sessions.length,
+    byTaskType,
+    topSessions: topSessions.slice(0, 10),
+  }
+}
+
 // ── Thrash / loop detection ───────────────────────────────────────────────────
 
 export type ThrashPattern = {

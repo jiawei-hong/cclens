@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
-import { summarizeProjects, globalToolStats, activityByHour, sessionDepthStats, taskBreakdown, trendStats, bashAntiPatterns, bashCommandBreakdown, skillUsageStats, skillGaps, agentBreakdown, hotFiles, multiFileSessions, thrashingSessions, totalUsage, usageByModel, dailyCost, toolErrorRates, activityHeatmap, slowestToolCalls, mcpUsageStats, contextWindowHotspots, costByTaskType, thinkingStats, sessionCacheRanking } from '../../src/analyzer'
-import type { SessionType, BashAntiPattern, BashCategory, SkillUsage, SkillGap, AgentTypeUsage, HotFile, MultiFileSession, ThrashSession, TotalUsage, ModelUsageRow, ToolErrorStats, HeatmapCell, SlowToolCall, McpServerUsage, ContextHotspotStats, CostByTaskRow, ThinkingStats, SessionCacheStats } from '../../src/analyzer'
+import { summarizeProjects, globalToolStats, activityByHour, sessionDepthStats, taskBreakdown, trendStats, bashAntiPatterns, bashCommandBreakdown, skillUsageStats, skillGaps, agentBreakdown, hotFiles, multiFileSessions, thrashingSessions, totalUsage, usageByModel, dailyCost, toolErrorRates, activityHeatmap, slowestToolCalls, mcpUsageStats, contextWindowHotspots, costByTaskType, thinkingStats, sessionCacheRanking, interruptStats } from '../../src/analyzer'
+import type { SessionType, BashAntiPattern, BashCategory, SkillUsage, SkillGap, AgentTypeUsage, HotFile, MultiFileSession, ThrashSession, TotalUsage, ModelUsageRow, ToolErrorStats, HeatmapCell, SlowToolCall, McpServerUsage, ContextHotspotStats, CostByTaskRow, ThinkingStats, SessionCacheStats, InterruptStats } from '../../src/analyzer'
 import type { Session, ProjectSummary } from '../../src/types'
 import { fmt, fmtDuration, fmtPace, fmtToolDuration, fmtTokenCount, fmtUSD, fmtChars, fmtTokensFromChars } from '../lib/format'
 import { toolColor, toolTickColor, taskTypeColor, taskTypeBar, TASK_DESCRIPTIONS } from '../lib/colors'
@@ -368,6 +368,66 @@ function EfficiencyPanel({ breakdown, antiPatterns }: { breakdown: BashCategory[
             </div>
           </>
         )}
+      </div>
+    </div>
+  )
+}
+
+function InterruptCard({ stats, onOpenSession }: { stats: InterruptStats; onOpenSession: (id: string) => void }) {
+  if (stats.totalInterrupts === 0) return (
+    <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
+      <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">Interrupt / Abort Rate</h3>
+      <p className="text-sm text-emerald-600 dark:text-emerald-400 font-medium">No interrupted sessions found.</p>
+    </div>
+  )
+
+  return (
+    <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
+      <div className="flex items-start justify-between mb-4">
+        <div>
+          <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Interrupt / Abort Rate</h3>
+          <p className="text-xs text-gray-400 dark:text-gray-600 mt-0.5">
+            <span className="text-amber-600 dark:text-amber-400 font-medium">{stats.interruptedSessions}</span> sessions interrupted
+            · {(stats.interruptRate * 100).toFixed(0)}% of total
+            · {stats.totalInterrupts} abort{stats.totalInterrupts === 1 ? '' : 's'} total
+          </p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-5">
+        {/* By task type */}
+        <div>
+          <p className="text-[11px] font-semibold text-gray-400 dark:text-gray-600 uppercase tracking-wide mb-2">By task type</p>
+          <div className="flex flex-col gap-2">
+            {stats.byTaskType.map(r => (
+              <div key={r.type} className="flex items-center gap-2">
+                <span className={`text-[11px] px-1.5 py-0.5 rounded font-medium w-20 text-center shrink-0 ${taskTypeBar(r.type as SessionType)}`}>{r.type}</span>
+                <div className="flex-1 bg-gray-100 dark:bg-gray-800 rounded-full h-1.5">
+                  <div className="h-1.5 rounded-full bg-amber-400" style={{ width: `${r.rate * 100}%` }} />
+                </div>
+                <span className="text-xs tabular-nums text-gray-500 dark:text-gray-400 w-12 text-right shrink-0">
+                  {r.interrupted}/{r.total} <span className="text-gray-400 dark:text-gray-600">({(r.rate * 100).toFixed(0)}%)</span>
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Top interrupted sessions */}
+        <div>
+          <p className="text-[11px] font-semibold text-gray-400 dark:text-gray-600 uppercase tracking-wide mb-2">Most interrupted sessions</p>
+          <div className="flex flex-col gap-1.5">
+            {stats.topSessions.slice(0, 6).map(s => (
+              <button key={s.sessionId} onClick={() => onOpenSession(s.sessionId)}
+                className="flex items-center gap-2 px-2 py-1 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors text-left w-full group">
+                <span className="text-xs font-bold tabular-nums text-amber-600 dark:text-amber-400 w-4 shrink-0">{s.count}×</span>
+                <span className="text-xs text-gray-700 dark:text-gray-300 truncate flex-1">{s.project}</span>
+                <span className="text-[11px] text-gray-400 dark:text-gray-600 shrink-0">{fmt(s.startedAt)}</span>
+                <span className="text-gray-400 dark:text-gray-600 text-xs group-hover:text-indigo-400 transition-colors shrink-0">→</span>
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   )
@@ -1204,6 +1264,7 @@ export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; 
   const dailyCostSeries = React.useMemo(() => dailyCost(filtered, costSeriesDays), [filtered, costSeriesDays])
   const errorStats = React.useMemo(() => toolErrorRates(filtered), [filtered])
   const thrashSess = React.useMemo(() => thrashingSessions(filtered), [filtered])
+  const interrupts = React.useMemo(() => interruptStats(filtered), [filtered])
   const slowCalls = React.useMemo(() => slowestToolCalls(filtered, 10), [filtered])
   const mcpServers = React.useMemo(() => mcpUsageStats(filtered), [filtered])
   const contextHotspots = React.useMemo(() => contextWindowHotspots(filtered, 10), [filtered])
@@ -1425,6 +1486,7 @@ export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; 
           <ThinkingDepthCard stats={thinking} onOpenSession={onOpenSession} />
           <EfficiencyPanel breakdown={bashBreakdown} antiPatterns={antiPatterns} />
           <SlowestToolsCard calls={slowCalls} onOpenSession={onOpenSession} />
+          <InterruptCard stats={interrupts} onOpenSession={id => onOpenSession(id)} />
           <ThrashCard sessions={thrashSess} onOpenSession={id => onOpenSession(id)} />
           <ToolErrorsCard stats={errorStats} />
         </div>
