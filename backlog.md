@@ -9,10 +9,6 @@ Move items up into "Next up" when ready to work on them; delete when shipped.
 - [ ] **Session comparison view**
   Select two sessions and diff their stats side-by-side: cost, tool breakdown,
   duration, cache rate, files touched. Useful for "did my workflow improve?"
-- [ ] **Tool call deep-dive**
-  Click a tool name in the Insights breakdown to open a filtered view of every
-  call of that type across all sessions — input args, result, duration. Current
-  cards show counts only.
 ## 🐛 Accuracy / correctness
 ## 🆕 New features
 ## 💡 Big bets

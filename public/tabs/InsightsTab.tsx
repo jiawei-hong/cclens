@@ -6,6 +6,7 @@ import { fmt, fmtDuration, fmtPace, fmtToolDuration, fmtTokenCount, fmtUSD, fmtC
 import { toolColor, toolTickColor, taskTypeColor, taskTypeBar, TASK_DESCRIPTIONS } from '../lib/colors'
 import { exportInsightsAsMarkdown, exportDailyCostCSV, exportSessionsCSV } from '../lib/exports'
 import { Tooltip, FileIcon } from '../lib/ui'
+import { ToolDeepDiveModal } from '../components/ToolDeepDive'
 
 // ── Workflow Insight Cards ────────────────────────────────────────────────────
 
@@ -1285,6 +1286,7 @@ function RangePicker({ range, setRange }: { range: DateRange; setRange: (r: Date
 
 export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; onOpenSession: (id: string, turnId?: string) => void }) {
   const [range, setRange] = useState<DateRange>('all')
+  const [deepDiveTool, setDeepDiveTool] = useState<string | null>(null)
   const filtered = React.useMemo(() => filterByRange(sessions, range), [sessions, range])
 
   const topTools = globalToolStats(filtered)
@@ -1460,8 +1462,13 @@ export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; 
               <div className="flex flex-col gap-2">
                 {topTools.slice(0, 8).map(tool => (
                   <div key={tool.name} className="flex items-center gap-3">
-                    <Tooltip content={<span className="text-[11px] font-mono text-gray-700 dark:text-gray-300">{tool.name}</span>}>
-                      <span className={`text-xs px-2 py-0.5 rounded font-mono w-24 text-center shrink-0 truncate cursor-default ${toolColor(tool.name)}`}>{tool.name}</span>
+                    <Tooltip content={<span className="text-[11px] font-mono text-gray-700 dark:text-gray-300">{tool.name} — click to see every call</span>}>
+                      <button
+                        onClick={() => setDeepDiveTool(tool.name)}
+                        className={`text-xs px-2 py-0.5 rounded font-mono w-24 text-center shrink-0 truncate cursor-pointer hover:ring-2 hover:ring-indigo-400/50 ${toolColor(tool.name)}`}
+                      >
+                        {tool.name}
+                      </button>
                     </Tooltip>
                     <div className="flex-1 bg-gray-100 dark:bg-gray-800 rounded-full h-1.5">
                       <div className="bg-indigo-500 h-1.5 rounded-full" style={{ width: `${(tool.count / maxTool) * 100}%` }} />
@@ -1556,6 +1563,15 @@ export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; 
             <ProjectTree projects={projects} sessions={sessions} onOpenSession={onOpenSession} />
           </div>
         </div>
+      )}
+
+      {deepDiveTool && (
+        <ToolDeepDiveModal
+          toolName={deepDiveTool}
+          sessions={filtered}
+          onClose={() => setDeepDiveTool(null)}
+          onOpenSession={onOpenSession}
+        />
       )}
     </div>
   )
