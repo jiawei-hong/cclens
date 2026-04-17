@@ -6,6 +6,7 @@ import { toolColor, toolTickColor } from '../lib/colors'
 import { exportSessionAsMarkdown, exportSessionAsHTML } from '../lib/exports'
 import { useNotes, useDiffMode } from '../lib/prefs'
 import { MarkdownText, FileIcon } from '../lib/ui'
+import { Button, Card, Tab, TabGroup, Badge, focusRing } from '../lib/ds'
 import { SessionCompareModal } from './SessionCompare'
 
 // ── Session Timeline ──────────────────────────────────────────────────────────
@@ -66,7 +67,7 @@ function SessionTimeline({ session }: { session: Session }) {
   const hoverTs = hoverPct != null ? start + (hoverPct / 100) * span : null
 
   return (
-    <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl px-5 py-4">
+    <Card className="px-5 py-4" padding="none">
       <div className="flex items-center justify-between mb-2">
         <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Timeline</h3>
         <span className="text-[10px] text-gray-400 dark:text-gray-600">
@@ -103,7 +104,7 @@ function SessionTimeline({ session }: { session: Session }) {
         </div>
         <span className="text-[10px] text-gray-400 dark:text-gray-600 tabular-nums">{new Date(end).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
       </div>
-    </div>
+    </Card>
   )
 }
 
@@ -135,7 +136,7 @@ function ContextGrowthChart({ session }: { session: Session }) {
   const overThreshold = peak >= contextLimit * 0.95
 
   return (
-    <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl px-5 py-4">
+    <Card className="px-5 py-4" padding="none">
       <div className="flex items-center justify-between mb-2">
         <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Context Growth</h3>
         <span className={`text-[10px] tabular-nums font-mono ${overThreshold ? 'text-rose-500 dark:text-rose-400 font-semibold' : 'text-gray-400 dark:text-gray-600'}`}>
@@ -172,7 +173,7 @@ function ContextGrowthChart({ session }: { session: Session }) {
           {new Date(contextSeries[contextSeries.length - 1].ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
         </span>
       </div>
-    </div>
+    </Card>
   )
 }
 
@@ -551,7 +552,7 @@ export function SessionDetailView({ session, allSessions, scrollToTurnId }: { se
 
   return (
     <div className="flex flex-col gap-4 pb-8">
-      <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl overflow-hidden">
+      <Card padding="none" className="overflow-hidden">
         <div className="flex items-start justify-between px-5 pt-4 pb-3">
           <div className="min-w-0">
             <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100 truncate">{session.project}</h2>
@@ -569,27 +570,18 @@ export function SessionDetailView({ session, allSessions, scrollToTurnId }: { se
               onBlur={() => setNote(session.id, noteDraft)}
               onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
               placeholder="Add a note…"
-              className="mt-2 w-full text-xs bg-transparent text-gray-700 dark:text-gray-300 placeholder:text-gray-400 dark:placeholder:text-gray-600 border border-dashed border-gray-200 dark:border-gray-700 rounded-md px-2 py-1 focus:outline-none focus:border-indigo-500 focus:border-solid focus:bg-white dark:focus:bg-gray-800"
+              aria-label="Session note"
+              className={`mt-2 w-full text-xs bg-transparent text-gray-700 dark:text-gray-300 placeholder:text-gray-400 dark:placeholder:text-gray-600 border border-dashed border-gray-200 dark:border-gray-700 rounded-md px-2 py-1 focus:outline-none focus:border-indigo-500 focus:border-solid focus:bg-white dark:focus:bg-gray-800 ${focusRing}`}
             />
           </div>
           <div className="flex gap-1.5 shrink-0 ml-4">
-            <button onClick={() => setCompareOpen(true)}
-              className="text-xs px-2.5 py-1 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 rounded-lg transition-colors">
-              ⇆ Compare
-            </button>
-            <button onClick={() => exportSessionAsMarkdown(session)}
-              className="text-xs px-2.5 py-1 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 rounded-lg transition-colors">
-              ↓ MD
-            </button>
-            <button onClick={() => exportSessionAsMarkdown(session, { anonymize: true })}
-              title="Export markdown with paths, URLs, emails, UUIDs redacted"
-              className="text-xs px-2.5 py-1 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 rounded-lg transition-colors">
+            <Button size="sm" onClick={() => setCompareOpen(true)}>⇆ Compare</Button>
+            <Button size="sm" onClick={() => exportSessionAsMarkdown(session)}>↓ MD</Button>
+            <Button size="sm" onClick={() => exportSessionAsMarkdown(session, { anonymize: true })}
+              title="Export markdown with paths, URLs, emails, UUIDs redacted">
               ↓ MD (anon)
-            </button>
-            <button onClick={() => exportSessionAsHTML(session)}
-              className="text-xs px-2.5 py-1 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 rounded-lg transition-colors">
-              ↓ HTML
-            </button>
+            </Button>
+            <Button size="sm" onClick={() => exportSessionAsHTML(session)}>↓ HTML</Button>
           </div>
         </div>
 
@@ -609,26 +601,15 @@ export function SessionDetailView({ session, allSessions, scrollToTurnId }: { se
             </div>
           ))}
         </div>
-      </div>
+      </Card>
 
       <SessionTimeline session={session} />
       <ContextGrowthChart session={session} />
 
-      <div className="flex gap-1">
-        <button onClick={() => setDetailTab('conversation')}
-          className={`px-4 py-1.5 rounded-xl text-sm font-medium transition-colors ${detailTab === 'conversation' ? 'bg-indigo-600 text-white' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800'}`}>
-          Conversation
-        </button>
-        <button onClick={() => setDetailTab('files')}
-          className={`flex items-center gap-1.5 px-4 py-1.5 rounded-xl text-sm font-medium transition-colors ${detailTab === 'files' ? 'bg-indigo-600 text-white' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800'}`}>
-          Files changed
-          {filesCount > 0 && (
-            <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${detailTab === 'files' ? 'bg-white/20 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400'}`}>
-              {filesCount}
-            </span>
-          )}
-        </button>
-      </div>
+      <TabGroup value={detailTab} onChange={setDetailTab} variant="solid">
+        <Tab value="conversation">Conversation</Tab>
+        <Tab value="files" badge={filesCount}>Files changed</Tab>
+      </TabGroup>
 
       {detailTab === 'files' && <SessionFilesView session={session} />}
 
