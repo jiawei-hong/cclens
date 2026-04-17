@@ -4,6 +4,7 @@ import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso'
 import type { Session } from '../../src/types'
 import { fmt, fmtDuration, fmtPace } from '../lib/format'
 import { useBookmarks, useNotes } from '../lib/prefs'
+import { focusRing } from '../lib/ds'
 import { SessionDetailView } from '../components/SessionDetail'
 
 function sessionPreview(session: Session): string {
@@ -139,7 +140,7 @@ export function SessionsTab({ sessions, initialSessionId, scrollToTurnId }: { se
       <div className="w-72 flex flex-col gap-2 shrink-0">
         <input type="text" placeholder="Filter by project..." value={filter}
           onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFilter(e.target.value)}
-          className="w-full bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 text-sm px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 focus:outline-none focus:border-indigo-500 placeholder:text-gray-400 dark:placeholder:text-gray-600" />
+          className={`w-full bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 text-sm px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 focus:outline-none focus:border-indigo-500 placeholder:text-gray-400 dark:placeholder:text-gray-600 ${focusRing}`} />
 
         <div className="flex-1 min-h-0 pr-1">
           <Virtuoso
@@ -153,7 +154,7 @@ export function SessionsTab({ sessions, initialSessionId, scrollToTurnId }: { se
                   <button
                     onClick={() => toggleProject(it.project)}
                     title={`${it.count} sessions · ${it.totalTurns} turns · ${it.totalCalls} tool calls`}
-                    className="w-full flex items-center gap-2 px-3 py-2 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors text-left"
+                    className={`w-full flex items-center gap-2 px-3 py-2 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors text-left ${focusRing}`}
                   >
                     <span className="text-gray-500 dark:text-gray-600 text-xs w-3 shrink-0">{it.isCollapsed ? '▶' : '▼'}</span>
                     <div className="flex-1 min-w-0">
@@ -175,7 +176,7 @@ export function SessionsTab({ sessions, initialSessionId, scrollToTurnId }: { se
               return (
                 <div className="ml-3 pl-2 border-l border-gray-200 dark:border-gray-800">
                   <button id={`sess-${s.id}`} onClick={() => setSelected(s)}
-                    className={`w-full text-left px-3 py-2 rounded-xl transition-colors ${selected?.id === s.id ? 'bg-indigo-600' : 'hover:bg-gray-50 dark:hover:bg-gray-800'}`}>
+                    className={`w-full text-left px-3 py-2 rounded-xl transition-colors ${focusRing} ${selected?.id === s.id ? 'bg-indigo-600' : 'hover:bg-gray-50 dark:hover:bg-gray-800'}`}>
                     <div className="flex items-center gap-2">
                       <span className={`text-xs ${selected?.id === s.id ? 'text-indigo-200' : 'text-gray-600 dark:text-gray-400'}`}>{fmt(s.startedAt)}</span>
                       <span
@@ -184,7 +185,9 @@ export function SessionsTab({ sessions, initialSessionId, scrollToTurnId }: { se
                         onClick={e => { e.stopPropagation(); toggleBookmark(s.id) }}
                         onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); toggleBookmark(s.id) } }}
                         title={isBookmarked ? 'Unpin session' : 'Pin session'}
-                        className={`ml-auto shrink-0 p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 ${isBookmarked ? (selected?.id === s.id ? 'text-amber-300' : 'text-amber-500') : (selected?.id === s.id ? 'text-indigo-200' : 'text-gray-400 dark:text-gray-600')}`}
+                        aria-label={isBookmarked ? 'Unpin session' : 'Pin session'}
+                        aria-pressed={isBookmarked}
+                        className={`ml-auto shrink-0 p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 ${focusRing} ${isBookmarked ? (selected?.id === s.id ? 'text-amber-300' : 'text-amber-500') : (selected?.id === s.id ? 'text-indigo-200' : 'text-gray-400 dark:text-gray-600')}`}
                       >
                         {isBookmarked ? <RiStarFill size={13} /> : <RiStarLine size={13} />}
                       </span>
