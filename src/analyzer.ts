@@ -479,6 +479,60 @@ export function agentBreakdown(sessions: Session[]): AgentTypeUsage[] {
     .sort((a, b) => b.count - a.count)
 }
 
+// ── Thrash / loop detection ───────────────────────────────────────────────────
+
+export type ThrashPattern = {
+  tool: string
+  key: string       // file name or truncated command
+  count: number     // total occurrences in session
+}
+
+export type ThrashSession = {
+  sessionId: string
+  project: string
+  startedAt: string
+  thrashScore: number   // total repeated calls above threshold
+  patterns: ThrashPattern[]
+}
+
+function toolKey(tc: { name: string; input: Record<string, unknown> }): string {
+  const fp = tc.input['file_path'] as string | undefined
+  if (fp) return fp.split('/').pop() ?? fp
+  const cmd = tc.input['command'] as string | undefined
+  if (cmd) return cmd.trim().slice(0, 50)
+  const pat = tc.input['pattern'] as string | undefined
+  if (pat) return pat.slice(0, 50)
+  return Object.values(tc.input)[0]?.toString().slice(0, 50) ?? ''
+}
+
+export function thrashingSessions(sessions: Session[], minRepeats = 3, limit = 10): ThrashSession[] {
+  const results: ThrashSession[] = []
+
+  for (const s of sessions) {
+    const counts = new Map<string, number>()
+    for (const turn of s.turns)
+      for (const tc of turn.toolCalls) {
+        const k = `${tc.name}\x00${toolKey(tc)}`
+        counts.set(k, (counts.get(k) ?? 0) + 1)
+      }
+
+    const patterns: ThrashPattern[] = []
+    let score = 0
+    for (const [k, count] of counts) {
+      if (count < minRepeats) continue
+      const [tool, key] = k.split('\x00') as [string, string]
+      patterns.push({ tool, key, count })
+      score += count - (minRepeats - 1)
+    }
+    if (patterns.length === 0) continue
+
+    patterns.sort((a, b) => b.count - a.count)
+    results.push({ sessionId: s.id, project: s.project, startedAt: s.startedAt, thrashScore: score, patterns: patterns.slice(0, 4) })
+  }
+
+  return results.sort((a, b) => b.thrashScore - a.thrashScore).slice(0, limit)
+}
+
 // ── Hot files ─────────────────────────────────────────────────────────────────
 
 export type HotFile = {

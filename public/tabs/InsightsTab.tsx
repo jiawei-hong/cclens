@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
-import { summarizeProjects, globalToolStats, activityByHour, sessionDepthStats, taskBreakdown, trendStats, bashAntiPatterns, bashCommandBreakdown, skillUsageStats, skillGaps, agentBreakdown, hotFiles, multiFileSessions, totalUsage, usageByModel, dailyCost, toolErrorRates, activityHeatmap, slowestToolCalls, mcpUsageStats, contextWindowHotspots, costByTaskType, thinkingStats } from '../../src/analyzer'
-import type { SessionType, BashAntiPattern, BashCategory, SkillUsage, SkillGap, AgentTypeUsage, HotFile, MultiFileSession, TotalUsage, ModelUsageRow, ToolErrorStats, HeatmapCell, SlowToolCall, McpServerUsage, ContextHotspotStats, CostByTaskRow, ThinkingStats } from '../../src/analyzer'
+import { summarizeProjects, globalToolStats, activityByHour, sessionDepthStats, taskBreakdown, trendStats, bashAntiPatterns, bashCommandBreakdown, skillUsageStats, skillGaps, agentBreakdown, hotFiles, multiFileSessions, thrashingSessions, totalUsage, usageByModel, dailyCost, toolErrorRates, activityHeatmap, slowestToolCalls, mcpUsageStats, contextWindowHotspots, costByTaskType, thinkingStats } from '../../src/analyzer'
+import type { SessionType, BashAntiPattern, BashCategory, SkillUsage, SkillGap, AgentTypeUsage, HotFile, MultiFileSession, ThrashSession, TotalUsage, ModelUsageRow, ToolErrorStats, HeatmapCell, SlowToolCall, McpServerUsage, ContextHotspotStats, CostByTaskRow, ThinkingStats } from '../../src/analyzer'
 import type { Session, ProjectSummary } from '../../src/types'
 import { fmt, fmtDuration, fmtPace, fmtToolDuration, fmtTokenCount, fmtUSD, fmtChars, fmtTokensFromChars } from '../lib/format'
 import { toolColor, toolTickColor, taskTypeColor, taskTypeBar, TASK_DESCRIPTIONS } from '../lib/colors'
@@ -325,6 +325,52 @@ function EfficiencyPanel({ breakdown, antiPatterns }: { breakdown: BashCategory[
             </div>
           </>
         )}
+      </div>
+    </div>
+  )
+}
+
+function ThrashCard({ sessions, onOpenSession }: { sessions: ThrashSession[]; onOpenSession: (id: string) => void }) {
+  if (sessions.length === 0) return (
+    <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
+      <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">Loop / Thrash Detection</h3>
+      <p className="text-sm text-emerald-600 dark:text-emerald-400 font-medium">No thrashing detected — no tool called 3+ times with the same argument.</p>
+    </div>
+  )
+  return (
+    <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Loop / Thrash Detection</h3>
+          <p className="text-xs text-gray-400 dark:text-gray-600 mt-0.5">Sessions where the same tool call repeated ≥3× on the same target</p>
+        </div>
+        <span className="text-xs text-gray-400 dark:text-gray-600">{sessions.length} sessions</span>
+      </div>
+      <div className="flex flex-col gap-2">
+        {sessions.map(s => (
+          <button key={s.sessionId} onClick={() => onOpenSession(s.sessionId)}
+            className="flex items-start gap-3 px-3 py-2.5 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors text-left w-full group">
+            <span className="text-sm font-bold tabular-nums text-rose-500 dark:text-rose-400 w-8 shrink-0 text-center leading-tight mt-0.5">
+              {s.thrashScore}
+            </span>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-xs font-medium text-gray-800 dark:text-gray-200 truncate">{s.project}</span>
+                <span className="text-[11px] text-gray-400 dark:text-gray-600 shrink-0">{fmt(s.startedAt)}</span>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {s.patterns.map((p, i) => (
+                  <span key={i} className="flex items-center gap-1 text-[11px] bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-300 rounded px-1.5 py-0.5">
+                    <span className={`font-mono px-1 rounded text-[10px] ${toolColor(p.tool)}`}>{p.tool}</span>
+                    <span className="truncate max-w-[120px]">{p.key}</span>
+                    <span className="font-semibold tabular-nums">×{p.count}</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+            <span className="text-gray-400 dark:text-gray-600 text-xs group-hover:text-indigo-400 transition-colors shrink-0 mt-0.5">→</span>
+          </button>
+        ))}
       </div>
     </div>
   )
@@ -1114,6 +1160,7 @@ export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; 
   const costSeriesDays = range === 'all' ? 30 : RANGE_DAYS[range]
   const dailyCostSeries = React.useMemo(() => dailyCost(filtered, costSeriesDays), [filtered, costSeriesDays])
   const errorStats = React.useMemo(() => toolErrorRates(filtered), [filtered])
+  const thrashSess = React.useMemo(() => thrashingSessions(filtered), [filtered])
   const slowCalls = React.useMemo(() => slowestToolCalls(filtered, 10), [filtered])
   const mcpServers = React.useMemo(() => mcpUsageStats(filtered), [filtered])
   const contextHotspots = React.useMemo(() => contextWindowHotspots(filtered, 10), [filtered])
@@ -1331,6 +1378,7 @@ export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; 
           <ThinkingDepthCard stats={thinking} onOpenSession={onOpenSession} />
           <EfficiencyPanel breakdown={bashBreakdown} antiPatterns={antiPatterns} />
           <SlowestToolsCard calls={slowCalls} onOpenSession={onOpenSession} />
+          <ThrashCard sessions={thrashSess} onOpenSession={id => onOpenSession(id)} />
           <ToolErrorsCard stats={errorStats} />
         </div>
       )}
