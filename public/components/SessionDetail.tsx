@@ -24,30 +24,72 @@ function SessionTimeline({ session }: { session: Session }) {
   }
   if (events.length === 0) return null
 
+  const turnPositions = session.turns.map(t => ({
+    turnUuid: t.uuid,
+    ts: new Date(t.timestamp).getTime(),
+  }))
+
   const scrollToTurn = (turnUuid: string) => {
     const el = document.getElementById(`turn-${turnUuid}`)
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }
+
+  const [hoverPct, setHoverPct] = useState<number | null>(null)
+
+  const findNearestTurn = (pct: number): string | null => {
+    const targetTs = start + (pct / 100) * span
+    let best: { uuid: string; delta: number } | null = null
+    for (const p of turnPositions) {
+      const d = Math.abs(p.ts - targetTs)
+      if (!best || d < best.delta) best = { uuid: p.turnUuid, delta: d }
+    }
+    return best?.uuid ?? null
+  }
+
+  const onBarClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect()
+    const pct = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100))
+    const uuid = findNearestTurn(pct)
+    if (uuid) scrollToTurn(uuid)
+  }
+
+  const onBarMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect()
+    const pct = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100))
+    setHoverPct(pct)
   }
 
   const counts: Record<string, number> = {}
   for (const e of events) counts[e.toolName] = (counts[e.toolName] ?? 0) + 1
   const legend = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 6)
 
+  const hoverTs = hoverPct != null ? start + (hoverPct / 100) * span : null
+
   return (
     <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl px-5 py-4">
       <div className="flex items-center justify-between mb-2">
         <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Timeline</h3>
-        <span className="text-[10px] text-gray-400 dark:text-gray-600">{events.length} tool calls · span {fmtDuration(end - start)}</span>
+        <span className="text-[10px] text-gray-400 dark:text-gray-600">
+          {events.length} tool calls · span {fmtDuration(end - start)}
+          {hoverTs != null && <> · <span className="tabular-nums">{new Date(hoverTs).toLocaleTimeString()}</span></>}
+        </span>
       </div>
-      <div className="relative h-8 bg-gray-100 dark:bg-gray-800 rounded-lg overflow-hidden">
+      <div
+        className="relative h-8 bg-gray-100 dark:bg-gray-800 rounded-lg overflow-hidden cursor-crosshair"
+        onClick={onBarClick}
+        onMouseMove={onBarMove}
+        onMouseLeave={() => setHoverPct(null)}
+      >
         {events.map((e, i) => (
-          <button key={i}
-            onClick={() => scrollToTurn(e.turnUuid)}
+          <span key={i}
             title={`${e.toolName} · ${new Date(e.ts).toLocaleTimeString()}`}
-            className={`absolute top-1 bottom-1 w-[2px] rounded-sm ${toolTickColor(e.toolName)} opacity-70 hover:opacity-100 hover:w-[3px] transition-all cursor-pointer`}
+            className={`absolute top-1 bottom-1 w-[2px] rounded-sm ${toolTickColor(e.toolName)} opacity-70 pointer-events-none`}
             style={{ left: `${e.pct}%` }}
           />
         ))}
+        {hoverPct != null && (
+          <div className="absolute top-0 bottom-0 w-px bg-indigo-500 pointer-events-none" style={{ left: `${hoverPct}%` }} />
+        )}
       </div>
       <div className="flex items-center justify-between mt-1.5">
         <span className="text-[10px] text-gray-400 dark:text-gray-600 tabular-nums">{new Date(start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>

@@ -17,10 +17,6 @@ Move items up into "Next up" when ready to work on them; delete when shipped.
 - [ ] **Virtualize long session / turn lists**
   `react-virtuoso` for >500-session installs. Currently fine, but will
   matter once someone has 10K+ sessions.
-- [ ] **Session timeline scrubber**
-  Replace the static timeline bar with an interactive scrubber — click a
-  position to jump to that turn in the conversation. Needs accurate per-turn
-  timestamps mapped to position.
 ## 🚫 Intentionally NOT doing
 - **AI-powered summaries (Anthropic API integration)**
   Would require a user-provided API key, breaking the "pure browser,
