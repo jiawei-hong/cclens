@@ -6,7 +6,7 @@ import { fmt, fmtDuration, fmtPace, fmtToolDuration, fmtTokenCount, fmtUSD, fmtC
 import { toolColor, toolTickColor, taskTypeColor, taskTypeBar, TASK_DESCRIPTIONS } from '../lib/colors'
 import { exportInsightsAsMarkdown, exportDailyCostCSV, exportSessionsCSV } from '../lib/exports'
 import { Tooltip, FileIcon } from '../lib/ui'
-import { Button, Card, Tab, TabGroup, StatStrip } from '../lib/ds'
+import { Button, Card, Tab, TabGroup, Stat, StatStrip, EmptyState } from '../lib/ds'
 import { ToolDeepDiveModal } from '../components/ToolDeepDive'
 
 // ── Workflow Insight Cards ────────────────────────────────────────────────────
@@ -28,7 +28,7 @@ function CostByTaskCard({ rows }: { rows: CostByTaskRow[] }) {
   const totalCost = rows.reduce((s, r) => s + r.totalCostUSD, 0)
   const mostExpensive = [...rows].sort((a, b) => b.avgCostUSD - a.avgCostUSD)[0]
   return (
-    <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
+    <Card>
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Cost by Task Type</h3>
         {mostExpensive && (
@@ -67,7 +67,7 @@ function CostByTaskCard({ rows }: { rows: CostByTaskRow[] }) {
       <p className="text-[10px] text-gray-400 dark:text-gray-600 mt-4 leading-relaxed">
         Sessions are classified by tool-mix heuristics (hover a label for the rule). Spend total: {fmtUSD(totalCost)}.
       </p>
-    </div>
+    </Card>
   )
 }
 
@@ -134,10 +134,10 @@ function CostPanel({ usage, modelRows, dailySeries, maxDailyCost, hasData, daily
 }) {
   if (!hasData) {
     return (
-      <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-10 text-center">
-        <p className="text-sm text-gray-500 dark:text-gray-400">No token usage data found in these sessions.</p>
-        <p className="text-xs text-gray-400 dark:text-gray-600 mt-2">Only sessions recorded by newer Claude Code versions include per-turn <code className="font-mono text-[11px]">usage</code> — older sessions will be skipped.</p>
-      </div>
+      <EmptyState
+        title="No token usage data found in these sessions."
+        description="Only sessions recorded by newer Claude Code versions include per-turn usage — older sessions will be skipped."
+      />
     )
   }
 
@@ -154,14 +154,8 @@ function CostPanel({ usage, modelRows, dailySeries, maxDailyCost, hasData, daily
   return (
     <div className="flex flex-col gap-5">
       <div className="flex justify-end gap-2">
-        <button onClick={() => exportDailyCostCSV(dailySeries)}
-          className="text-xs px-2.5 py-1 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 rounded-lg transition-colors">
-          ↓ Daily cost CSV
-        </button>
-        <button onClick={() => exportSessionsCSV(sessions)}
-          className="text-xs px-2.5 py-1 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 rounded-lg transition-colors">
-          ↓ Per-session CSV
-        </button>
+        <Button size="sm" onClick={() => exportDailyCostCSV(dailySeries)}>↓ Daily cost CSV</Button>
+        <Button size="sm" onClick={() => exportSessionsCSV(sessions)}>↓ Per-session CSV</Button>
       </div>
       {thinking.totalBlocks > 0 && (
         <div className="bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded-2xl px-4 py-3 text-[11px] text-amber-900 dark:text-amber-200 leading-relaxed">
@@ -175,15 +169,15 @@ function CostPanel({ usage, modelRows, dailySeries, maxDailyCost, hasData, daily
       )}
       {/* 4 stat cards */}
       <div className="grid grid-cols-4 gap-5">
-        <StatCardRich label="Est. Cost" value={fmtUSD(usage.costUSD)} sub={`${fmtTokenCount(usage.totalTokens)} tokens total`} />
-        <StatCardRich label="Input" value={fmtTokenCount(usage.inputTokens)} sub="fresh input tokens" />
-        <StatCardRich label="Output" value={fmtTokenCount(usage.outputTokens)} sub="generated tokens" />
-        <StatCardRich label="Cache Hit Rate" value={`${(usage.cacheHitRate * 100).toFixed(1)}%`} sub={`${fmtTokenCount(usage.cacheReadTokens)} read / ${fmtTokenCount(totalCacheIn)} eligible`} />
+        <Card><Stat label="Est. Cost" value={fmtUSD(usage.costUSD)} sub={`${fmtTokenCount(usage.totalTokens)} tokens total`} /></Card>
+        <Card><Stat label="Input" value={fmtTokenCount(usage.inputTokens)} sub="fresh input tokens" /></Card>
+        <Card><Stat label="Output" value={fmtTokenCount(usage.outputTokens)} sub="generated tokens" /></Card>
+        <Card><Stat label="Cache Hit Rate" value={`${(usage.cacheHitRate * 100).toFixed(1)}%`} sub={`${fmtTokenCount(usage.cacheReadTokens)} read / ${fmtTokenCount(totalCacheIn)} eligible`} /></Card>
       </div>
 
       {/* Token composition + Per-model breakdown */}
       <div className="grid grid-cols-2 gap-5">
-        <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
+        <Card>
           <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-4">Token Composition</h3>
           <div className="flex h-3 rounded-full overflow-hidden bg-gray-100 dark:bg-gray-800 mb-4">
             {tokenSegments.map(s => (
@@ -203,9 +197,9 @@ function CostPanel({ usage, modelRows, dailySeries, maxDailyCost, hasData, daily
           <p className="text-[10px] text-gray-400 dark:text-gray-600 mt-4 leading-relaxed">
             Cache reads are ~10× cheaper than fresh input. A high cache-read share is good.
           </p>
-        </div>
+        </Card>
 
-        <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
+        <Card>
           <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-4">Cost by Model</h3>
           <div className="flex flex-col gap-2.5">
             {modelRows.map(m => (
@@ -222,14 +216,14 @@ function CostPanel({ usage, modelRows, dailySeries, maxDailyCost, hasData, daily
           <p className="text-[10px] text-gray-400 dark:text-gray-600 mt-4 leading-relaxed">
             Estimates use public list prices per 1M tokens. Actual billing may differ (subscriptions, volume discounts, cache-write TTL, fast mode — Opus 4.6 fast-mode calls bill 6× standard and aren't distinguishable in the JSONL).
           </p>
-        </div>
+        </Card>
       </div>
 
       {/* Cost by task type */}
       {costByTask.length > 0 && <CostByTaskCard rows={costByTask} />}
 
       {/* Daily cost */}
-      <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
+      <Card>
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Daily Cost <span className="font-normal text-gray-400">— last {dailySeriesDays} days</span></h3>
           <span className="text-xs text-gray-400 dark:text-gray-600">{fmtUSD(dailySeries.reduce((s, d) => s + d.costUSD, 0))} total</span>
@@ -247,7 +241,7 @@ function CostPanel({ usage, modelRows, dailySeries, maxDailyCost, hasData, daily
             )
           })}
         </div>
-      </div>
+      </Card>
 
       {/* Cost projection */}
       <CostProjectionCard dailySeries={dailySeries} dailySeriesDays={dailySeriesDays} />
@@ -260,36 +254,17 @@ function CostProjectionCard({ dailySeries, dailySeriesDays }: { dailySeries: { d
   const avgDaily = dailySeriesDays > 0 ? totalRecent / dailySeriesDays : 0
   if (avgDaily === 0) return null
   return (
-    <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
+    <Card>
       <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">Cost Projection <span className="font-normal text-gray-400">— if the last {dailySeriesDays} days continue</span></h3>
       <div className="grid grid-cols-3 gap-4">
-        <div>
-          <p className="text-[10px] text-gray-400 dark:text-gray-600 uppercase tracking-wide">Avg / Day</p>
-          <p className="text-xl font-bold text-gray-900 dark:text-gray-100 mt-1 tabular-nums">{fmtUSD(avgDaily)}</p>
-        </div>
-        <div>
-          <p className="text-[10px] text-gray-400 dark:text-gray-600 uppercase tracking-wide">Projected / Month</p>
-          <p className="text-xl font-bold text-gray-900 dark:text-gray-100 mt-1 tabular-nums">{fmtUSD(avgDaily * 30)}</p>
-        </div>
-        <div>
-          <p className="text-[10px] text-gray-400 dark:text-gray-600 uppercase tracking-wide">Projected / Year</p>
-          <p className="text-xl font-bold text-gray-900 dark:text-gray-100 mt-1 tabular-nums">{fmtUSD(avgDaily * 365)}</p>
-        </div>
+        <Stat size="md" label="Avg / Day"         value={fmtUSD(avgDaily)} />
+        <Stat size="md" label="Projected / Month" value={fmtUSD(avgDaily * 30)} />
+        <Stat size="md" label="Projected / Year"  value={fmtUSD(avgDaily * 365)} />
       </div>
       <p className="text-[10px] text-gray-400 dark:text-gray-600 mt-3 leading-relaxed">
         Linear extrapolation from the calendar-day average. Does not account for thinking-mode underreporting or fast-mode pricing.
       </p>
-    </div>
-  )
-}
-
-function StatCardRich({ label, value, sub }: { label: string; value: string; sub?: string }) {
-  return (
-    <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
-      <p className="text-[10px] text-gray-400 dark:text-gray-600 uppercase tracking-wide">{label}</p>
-      <p className="text-2xl font-bold text-gray-900 dark:text-gray-100 mt-1 tabular-nums">{value}</p>
-      {sub && <p className="text-[11px] text-gray-500 dark:text-gray-500 mt-1">{sub}</p>}
-    </div>
+    </Card>
   )
 }
 
