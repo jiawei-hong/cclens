@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react'
 import type { Session } from '../../src/types'
 import { sessionCostUSD } from '../../src/analyzer'
 import { fmt, fmtDuration, fmtUSD } from '../lib/format'
+import { Modal } from '../lib/ds'
 
 type Stats = {
   sessionId: string
@@ -92,63 +93,52 @@ export function SessionCompareModal({
   )
 
   return (
-    <div className="fixed inset-0 z-50 flex items-stretch justify-center bg-black/60 p-4 sm:p-8" onClick={onClose}>
-      <div
-        className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl shadow-xl w-full max-w-5xl flex flex-col overflow-hidden"
-        onClick={e => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 dark:border-gray-800">
-          <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Compare sessions</h2>
-          <button onClick={onClose}
-            className="text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 text-lg leading-none px-2">×</button>
-        </div>
-
-        <div className="grid grid-cols-2 gap-4 px-5 py-4 border-b border-gray-100 dark:border-gray-800">
-          <select value={leftId} onChange={e => setLeftId(e.target.value)}
-            className="text-xs bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-2 py-1.5 text-gray-900 dark:text-gray-100">
-            {sorted.map(s => <option key={s.id} value={s.id}>{s.project} — {fmt(s.startedAt)}</option>)}
-          </select>
-          <select value={rightId} onChange={e => setRightId(e.target.value)}
-            className="text-xs bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-2 py-1.5 text-gray-900 dark:text-gray-100">
-            <option value="">Pick second session…</option>
-            {sorted.filter(s => s.id !== leftId).map(s => <option key={s.id} value={s.id}>{s.project} — {fmt(s.startedAt)}</option>)}
-          </select>
-        </div>
-
-        <div className="flex-1 overflow-y-auto">
-          {!rightStats ? (
-            <p className="text-sm text-gray-500 dark:text-gray-400 p-8 text-center">Pick a second session to compare.</p>
-          ) : (
-            <div className="p-5">
-              <div className="grid grid-cols-3 gap-0 text-xs">
-                <div className="text-[10px] uppercase text-gray-400 dark:text-gray-600 tracking-wide pb-2">Metric</div>
-                <div className="text-[10px] uppercase text-gray-400 dark:text-gray-600 tracking-wide pb-2 truncate">{leftStats.label}</div>
-                <div className="text-[10px] uppercase text-gray-400 dark:text-gray-600 tracking-wide pb-2 truncate">{rightStats.label}</div>
-                {rows.map(r => {
-                  const a = leftStats[r.key] as number
-                  const b = rightStats[r.key] as number
-                  return (
-                    <React.Fragment key={r.label}>
-                      <div className="py-2 text-gray-600 dark:text-gray-400 border-t border-gray-100 dark:border-gray-800">{r.label}</div>
-                      <div className="py-2 tabular-nums text-gray-900 dark:text-gray-100 border-t border-gray-100 dark:border-gray-800">{r.fmt(a)}</div>
-                      <div className="py-2 tabular-nums text-gray-900 dark:text-gray-100 border-t border-gray-100 dark:border-gray-800 flex items-baseline gap-2">
-                        <span>{r.fmt(b)}</span>
-                        {deltaCell(a, b, r.fmt, r.lowerIsBetter)}
-                      </div>
-                    </React.Fragment>
-                  )
-                })}
-              </div>
-
-              <div className="grid grid-cols-2 gap-4 mt-6">
-                <ToolList title="Top tools — left" tools={leftStats.topTools} />
-                <ToolList title="Top tools — right" tools={rightStats.topTools} />
-              </div>
-            </div>
-          )}
-        </div>
+    <Modal open onClose={onClose} size="xl" title="Compare sessions">
+      <div className="grid grid-cols-2 gap-4 px-5 py-4 border-b border-gray-100 dark:border-gray-800">
+        <select value={leftId} onChange={e => setLeftId(e.target.value)}
+          className="text-xs bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-2 py-1.5 text-gray-900 dark:text-gray-100">
+          {sorted.map(s => <option key={s.id} value={s.id}>{s.project} — {fmt(s.startedAt)}</option>)}
+        </select>
+        <select value={rightId} onChange={e => setRightId(e.target.value)}
+          className="text-xs bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-2 py-1.5 text-gray-900 dark:text-gray-100">
+          <option value="">Pick second session…</option>
+          {sorted.filter(s => s.id !== leftId).map(s => <option key={s.id} value={s.id}>{s.project} — {fmt(s.startedAt)}</option>)}
+        </select>
       </div>
-    </div>
+
+      <div className="flex-1 overflow-y-auto">
+        {!rightStats ? (
+          <p className="text-sm text-gray-500 dark:text-gray-400 p-8 text-center">Pick a second session to compare.</p>
+        ) : (
+          <div className="p-5">
+            <div className="grid grid-cols-3 gap-0 text-xs">
+              <div className="text-[10px] uppercase text-gray-400 dark:text-gray-600 tracking-wide pb-2">Metric</div>
+              <div className="text-[10px] uppercase text-gray-400 dark:text-gray-600 tracking-wide pb-2 truncate">{leftStats.label}</div>
+              <div className="text-[10px] uppercase text-gray-400 dark:text-gray-600 tracking-wide pb-2 truncate">{rightStats.label}</div>
+              {rows.map(r => {
+                const a = leftStats[r.key] as number
+                const b = rightStats[r.key] as number
+                return (
+                  <React.Fragment key={r.label}>
+                    <div className="py-2 text-gray-600 dark:text-gray-400 border-t border-gray-100 dark:border-gray-800">{r.label}</div>
+                    <div className="py-2 tabular-nums text-gray-900 dark:text-gray-100 border-t border-gray-100 dark:border-gray-800">{r.fmt(a)}</div>
+                    <div className="py-2 tabular-nums text-gray-900 dark:text-gray-100 border-t border-gray-100 dark:border-gray-800 flex items-baseline gap-2">
+                      <span>{r.fmt(b)}</span>
+                      {deltaCell(a, b, r.fmt, r.lowerIsBetter)}
+                    </div>
+                  </React.Fragment>
+                )
+              })}
+            </div>
+
+            <div className="grid grid-cols-2 gap-4 mt-6">
+              <ToolList title="Top tools — left" tools={leftStats.topTools} />
+              <ToolList title="Top tools — right" tools={rightStats.topTools} />
+            </div>
+          </div>
+        )}
+      </div>
+    </Modal>
   )
 }
 
