@@ -361,12 +361,13 @@ const BASH_CATEGORY_COLORS: Record<string, string> = {
   'other':             'bg-gray-400',
 }
 
-function CostPanel({ usage, modelRows, dailySeries, maxDailyCost, hasData }: {
+function CostPanel({ usage, modelRows, dailySeries, maxDailyCost, hasData, dailySeriesDays }: {
   usage: TotalUsage
   modelRows: ModelUsageRow[]
   dailySeries: { date: string; costUSD: number }[]
   maxDailyCost: number
   hasData: boolean
+  dailySeriesDays: number
 }) {
   if (!hasData) {
     return (
@@ -426,7 +427,7 @@ function CostPanel({ usage, modelRows, dailySeries, maxDailyCost, hasData }: {
           <div className="flex flex-col gap-2.5">
             {modelRows.map(m => (
               <div key={m.model} className="flex items-center gap-3">
-                <span title={m.model} className={`text-[11px] px-2 py-0.5 rounded font-mono w-16 text-center shrink-0 truncate ${MODEL_BADGE[m.shortLabel] ?? MODEL_BADGE.other}`}>{m.shortLabel}</span>
+                <span title={m.model} className={`text-[11px] px-2 py-0.5 rounded font-mono w-20 text-center shrink-0 truncate ${MODEL_BADGE[m.shortLabel] ?? MODEL_BADGE.other}`}>{m.versionLabel}</span>
                 <div className="flex-1 bg-gray-100 dark:bg-gray-800 rounded-full h-1.5">
                   <div className="bg-indigo-500 h-1.5 rounded-full" style={{ width: `${(m.costUSD / topModelCost) * 100}%` }} />
                 </div>
@@ -444,7 +445,7 @@ function CostPanel({ usage, modelRows, dailySeries, maxDailyCost, hasData }: {
       {/* Daily cost */}
       <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
         <div className="flex items-center justify-between mb-3">
-          <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Daily Cost <span className="font-normal text-gray-400">— last 30 days</span></h3>
+          <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Daily Cost <span className="font-normal text-gray-400">— last {dailySeriesDays} days</span></h3>
           <span className="text-xs text-gray-400 dark:text-gray-600">{fmtUSD(dailySeries.reduce((s, d) => s + d.costUSD, 0))} total</span>
         </div>
         <div className="relative h-20 flex items-end gap-px">
@@ -1056,24 +1057,65 @@ function HotFilesCard({ files }: { files: HotFile[] }) {
 
 // ── Insights Tab ──────────────────────────────────────────────────────────────
 
+type DateRange = '7d' | '30d' | '90d' | 'all'
+const RANGE_DAYS: Record<Exclude<DateRange, 'all'>, number> = { '7d': 7, '30d': 30, '90d': 90 }
+
+function filterByRange(sessions: Session[], range: DateRange): Session[] {
+  if (range === 'all') return sessions
+  const cutoff = new Date()
+  cutoff.setDate(cutoff.getDate() - RANGE_DAYS[range])
+  const cutoffISO = cutoff.toISOString()
+  return sessions.filter(s => s.startedAt >= cutoffISO)
+}
+
+function RangePicker({ range, setRange }: { range: DateRange; setRange: (r: DateRange) => void }) {
+  const options: { label: string; value: DateRange }[] = [
+    { label: '7d', value: '7d' },
+    { label: '30d', value: '30d' },
+    { label: '90d', value: '90d' },
+    { label: 'All', value: 'all' },
+  ]
+  return (
+    <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-900 rounded-lg p-0.5">
+      {options.map(o => (
+        <button
+          key={o.value}
+          onClick={() => setRange(o.value)}
+          className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
+            range === o.value
+              ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm'
+              : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+          }`}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; onOpenSession: (id: string) => void }) {
-  const topTools = globalToolStats(sessions)
-  const hourActivity = activityByHour(sessions)
-  const depth = sessionDepthStats(sessions)
-  const tasks = taskBreakdown(sessions)
-  const trend = trendStats(sessions)
-  const projects = summarizeProjects(sessions)
-  const antiPatterns = React.useMemo(() => bashAntiPatterns(sessions), [sessions])
-  const bashBreakdown = React.useMemo(() => bashCommandBreakdown(sessions), [sessions])
-  const skillUsage = React.useMemo(() => skillUsageStats(sessions), [sessions])
-  const gaps = React.useMemo(() => skillGaps(sessions, skillUsage), [sessions, skillUsage])
-  const agents = React.useMemo(() => agentBreakdown(sessions), [sessions])
-  const files = React.useMemo(() => hotFiles(sessions), [sessions])
-  const usage = React.useMemo(() => totalUsage(sessions), [sessions])
-  const modelRows = React.useMemo(() => usageByModel(sessions), [sessions])
-  const dailyCostSeries = React.useMemo(() => dailyCost(sessions, 30), [sessions])
-  const errorStats = React.useMemo(() => toolErrorRates(sessions), [sessions])
-  const heatmap = React.useMemo(() => activityHeatmap(sessions, 14), [sessions])
+  const [range, setRange] = useState<DateRange>('all')
+  const filtered = React.useMemo(() => filterByRange(sessions, range), [sessions, range])
+
+  const topTools = globalToolStats(filtered)
+  const hourActivity = activityByHour(filtered)
+  const depth = sessionDepthStats(filtered)
+  const tasks = taskBreakdown(filtered)
+  const trend = trendStats(sessions)  // monthly comparison — always uses full history
+  const projects = React.useMemo(() => summarizeProjects(filtered), [filtered])
+  const antiPatterns = React.useMemo(() => bashAntiPatterns(filtered), [filtered])
+  const bashBreakdown = React.useMemo(() => bashCommandBreakdown(filtered), [filtered])
+  const skillUsage = React.useMemo(() => skillUsageStats(filtered), [filtered])
+  const gaps = React.useMemo(() => skillGaps(filtered, skillUsage), [filtered, skillUsage])
+  const agents = React.useMemo(() => agentBreakdown(filtered), [filtered])
+  const files = React.useMemo(() => hotFiles(filtered), [filtered])
+  const usage = React.useMemo(() => totalUsage(filtered), [filtered])
+  const modelRows = React.useMemo(() => usageByModel(filtered), [filtered])
+  const costSeriesDays = range === 'all' ? 30 : RANGE_DAYS[range]
+  const dailyCostSeries = React.useMemo(() => dailyCost(filtered, costSeriesDays), [filtered, costSeriesDays])
+  const errorStats = React.useMemo(() => toolErrorRates(filtered), [filtered])
+  const heatmap = React.useMemo(() => activityHeatmap(sessions, 14), [sessions])  // fixed 14-week view
   const hasUsageData = usage.totalTokens > 0
   const maxHour = Math.max(...hourActivity.map(h => h.count), 1)
   const maxTool = Math.max(...topTools.map(t => t.count), 1)
@@ -1107,7 +1149,7 @@ function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; onOpenS
       <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl px-6 py-4">
         <div className="flex items-center gap-0 divide-x divide-gray-100 dark:divide-gray-800">
           {[
-            { label: 'Sessions', value: sessions.length.toLocaleString() },
+            { label: 'Sessions', value: filtered.length.toLocaleString() },
             { label: 'Projects', value: projects.length.toLocaleString() },
             { label: 'Tool Calls', value: totalToolCalls.toLocaleString() },
             { label: 'Avg Duration', value: fmtDuration(depth.avgDurationMs) },
@@ -1123,13 +1165,16 @@ function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; onOpenS
         </div>
       </div>
 
-      {/* ── Sub-tab nav ── */}
-      <div className="flex items-center gap-1">
-        {insightTabBtn('Overview', 'overview')}
-        {insightTabBtn('Cost', 'cost')}
-        {insightTabBtn('Efficiency', 'efficiency')}
-        {insightTabBtn('Skills', 'skills', gaps.length)}
-        {insightTabBtn('Projects', 'projects')}
+      {/* ── Sub-tab nav + range picker ── */}
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1">
+          {insightTabBtn('Overview', 'overview')}
+          {insightTabBtn('Cost', 'cost')}
+          {insightTabBtn('Efficiency', 'efficiency')}
+          {insightTabBtn('Skills', 'skills', gaps.length)}
+          {insightTabBtn('Projects', 'projects')}
+        </div>
+        <RangePicker range={range} setRange={setRange} />
       </div>
 
       {/* ── Overview ── */}
@@ -1186,7 +1231,7 @@ function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; onOpenS
           </div>
 
           {/* Top Tools + Trend */}
-          <div className="grid grid-cols-2 gap-5">
+          <div className={range === 'all' ? 'grid grid-cols-2 gap-5' : 'grid grid-cols-1 gap-5'}>
             <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
               <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-4">Top Tools</h3>
               <div className="flex flex-col gap-2">
@@ -1204,6 +1249,7 @@ function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; onOpenS
               </div>
             </div>
 
+            {range === 'all' && (
             <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Monthly Trend</h3>
@@ -1238,6 +1284,7 @@ function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; onOpenS
                 })}
               </div>
             </div>
+            )}
           </div>
 
         </div>
@@ -1245,7 +1292,7 @@ function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; onOpenS
 
       {/* ── Cost ── */}
       {insightTab === 'cost' && (
-        <CostPanel usage={usage} modelRows={modelRows} dailySeries={dailyCostSeries} maxDailyCost={maxDailyCost} hasData={hasUsageData} />
+        <CostPanel usage={usage} modelRows={modelRows} dailySeries={dailyCostSeries} maxDailyCost={maxDailyCost} hasData={hasUsageData} dailySeriesDays={costSeriesDays} />
       )}
 
       {/* ── Efficiency ── */}

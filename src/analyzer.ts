@@ -598,7 +598,8 @@ export function totalUsage(sessions: Session[]): TotalUsage {
 
 export type ModelUsageRow = {
   model: string
-  shortLabel: string  // opus / sonnet / haiku / other
+  shortLabel: string   // opus / sonnet / haiku / other — for color mapping
+  versionLabel: string // e.g. "opus 4.7", "sonnet 4.5" — for display
   inputTokens: number
   outputTokens: number
   cacheCreateTokens: number
@@ -613,6 +614,16 @@ function shortModelLabel(model: string): string {
   if (m.includes('haiku'))  return 'haiku'
   if (m.includes('sonnet')) return 'sonnet'
   return 'other'
+}
+
+// Parses model IDs like "claude-opus-4-7", "claude-sonnet-4-5-20250219",
+// "claude-opus-4-7[1m]" → "opus 4.7", "sonnet 4.5", "opus 4.7".
+// Falls back to shortModelLabel when no version digits are present.
+export function modelVersionLabel(model: string): string {
+  const m = model.toLowerCase()
+  const match = m.match(/(opus|sonnet|haiku)-(\d+)-(\d+)/)
+  if (match) return `${match[1]} ${match[2]}.${match[3]}`
+  return shortModelLabel(model)
 }
 
 export function usageByModel(sessions: Session[]): ModelUsageRow[] {
@@ -631,6 +642,7 @@ export function usageByModel(sessions: Session[]): ModelUsageRow[] {
     .map(([model, u]) => ({
       model,
       shortLabel: shortModelLabel(model),
+      versionLabel: modelVersionLabel(model),
       inputTokens: u.inputTokens,
       outputTokens: u.outputTokens,
       cacheCreateTokens: u.cacheCreateTokens,
