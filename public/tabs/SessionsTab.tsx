@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { RiGitBranchLine, RiStarFill, RiStarLine } from 'react-icons/ri'
+import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso'
 import type { Session } from '../../src/types'
 import { fmt, fmtDuration, fmtPace } from '../lib/format'
 import { useBookmarks, useNotes } from '../lib/prefs'
@@ -27,12 +28,17 @@ function groupSessionsByProject(sessions: Session[]): { project: string; session
     .sort((a, b) => b.sessions[0]!.startedAt.localeCompare(a.sessions[0]!.startedAt))
 }
 
+type ListItem =
+  | { kind: 'header'; project: string; count: number; totalTurns: number; totalCalls: number; isCollapsed: boolean }
+  | { kind: 'session'; session: Session }
+
 export function SessionsTab({ sessions, initialSessionId, scrollToTurnId }: { sessions: Session[]; initialSessionId: string | null; scrollToTurnId: string | null }) {
   const [selected, setSelected] = useState<Session | null>(null)
   const [filter, setFilter] = useState('')
   const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(new Set())
   const { bookmarks, toggle: toggleBookmark } = useBookmarks()
   const { notes } = useNotes()
+  const listRef = useRef<VirtuosoHandle>(null)
 
   useEffect(() => {
     if (initialSessionId) {
@@ -55,12 +61,39 @@ export function SessionsTab({ sessions, initialSessionId, scrollToTurnId }: { se
   const filtered = filter
     ? sessions.filter(s => s.project.toLowerCase().includes(filter.toLowerCase()))
     : sessions
-  const groups = groupSessionsByProject(filtered)
+  const groups = React.useMemo(() => groupSessionsByProject(filtered), [filtered])
+
+  const items = React.useMemo<ListItem[]>(() => {
+    const out: ListItem[] = []
+    for (const g of groups) {
+      const isCollapsed = collapsedProjects.has(g.project)
+      const totalTurns = g.sessions.reduce((s, x) => s + x.turns.length, 0)
+      const totalCalls = g.sessions.reduce((s, x) => s + x.stats.toolCallCount, 0)
+      out.push({ kind: 'header', project: g.project, count: g.sessions.length, totalTurns, totalCalls, isCollapsed })
+      if (isCollapsed) continue
+      const pinned = g.sessions.filter(s => bookmarks.has(s.id))
+      const rest = g.sessions.filter(s => !bookmarks.has(s.id))
+      for (const s of [...pinned, ...rest]) out.push({ kind: 'session', session: s })
+    }
+    return out
+  }, [groups, collapsedProjects, bookmarks])
 
   const flatVisible = React.useMemo(
-    () => groups.flatMap(g => collapsedProjects.has(g.project) ? [] : g.sessions),
-    [groups, collapsedProjects]
+    () => items.flatMap(it => it.kind === 'session' ? [it.session] : []),
+    [items]
   )
+
+  const indexOfSession = (id: string) => items.findIndex(it => it.kind === 'session' && it.session.id === id)
+
+  const scrollListToSession = (id: string) => {
+    const idx = indexOfSession(id)
+    if (idx >= 0) listRef.current?.scrollToIndex({ index: idx, align: 'center', behavior: 'auto' })
+  }
+
+  useEffect(() => {
+    if (selected) scrollListToSession(selected.id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected?.id, items.length])
 
   useEffect(() => {
     let lastGTime = 0
@@ -76,7 +109,7 @@ export function SessionsTab({ sessions, initialSessionId, scrollToTurnId }: { se
         const nextSession = flatVisible[next]
         if (nextSession) {
           setSelected(nextSession)
-          document.getElementById(`sess-${nextSession.id}`)?.scrollIntoView({ block: 'nearest' })
+          scrollListToSession(nextSession.id)
         }
       }
 
@@ -98,91 +131,87 @@ export function SessionsTab({ sessions, initialSessionId, scrollToTurnId }: { se
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [flatVisible, selected])
+  }, [flatVisible, selected, items])
 
   return (
     <div className="flex gap-4 h-[calc(100vh-140px)]">
-      {/* Left: grouped list */}
+      {/* Left: grouped list (virtualized) */}
       <div className="w-72 flex flex-col gap-2 shrink-0">
         <input type="text" placeholder="Filter by project..." value={filter}
           onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFilter(e.target.value)}
           className="w-full bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 text-sm px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 focus:outline-none focus:border-indigo-500 placeholder:text-gray-400 dark:placeholder:text-gray-600" />
 
-        <div className="flex-1 overflow-y-auto flex flex-col gap-0.5 pr-1">
-          {groups.map(({ project, sessions: projectSessions }) => {
-            const isCollapsed = collapsedProjects.has(project)
-            const totalTurns = projectSessions.reduce((s, x) => s + x.turns.length, 0)
-            const totalCalls = projectSessions.reduce((s, x) => s + x.stats.toolCallCount, 0)
-            return (
-              <div key={project}>
-                <button
-                  onClick={() => toggleProject(project)}
-                  title={`${projectSessions.length} sessions · ${totalTurns} turns · ${totalCalls} tool calls`}
-                  className="w-full flex items-center gap-2 px-3 py-2 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors text-left"
-                >
-                  <span className="text-gray-500 dark:text-gray-600 text-xs w-3 shrink-0">{isCollapsed ? '▶' : '▼'}</span>
-                  <div className="flex-1 min-w-0">
-                    <span className="block text-sm font-medium text-gray-800 dark:text-gray-200 truncate">{project}</span>
-                    {!isCollapsed && (
-                      <span className="block text-[10px] text-gray-400 dark:text-gray-600 truncate mt-0.5 tabular-nums">
-                        {totalTurns.toLocaleString()} turns · {totalCalls.toLocaleString()} calls
+        <div className="flex-1 min-h-0 pr-1">
+          <Virtuoso
+            ref={listRef}
+            className="h-full"
+            data={items}
+            computeItemKey={(i, it) => it.kind === 'header' ? `h-${it.project}` : `s-${it.session.id}`}
+            itemContent={(_, it) => {
+              if (it.kind === 'header') {
+                return (
+                  <button
+                    onClick={() => toggleProject(it.project)}
+                    title={`${it.count} sessions · ${it.totalTurns} turns · ${it.totalCalls} tool calls`}
+                    className="w-full flex items-center gap-2 px-3 py-2 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors text-left"
+                  >
+                    <span className="text-gray-500 dark:text-gray-600 text-xs w-3 shrink-0">{it.isCollapsed ? '▶' : '▼'}</span>
+                    <div className="flex-1 min-w-0">
+                      <span className="block text-sm font-medium text-gray-800 dark:text-gray-200 truncate">{it.project}</span>
+                      {!it.isCollapsed && (
+                        <span className="block text-[10px] text-gray-400 dark:text-gray-600 truncate mt-0.5 tabular-nums">
+                          {it.totalTurns.toLocaleString()} turns · {it.totalCalls.toLocaleString()} calls
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-xs text-gray-500 dark:text-gray-600 shrink-0">{it.count}</span>
+                  </button>
+                )
+              }
+              const s = it.session
+              const note = notes[s.id]?.trim()
+              const preview = sessionPreview(s)
+              const isBookmarked = bookmarks.has(s.id)
+              return (
+                <div className="ml-3 pl-2 border-l border-gray-200 dark:border-gray-800">
+                  <button id={`sess-${s.id}`} onClick={() => setSelected(s)}
+                    className={`w-full text-left px-3 py-2 rounded-xl transition-colors ${selected?.id === s.id ? 'bg-indigo-600' : 'hover:bg-gray-50 dark:hover:bg-gray-800'}`}>
+                    <div className="flex items-center gap-2">
+                      <span className={`text-xs ${selected?.id === s.id ? 'text-indigo-200' : 'text-gray-600 dark:text-gray-400'}`}>{fmt(s.startedAt)}</span>
+                      <span
+                        role="button"
+                        tabIndex={0}
+                        onClick={e => { e.stopPropagation(); toggleBookmark(s.id) }}
+                        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); toggleBookmark(s.id) } }}
+                        title={isBookmarked ? 'Unpin session' : 'Pin session'}
+                        className={`ml-auto shrink-0 p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 ${isBookmarked ? (selected?.id === s.id ? 'text-amber-300' : 'text-amber-500') : (selected?.id === s.id ? 'text-indigo-200' : 'text-gray-400 dark:text-gray-600')}`}
+                      >
+                        {isBookmarked ? <RiStarFill size={13} /> : <RiStarLine size={13} />}
                       </span>
+                    </div>
+                    {note ? (
+                      <p className={`text-xs mt-0.5 truncate italic ${selected?.id === s.id ? 'text-amber-100' : 'text-amber-700 dark:text-amber-400'}`}>{note}</p>
+                    ) : preview && (
+                      <p className={`text-xs mt-0.5 truncate ${selected?.id === s.id ? 'text-white/90' : 'text-gray-500'}`}>{preview}</p>
                     )}
-                  </div>
-                  <span className="text-xs text-gray-500 dark:text-gray-600 shrink-0">{projectSessions.length}</span>
-                </button>
-
-                {!isCollapsed && (
-                  <div className="ml-3 pl-2 border-l border-gray-200 dark:border-gray-800 flex flex-col gap-0.5 mb-1">
-                    {[
-                      ...projectSessions.filter(s => bookmarks.has(s.id)),
-                      ...projectSessions.filter(s => !bookmarks.has(s.id)),
-                    ].map(s => {
-                      const note = notes[s.id]?.trim()
-                      const preview = sessionPreview(s)
-                      const isBookmarked = bookmarks.has(s.id)
-                      return (
-                        <button key={s.id} id={`sess-${s.id}`} onClick={() => setSelected(s)}
-                          className={`text-left px-3 py-2 rounded-xl transition-colors ${selected?.id === s.id ? 'bg-indigo-600' : 'hover:bg-gray-50 dark:hover:bg-gray-800'}`}>
-                          <div className="flex items-center gap-2">
-                            <span className={`text-xs ${selected?.id === s.id ? 'text-indigo-200' : 'text-gray-600 dark:text-gray-400'}`}>{fmt(s.startedAt)}</span>
-                            <span
-                              role="button"
-                              tabIndex={0}
-                              onClick={e => { e.stopPropagation(); toggleBookmark(s.id) }}
-                              onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); toggleBookmark(s.id) } }}
-                              title={isBookmarked ? 'Unpin session' : 'Pin session'}
-                              className={`ml-auto shrink-0 p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 ${isBookmarked ? (selected?.id === s.id ? 'text-amber-300' : 'text-amber-500') : (selected?.id === s.id ? 'text-indigo-200' : 'text-gray-400 dark:text-gray-600')}`}
-                            >
-                              {isBookmarked ? <RiStarFill size={13} /> : <RiStarLine size={13} />}
-                            </span>
-                          </div>
-                          {note ? (
-                            <p className={`text-xs mt-0.5 truncate italic ${selected?.id === s.id ? 'text-amber-100' : 'text-amber-700 dark:text-amber-400'}`}>{note}</p>
-                          ) : preview && (
-                            <p className={`text-xs mt-0.5 truncate ${selected?.id === s.id ? 'text-white/90' : 'text-gray-500'}`}>{preview}</p>
-                          )}
-                          <div className="flex items-center gap-2 mt-0.5">
-                            <span className={`text-xs ${selected?.id === s.id ? 'text-indigo-200' : 'text-gray-500 dark:text-gray-600'}`}>{s.stats.toolCallCount} calls</span>
-                            <span className={`text-xs ${selected?.id === s.id ? 'text-indigo-300' : 'text-gray-400 dark:text-gray-700'}`}>·</span>
-                            <span className={`text-xs ${selected?.id === s.id ? 'text-indigo-200' : 'text-gray-500 dark:text-gray-600'}`}>{fmtDuration(s.durationMs)}</span>
-                            <span className={`text-xs ${selected?.id === s.id ? 'text-indigo-300' : 'text-gray-400 dark:text-gray-700'}`}>·</span>
-                            <span className={`text-xs ${selected?.id === s.id ? 'text-indigo-200' : 'text-gray-500 dark:text-gray-600'}`}>{fmtPace(s.durationMs, s.stats.toolCallCount)}</span>
-                          </div>
-                          {s.gitBranch && (
-                            <div className={`flex items-center gap-1 mt-0.5 text-xs truncate ${selected?.id === s.id ? 'text-indigo-200' : 'text-gray-500 dark:text-gray-600'}`}>
-                              <RiGitBranchLine size={11} className="shrink-0" />
-                              <span className="font-mono truncate">{s.gitBranch}</span>
-                            </div>
-                          )}
-                        </button>
-                      )
-                    })}
-                  </div>
-                )}
-              </div>
-            )
-          })}
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span className={`text-xs ${selected?.id === s.id ? 'text-indigo-200' : 'text-gray-500 dark:text-gray-600'}`}>{s.stats.toolCallCount} calls</span>
+                      <span className={`text-xs ${selected?.id === s.id ? 'text-indigo-300' : 'text-gray-400 dark:text-gray-700'}`}>·</span>
+                      <span className={`text-xs ${selected?.id === s.id ? 'text-indigo-200' : 'text-gray-500 dark:text-gray-600'}`}>{fmtDuration(s.durationMs)}</span>
+                      <span className={`text-xs ${selected?.id === s.id ? 'text-indigo-300' : 'text-gray-400 dark:text-gray-700'}`}>·</span>
+                      <span className={`text-xs ${selected?.id === s.id ? 'text-indigo-200' : 'text-gray-500 dark:text-gray-600'}`}>{fmtPace(s.durationMs, s.stats.toolCallCount)}</span>
+                    </div>
+                    {s.gitBranch && (
+                      <div className={`flex items-center gap-1 mt-0.5 text-xs truncate ${selected?.id === s.id ? 'text-indigo-200' : 'text-gray-500 dark:text-gray-600'}`}>
+                        <RiGitBranchLine size={11} className="shrink-0" />
+                        <span className="font-mono truncate">{s.gitBranch}</span>
+                      </div>
+                    )}
+                  </button>
+                </div>
+              )
+            }}
+          />
         </div>
       </div>
 
