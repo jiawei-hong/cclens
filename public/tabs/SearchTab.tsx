@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react'
 import { search as searchSessions } from '../../src/searcher'
 import type { Session, SearchResult } from '../../src/types'
 import { fmt } from '../lib/format'
+import { Card, Badge, focusRing } from '../lib/ds'
 
 type RoleFilter = 'all' | 'user' | 'assistant'
 type DateFilter = 'all' | '7d' | '30d' | '90d'
@@ -87,7 +88,7 @@ export function SearchTab({ sessions, onOpenSession }: { sessions: Session[]; on
 
   const filterBtn = <T extends string>(value: T, current: T, set: (v: T) => void, label: string, activeClass = 'bg-indigo-600 text-white') => (
     <button onClick={() => set(value)}
-      className={`px-3 py-1 text-xs rounded-lg transition-colors ${current === value ? activeClass : 'bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'}`}>
+      className={`px-3 py-1 text-xs rounded-lg transition-colors ${focusRing} ${current === value ? activeClass : 'bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'}`}>
       {label}
     </button>
   )
@@ -151,23 +152,29 @@ export function SearchTab({ sessions, onOpenSession }: { sessions: Session[]; on
       {/* Results */}
       <div className="flex flex-col gap-3">
         {grouped.map(({ id, project, startedAt, snippets }) => (
-          <div key={id} className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-4 flex flex-col gap-3">
-            <button onClick={() => onOpenSession(id)} className="flex items-center gap-2 text-left w-full group">
+          <Card key={id} padding="sm" className="flex flex-col gap-3">
+            <button
+              onClick={() => onOpenSession(id)}
+              className={`flex items-center gap-2 text-left w-full group rounded-lg ${focusRing}`}
+            >
               <span className="text-xs font-medium text-indigo-600 dark:text-indigo-400">{project}</span>
               <span className="text-gray-400 dark:text-gray-700">·</span>
               <span className="text-xs text-gray-500 dark:text-gray-600">{fmt(startedAt)}</span>
-              <span className="ml-1 text-xs px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 dark:bg-indigo-600/20 dark:text-indigo-300 font-medium">
+              <Badge tone="primary" className="ml-1 rounded-full">
                 {snippets.length} {snippets.length === 1 ? 'match' : 'matches'}
-              </span>
+              </Badge>
               <span className="ml-auto text-xs text-gray-400 dark:text-gray-700 group-hover:text-indigo-400 transition-colors">Open session →</span>
             </button>
             <div className="flex flex-col gap-2">
               {snippets.slice(0, 3).map((r, i) => (
-                <button key={i} onClick={() => onOpenSession(id, r.turnUuid)}
-                  className="flex flex-col gap-1 text-left hover:opacity-80 transition-opacity group/snippet">
-                  <span className={`text-xs px-2 py-0.5 rounded-full self-start ${r.role === 'user' ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-600/20 dark:text-indigo-300' : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400'}`}>
+                <button
+                  key={i}
+                  onClick={() => onOpenSession(id, r.turnUuid)}
+                  className={`flex flex-col gap-1 text-left hover:opacity-80 transition-opacity group/snippet rounded-xl ${focusRing}`}
+                >
+                  <Badge tone={r.role === 'user' ? 'primary' : 'neutral'} className="self-start rounded-full">
                     {r.role}
-                  </span>
+                  </Badge>
                   <p className="text-sm text-gray-700 dark:text-gray-300 font-mono bg-gray-50 dark:bg-gray-950 group-hover/snippet:bg-indigo-50 dark:group-hover/snippet:bg-indigo-950/30 rounded-xl px-3 py-2 whitespace-pre-wrap transition-colors w-full">
                     {highlight(r.snippet, query, regexMode)}
                   </p>
@@ -177,7 +184,7 @@ export function SearchTab({ sessions, onOpenSession }: { sessions: Session[]; on
                 <p className="text-xs text-gray-500 dark:text-gray-600 px-1">+{snippets.length - 3} more matches in this session</p>
               )}
             </div>
-          </div>
+          </Card>
         ))}
         {query && !regexError && grouped.length === 0 && (
           <p className="text-gray-500 dark:text-gray-600 text-sm text-center py-12">No results for "{query}"</p>
