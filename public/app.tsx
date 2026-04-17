@@ -4,8 +4,8 @@ import Markdown from 'react-markdown'
 import { RiSunLine, RiMoonLine, RiComputerLine, RiTimeLine, RiTerminalLine, RiChat3Line, RiFlashlightLine, RiFileCodeLine, RiArrowUpLine } from 'react-icons/ri'
 import { SiTypescript, SiJavascript, SiPython, SiRust, SiGo, SiRuby, SiPhp, SiSwift, SiKotlin, SiCplusplus, SiC, SiHtml5, SiCss, SiMarkdown, SiJson, SiYaml, SiShell, SiReact, SiVuedotjs, SiSvelte, SiDart, SiScala, SiElixir, SiHaskell, SiLua, SiDocker, SiPrisma } from 'react-icons/si'
 import { parseSessionFiles, parseMemoryFiles, type TrackedFile } from './lib/parser'
-import { summarizeProjects, globalToolStats, activityByDay, activityByHour, sessionDepthStats, taskBreakdown, trendStats, bashAntiPatterns, bashCommandBreakdown, skillUsageStats, skillGaps, agentBreakdown, hotFiles, totalUsage, usageByModel, dailyCost } from '../src/analyzer'
-import type { SessionType, BashAntiPattern, BashCategory, SkillUsage, SkillGap, AgentTypeUsage, HotFile, TotalUsage, ModelUsageRow } from '../src/analyzer'
+import { summarizeProjects, globalToolStats, activityByHour, sessionDepthStats, taskBreakdown, trendStats, bashAntiPatterns, bashCommandBreakdown, skillUsageStats, skillGaps, agentBreakdown, hotFiles, totalUsage, usageByModel, dailyCost, toolErrorRates, activityHeatmap } from '../src/analyzer'
+import type { SessionType, BashAntiPattern, BashCategory, SkillUsage, SkillGap, AgentTypeUsage, HotFile, TotalUsage, ModelUsageRow, ToolErrorStats, HeatmapCell } from '../src/analyzer'
 import { search as searchSessions } from '../src/searcher'
 import type { Session, ProjectSummary, SearchResult, MemoryEntry, MemoryEntryType } from '../src/types'
 
@@ -581,6 +581,59 @@ function EfficiencyPanel({ breakdown, antiPatterns }: { breakdown: BashCategory[
   )
 }
 
+function ToolErrorsCard({ stats }: { stats: ToolErrorStats }) {
+  const maxErrors = Math.max(...stats.rows.map(r => r.errors), 1)
+  const overallPct = (stats.overallRate * 100).toFixed(1)
+  return (
+    <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
+      <div className="flex items-start justify-between mb-4">
+        <div>
+          <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Tool Error Rate</h3>
+          {stats.totalCalls > 0 && (
+            <p className="text-xs text-gray-400 dark:text-gray-600 mt-0.5">
+              <span className={stats.overallRate > 0.05 ? 'text-rose-500 dark:text-rose-400 font-medium' : stats.overallRate > 0 ? 'text-amber-600 dark:text-amber-400 font-medium' : 'text-emerald-600 dark:text-emerald-400 font-medium'}>
+                {stats.totalErrors.toLocaleString()} failed
+              </span>
+              {' / '}
+              {stats.totalCalls.toLocaleString()} calls · {overallPct}%
+            </p>
+          )}
+        </div>
+        {stats.rows.length > 0 && (
+          <span className="text-xs text-gray-400 dark:text-gray-600 shrink-0">Tools with ≥3 calls</span>
+        )}
+      </div>
+
+      {stats.totalCalls === 0 ? (
+        <p className="text-sm text-gray-500 dark:text-gray-500">No tool calls recorded.</p>
+      ) : stats.rows.length === 0 ? (
+        <p className="text-sm text-emerald-600 dark:text-emerald-400 font-medium">No failing tools — everything returned clean.</p>
+      ) : (
+        <div className="flex flex-col gap-2.5">
+          {stats.rows.map(r => {
+            const ratePct = (r.errorRate * 100).toFixed(r.errorRate >= 0.1 ? 0 : 1)
+            const isHigh = r.errorRate >= 0.2
+            return (
+              <div key={r.name} className="flex items-center gap-3">
+                <span title={r.name} className={`text-xs px-2 py-0.5 rounded font-mono w-24 text-center shrink-0 truncate ${toolColor(r.name)}`}>{r.name}</span>
+                <div className="flex-1 bg-gray-100 dark:bg-gray-800 rounded-full h-1.5">
+                  <div className={`h-1.5 rounded-full ${isHigh ? 'bg-rose-500' : 'bg-amber-400'}`} style={{ width: `${(r.errors / maxErrors) * 100}%` }} />
+                </div>
+                <span className="text-xs text-gray-500 dark:text-gray-400 tabular-nums w-24 text-right shrink-0">
+                  {r.errors} / {r.total}
+                </span>
+                <span className={`text-xs font-medium tabular-nums w-12 text-right shrink-0 ${isHigh ? 'text-rose-500 dark:text-rose-400' : 'text-amber-600 dark:text-amber-400'}`}>
+                  {ratePct}%
+                </span>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function BashBreakdownCard({ breakdown }: { breakdown: BashCategory[] }) {
   const total = breakdown.reduce((s, c) => s + c.count, 0)
   const max = Math.max(...breakdown.map(c => c.count), 1)
@@ -866,6 +919,104 @@ function SkillGapsCard({ gaps }: { gaps: SkillGap[] }) {
 
 // ── Hot Files Card ────────────────────────────────────────────────────────────
 
+function heatmapCellColor(count: number, max: number): string {
+  if (count === 0) return 'bg-gray-100 dark:bg-gray-800'
+  const ratio = max === 0 ? 0 : count / max
+  if (ratio > 0.75) return 'bg-indigo-700 dark:bg-indigo-300'
+  if (ratio > 0.5)  return 'bg-indigo-500 dark:bg-indigo-400'
+  if (ratio > 0.25) return 'bg-indigo-400 dark:bg-indigo-600'
+  return 'bg-indigo-200 dark:bg-indigo-900'
+}
+
+function ActivityHeatmapCard({ cells }: { cells: HeatmapCell[] }) {
+  // Group into weeks (columns). weekIndex is already computed in the cells.
+  const max = Math.max(...cells.map(c => c.count), 1)
+  const totalSessions = cells.reduce((s, c) => s + c.count, 0)
+  const activeDays = cells.filter(c => c.count > 0).length
+
+  const weeks: HeatmapCell[][] = []
+  for (const c of cells) {
+    const col = weeks[c.weekIndex] ?? (weeks[c.weekIndex] = [])
+    col.push(c)
+  }
+
+  // Month labels along the top: show month abbrev on the week whose Sunday is the 1st or the leftmost of that month
+  const monthLabels: { weekIndex: number; label: string }[] = []
+  let lastMonth = -1
+  for (let i = 0; i < weeks.length; i++) {
+    const w = weeks[i]
+    const firstDay = w?.[0]
+    if (!firstDay) continue
+    const m = new Date(firstDay.date).getMonth()
+    if (m !== lastMonth) {
+      monthLabels.push({ weekIndex: i, label: new Date(firstDay.date).toLocaleString('en-US', { month: 'short' }) })
+      lastMonth = m
+    }
+  }
+
+  const dowLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
+  return (
+    <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
+          Activity <span className="font-normal text-gray-400">— last {weeks.length} weeks</span>
+        </h3>
+        <span className="text-[10px] text-gray-400 dark:text-gray-600 tabular-nums">
+          {totalSessions} sessions · {activeDays} active days
+        </span>
+      </div>
+      <div className="flex gap-2">
+        {/* Day-of-week labels (show a subset) */}
+        <div className="flex flex-col gap-[3px] pt-4 text-[9px] text-gray-400 dark:text-gray-600 font-medium">
+          {dowLabels.map((l, i) => (
+            <div key={i} className="h-[11px] leading-[11px]">{i % 2 === 1 ? l : ''}</div>
+          ))}
+        </div>
+        <div className="flex-1">
+          {/* Month labels */}
+          <div className="relative h-3 mb-1 text-[9px] text-gray-400 dark:text-gray-600 font-medium">
+            {monthLabels.map(({ weekIndex, label }) => (
+              <span
+                key={weekIndex}
+                className="absolute"
+                style={{ left: `calc(${weekIndex} * (11px + 3px))` }}
+              >
+                {label}
+              </span>
+            ))}
+          </div>
+          {/* Grid */}
+          <div className="flex gap-[3px]">
+            {weeks.map((week, wi) => (
+              <div key={wi} className="flex flex-col gap-[3px]">
+                {week.map(c => (
+                  <div key={c.date} className="group relative">
+                    <div
+                      className={`w-[11px] h-[11px] rounded-[2px] ${heatmapCellColor(c.count, max)} hover:ring-2 hover:ring-indigo-400 hover:ring-offset-0 transition-shadow cursor-default`}
+                    />
+                    <div className="absolute bottom-full mb-1.5 left-1/2 -translate-x-1/2 bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 shadow-sm text-[11px] text-gray-700 dark:text-gray-300 px-2 py-1 rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-10">
+                      {c.count === 0 ? 'No sessions' : `${c.count} session${c.count === 1 ? '' : 's'}`} · {c.date}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+          {/* Legend */}
+          <div className="flex items-center justify-end gap-1.5 mt-2 text-[9px] text-gray-400 dark:text-gray-600">
+            <span>Less</span>
+            {[0, 0.2, 0.4, 0.7, 1].map(r => (
+              <div key={r} className={`w-[11px] h-[11px] rounded-[2px] ${heatmapCellColor(Math.ceil(r * max), max)}`} />
+            ))}
+            <span>More</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function HotFilesCard({ files }: { files: HotFile[] }) {
   const max = Math.max(...files.map(f => f.totalOps), 1)
 
@@ -907,7 +1058,6 @@ function HotFilesCard({ files }: { files: HotFile[] }) {
 
 function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; onOpenSession: (id: string) => void }) {
   const topTools = globalToolStats(sessions)
-  const activity = activityByDay(sessions)
   const hourActivity = activityByHour(sessions)
   const depth = sessionDepthStats(sessions)
   const tasks = taskBreakdown(sessions)
@@ -922,8 +1072,9 @@ function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; onOpenS
   const usage = React.useMemo(() => totalUsage(sessions), [sessions])
   const modelRows = React.useMemo(() => usageByModel(sessions), [sessions])
   const dailyCostSeries = React.useMemo(() => dailyCost(sessions, 30), [sessions])
+  const errorStats = React.useMemo(() => toolErrorRates(sessions), [sessions])
+  const heatmap = React.useMemo(() => activityHeatmap(sessions, 14), [sessions])
   const hasUsageData = usage.totalTokens > 0
-  const maxActivity = Math.max(...activity.map(d => d.count), 1)
   const maxHour = Math.max(...hourActivity.map(h => h.count), 1)
   const maxTool = Math.max(...topTools.map(t => t.count), 1)
   const maxDailyCost = Math.max(...dailyCostSeries.map(d => d.costUSD), 0.0001)
@@ -1008,22 +1159,8 @@ function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; onOpenS
 
             {/* Activity charts stacked */}
             <div className="flex flex-col gap-3">
-              <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
-                <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">Daily Activity <span className="font-normal text-gray-400">— last 30 days</span></h3>
-                <div className="relative h-16 flex items-end gap-px">
-                  {activity.slice(-30).map(d => {
-                    const heightPx = Math.max(3, Math.round((d.count / maxActivity) * 64))
-                    return (
-                      <div key={d.date} className="group relative flex-1">
-                        <div className="w-full bg-indigo-500/70 rounded-sm hover:bg-indigo-400 transition-colors cursor-default" style={{ height: `${heightPx}px` }} />
-                        <div className="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 shadow-sm text-xs text-gray-700 dark:text-gray-300 px-2 py-1 rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-10">
-                          {d.date}: {d.count}
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
+              <ActivityHeatmapCard cells={heatmap} />
+
               <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
                 <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">By Hour of Day</h3>
                 <div className="relative h-16 flex items-end gap-px">
@@ -1055,7 +1192,9 @@ function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; onOpenS
               <div className="flex flex-col gap-2">
                 {topTools.slice(0, 8).map(tool => (
                   <div key={tool.name} className="flex items-center gap-3">
-                    <span title={tool.name} className={`text-xs px-2 py-0.5 rounded font-mono w-24 text-center shrink-0 truncate ${toolColor(tool.name)}`}>{tool.name}</span>
+                    <Tooltip content={<span className="text-[11px] font-mono text-gray-700 dark:text-gray-300">{tool.name}</span>}>
+                      <span className={`text-xs px-2 py-0.5 rounded font-mono w-24 text-center shrink-0 truncate cursor-default ${toolColor(tool.name)}`}>{tool.name}</span>
+                    </Tooltip>
                     <div className="flex-1 bg-gray-100 dark:bg-gray-800 rounded-full h-1.5">
                       <div className="bg-indigo-500 h-1.5 rounded-full" style={{ width: `${(tool.count / maxTool) * 100}%` }} />
                     </div>
@@ -1111,7 +1250,10 @@ function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; onOpenS
 
       {/* ── Efficiency ── */}
       {insightTab === 'efficiency' && (
-        <EfficiencyPanel breakdown={bashBreakdown} antiPatterns={antiPatterns} />
+        <div className="flex flex-col gap-5">
+          <EfficiencyPanel breakdown={bashBreakdown} antiPatterns={antiPatterns} />
+          <ToolErrorsCard stats={errorStats} />
+        </div>
       )}
 
       {/* ── Skills ── */}

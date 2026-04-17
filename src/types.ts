@@ -3,7 +3,7 @@ export type EntryType = 'user' | 'assistant' | 'permission-mode' | 'file-history
 export type ContentBlock =
   | { type: 'text'; text: string }
   | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
-  | { type: 'tool_result'; tool_use_id: string; content: string | ContentBlock[] }
+  | { type: 'tool_result'; tool_use_id: string; content: string | ContentBlock[]; is_error?: boolean }
   | { type: 'thinking'; thinking: string }
 
 export type TokenUsage = {
@@ -36,6 +36,7 @@ export type ToolCall = {
   name: string
   input: Record<string, unknown>
   result?: string
+  isError?: boolean
   durationMs?: number
 }
 

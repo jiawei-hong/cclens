@@ -657,3 +657,80 @@ export function dailyCost(sessions: Session[], days = 30): { date: string; costU
   return out
 }
 
+// ── Tool error rates ──────────────────────────────────────────────────────────
+
+export type ToolErrorRow = {
+  name: string
+  total: number
+  errors: number
+  errorRate: number  // 0..1
+}
+
+export type ToolErrorStats = {
+  totalCalls: number
+  totalErrors: number
+  overallRate: number
+  rows: ToolErrorRow[]   // only tools with at least one error, sorted by error count
+}
+
+export function toolErrorRates(sessions: Session[], minCalls = 3): ToolErrorStats {
+  const totals: Record<string, { total: number; errors: number }> = {}
+  for (const s of sessions) {
+    for (const turn of s.turns) {
+      for (const tc of turn.toolCalls) {
+        const acc = totals[tc.name] ?? (totals[tc.name] = { total: 0, errors: 0 })
+        acc.total++
+        if (tc.isError) acc.errors++
+      }
+    }
+  }
+  const totalCalls = Object.values(totals).reduce((s, v) => s + v.total, 0)
+  const totalErrors = Object.values(totals).reduce((s, v) => s + v.errors, 0)
+  const rows: ToolErrorRow[] = Object.entries(totals)
+    .filter(([, v]) => v.errors > 0 && v.total >= minCalls)
+    .map(([name, v]) => ({ name, total: v.total, errors: v.errors, errorRate: v.errors / v.total }))
+    .sort((a, b) => b.errors - a.errors)
+  return {
+    totalCalls,
+    totalErrors,
+    overallRate: totalCalls === 0 ? 0 : totalErrors / totalCalls,
+    rows,
+  }
+}
+
+// ── Activity calendar (zero-filled) ───────────────────────────────────────────
+
+export type HeatmapCell = { date: string; count: number; dow: number; weekIndex: number }
+
+/** Returns a zero-filled grid oldest→newest. `weeks` weeks back, ending on the
+ *  Saturday of the current week so the last column is the "current" one. */
+export function activityHeatmap(sessions: Session[], weeks = 14): HeatmapCell[] {
+  const counts = new Map<string, number>()
+  for (const s of sessions) {
+    const key = s.startedAt.slice(0, 10)
+    counts.set(key, (counts.get(key) ?? 0) + 1)
+  }
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  // End cell: Saturday of current week (dow 6); go forward to the end-of-week.
+  const daysUntilSat = (6 - today.getDay() + 7) % 7
+  const end = new Date(today)
+  end.setDate(end.getDate() + daysUntilSat)
+  const totalDays = weeks * 7
+  const start = new Date(end)
+  start.setDate(start.getDate() - (totalDays - 1))
+  const out: HeatmapCell[] = []
+  for (let i = 0; i < totalDays; i++) {
+    const d = new Date(start)
+    d.setDate(d.getDate() + i)
+    const key = d.toISOString().slice(0, 10)
+    out.push({
+      date: key,
+      count: counts.get(key) ?? 0,
+      dow: d.getDay(),
+      weekIndex: Math.floor(i / 7),
+    })
+  }
+  return out
+}
+
