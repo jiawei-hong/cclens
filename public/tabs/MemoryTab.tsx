@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import type { MemoryEntry, MemoryEntryType } from '../../src/types'
 import { MarkdownText } from '../lib/ui'
+import { Card, EmptyState, type as typeTokens, focusRing } from '../lib/ds'
 
 const MEMORY_TYPE_ORDER: MemoryEntryType[] = ['user', 'feedback', 'project', 'reference', 'other']
 
@@ -24,7 +25,7 @@ function MemoryFilterBtn({ label, count, active, onClick, accent }: { label: str
   return (
     <button
       onClick={onClick}
-      className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
+      className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${focusRing} ${
         active
           ? accent ?? 'bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900'
           : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800'
@@ -74,10 +75,10 @@ export function MemoryTab({ memory }: { memory: MemoryEntry[] }) {
 
   if (projects.length === 0) {
     return (
-      <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-10 text-center">
-        <p className="text-sm text-gray-500 dark:text-gray-400">No Claude Code memory files found in the selected folder.</p>
-        <p className="text-xs text-gray-400 dark:text-gray-600 mt-2">Memory lives at <code className="font-mono text-[11px]">~/.claude/projects/&lt;project&gt;/memory/*.md</code> — pick that parent folder to surface it here.</p>
-      </div>
+      <EmptyState
+        title="No Claude Code memory files found in the selected folder."
+        description="Memory lives at ~/.claude/projects/<project>/memory/*.md — pick that parent folder to surface it here."
+      />
     )
   }
 
@@ -85,14 +86,14 @@ export function MemoryTab({ memory }: { memory: MemoryEntry[] }) {
     <div className="flex gap-5">
       {/* Project list */}
       <aside className="w-64 shrink-0">
-        <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-3 sticky top-6">
-          <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide px-2 pt-1 pb-2">Projects</h3>
+        <Card padding="sm" className="sticky top-6">
+          <h3 className={`${typeTokens.caption} px-2 pt-1 pb-2`}>Projects</h3>
           <div className="flex flex-col gap-0.5">
             {projects.map(p => (
               <button
                 key={p.slug}
                 onClick={() => { setSelectedSlug(p.slug); setTypeFilter('all') }}
-                className={`flex items-center gap-2 px-2 py-1.5 rounded-lg text-left transition-colors ${
+                className={`flex items-center gap-2 px-2 py-1.5 rounded-lg text-left transition-colors ${focusRing} ${
                   selected?.slug === p.slug
                     ? 'bg-indigo-50 dark:bg-indigo-600/20 text-indigo-700 dark:text-indigo-300'
                     : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
@@ -103,7 +104,7 @@ export function MemoryTab({ memory }: { memory: MemoryEntry[] }) {
               </button>
             ))}
           </div>
-        </div>
+        </Card>
       </aside>
 
       {/* Entry list */}
@@ -111,7 +112,7 @@ export function MemoryTab({ memory }: { memory: MemoryEntry[] }) {
         {selected && (
           <>
             <div className="flex items-center gap-3 flex-wrap">
-              <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100">{selected.name}</h2>
+              <h2 className={typeTokens.title}>{selected.name}</h2>
               <span className="text-xs text-gray-400 dark:text-gray-600 font-mono" title={selected.slug}>{selected.slug}</span>
               <span className="text-xs text-gray-500 dark:text-gray-500 ml-auto">{selected.entries.length} entries</span>
             </div>
@@ -136,11 +137,11 @@ export function MemoryTab({ memory }: { memory: MemoryEntry[] }) {
 
             <div className="flex flex-col gap-3">
               {MEMORY_TYPE_ORDER.flatMap(t => grouped.get(t) ?? []).map(e => (
-                <article key={e.projectSlug + '/' + e.fileName} className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm rounded-2xl p-5">
+                <Card key={e.projectSlug + '/' + e.fileName}>
                   <header className="flex items-start gap-3 mb-3">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">{e.name ?? e.fileName}</h3>
+                        <h3 className={typeTokens.strong}>{e.name ?? e.fileName}</h3>
                         <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium uppercase tracking-wide ${MEMORY_TYPE_BADGE[e.type]}`}>
                           {MEMORY_TYPE_LABEL[e.type]}
                         </span>
@@ -151,13 +152,13 @@ export function MemoryTab({ memory }: { memory: MemoryEntry[] }) {
                       <p className="text-[10px] text-gray-400 dark:text-gray-600 mt-1 font-mono">{e.fileName}</p>
                     </div>
                   </header>
-                  <div className="text-sm text-gray-700 dark:text-gray-300">
+                  <div className={typeTokens.body}>
                     <MarkdownText>{e.body}</MarkdownText>
                   </div>
-                </article>
+                </Card>
               ))}
               {selected.entries.filter(e => typeFilter === 'all' || e.type === typeFilter).length === 0 && (
-                <p className="text-sm text-gray-500 dark:text-gray-600 text-center py-8">No entries in this category.</p>
+                <EmptyState title="No entries in this category." />
               )}
             </div>
           </>
