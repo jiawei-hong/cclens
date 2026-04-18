@@ -1,6 +1,7 @@
 import type { Session } from './types'
 import {
   classifySession, priceFor, costOfUsage, sessionCostUSD,
+  goldStandardSessions,
 } from './analyzer'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -626,4 +627,92 @@ export function aggregateRecommendations(sessions: Session[], limit = 10): RecAg
     byRule: [...byRule.values()].sort((a, b) => b.savingsUSD - a.savingsUSD || b.count - a.count),
     topSessions: perSession.sort((a, b) => b.savingsUSD - a.savingsUSD || b.count - a.count).slice(0, limit),
   }
+}
+
+// ── Per-project health score ─────────────────────────────────────────────────
+// One 0..100 composite per project. Four equal-weight factors:
+//   1. cache hit rate (25) — how efficiently the project uses the prompt cache
+//   2. 1 − error rate (25) — reliability of tool calls
+//   3. gold-ratio   (25) — share of substantive sessions that qualify as gold
+//   4. 1 − recs/sess scaled (25) — fewer opportunities per session = higher
+// The goal is a single number the user can watch move over time, not a formal
+// correctness metric. Projects with very few sessions are flagged separately.
+
+export type ProjectHealth = {
+  project: string
+  sessionCount: number
+  score: number             // 0..100
+  cacheHitRate: number      // 0..1
+  errorRate: number         // 0..1
+  goldCount: number
+  goldRatio: number         // 0..1
+  recsPerSession: number    // average
+  totalSavingsUSD: number   // rolled up from recs
+  lowConfidence: boolean    // true when sessionCount < 3 (score is noisy)
+}
+
+const MIN_CONFIDENT_SESSIONS = 3
+
+export function projectHealth(sessions: Session[]): ProjectHealth[] {
+  // Pre-compute gold sessions once across the whole corpus, then bucket by project.
+  const goldIds = new Set(goldStandardSessions(sessions, 1_000_000).map(g => g.sessionId))
+
+  const byProject = new Map<string, Session[]>()
+  for (const s of sessions) {
+    const list = byProject.get(s.project) ?? []
+    list.push(s)
+    byProject.set(s.project, list)
+  }
+
+  const out: ProjectHealth[] = []
+  for (const [project, list] of byProject) {
+    let cacheIn = 0, cacheHit = 0
+    let toolCalls = 0, errorCalls = 0
+    let goldCount = 0
+    let recsTotal = 0, savingsUSD = 0
+
+    for (const s of list) {
+      const u = s.stats.usage
+      cacheIn  += u.inputTokens + u.cacheCreateTokens + u.cacheReadTokens
+      cacheHit += u.cacheReadTokens
+      for (const t of s.turns) {
+        for (const tc of t.toolCalls) {
+          toolCalls++
+          if (tc.isError) errorCalls++
+        }
+      }
+      if (goldIds.has(s.id)) goldCount++
+      const recs = sessionRecommendations(s)
+      recsTotal  += recs.recommendations.length
+      savingsUSD += recs.totalSavingsUSD
+    }
+
+    const cacheHitRate   = cacheIn === 0 ? 0 : cacheHit / cacheIn
+    const errorRate      = toolCalls === 0 ? 0 : errorCalls / toolCalls
+    const goldRatio      = list.length === 0 ? 0 : goldCount / list.length
+    const recsPerSession = list.length === 0 ? 0 : recsTotal / list.length
+
+    // Bound recs/sess factor so projects with ≥2 recs per session collapse to 0.
+    const recFactor = Math.max(0, 1 - recsPerSession / 2)
+    const score =
+      cacheHitRate        * 25 +
+      (1 - errorRate)     * 25 +
+      goldRatio           * 25 +
+      recFactor           * 25
+
+    out.push({
+      project,
+      sessionCount: list.length,
+      score: Math.round(score),
+      cacheHitRate,
+      errorRate,
+      goldCount,
+      goldRatio,
+      recsPerSession,
+      totalSavingsUSD: savingsUSD,
+      lowConfidence: list.length < MIN_CONFIDENT_SESSIONS,
+    })
+  }
+
+  return out.sort((a, b) => b.score - a.score || b.sessionCount - a.sessionCount)
 }

@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { summarizeProjects, globalToolStats, activityByHour, sessionDepthStats, taskBreakdown, trendStats, bashAntiPatterns, bashCommandBreakdown, skillUsageStats, skillGaps, agentBreakdown, hotFiles, multiFileSessions, thrashingSessions, totalUsage, usageByModel, dailyCost, toolErrorRates, activityHeatmap, slowestToolCalls, mcpUsageStats, contextWindowHotspots, costByTaskType, thinkingStats, sessionCacheRanking, interruptStats, monthlyCostForecast, goldStandardSessions } from '../../src/analyzer'
 import type { SessionType, BashAntiPattern, BashCategory, SkillUsage, SkillGap, AgentTypeUsage, HotFile, MultiFileSession, ThrashSession, TotalUsage, ModelUsageRow, ToolErrorStats, HeatmapCell, SlowToolCall, McpServerUsage, ContextHotspotStats, CostByTaskRow, ThinkingStats, SessionCacheStats, InterruptStats, MonthlyForecast, GoldStandardSession } from '../../src/analyzer'
-import { aggregateRecommendations, recommendationTrend, type RecAggregate, type RecCategory, type RecSeverity, type RecTrend, type RuleTrend, type RuleTrendDirection } from '../../src/recommendations'
+import { aggregateRecommendations, recommendationTrend, projectHealth, type RecAggregate, type RecCategory, type RecSeverity, type RecTrend, type RuleTrend, type RuleTrendDirection, type ProjectHealth } from '../../src/recommendations'
 import { generateProjectClaudeMd } from '../../src/claudeMd'
 import type { Session, ProjectSummary } from '../../src/types'
 import { fmt, fmtDuration, fmtPace, fmtToolDuration, fmtTokenCount, fmtUSD, fmtChars, fmtTokensFromChars } from '../lib/format'
@@ -1482,6 +1482,77 @@ function MultiFileSessionsCard({ sessions, onOpenSession }: { sessions: MultiFil
   )
 }
 
+function ProjectHealthCard({ health }: { health: ProjectHealth[] }) {
+  if (health.length === 0) {
+    return (
+      <Card>
+        <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">Project Health</h3>
+        <p className="text-sm text-gray-500 dark:text-gray-400">No sessions in the current range.</p>
+      </Card>
+    )
+  }
+  const scoreTone = (s: number) =>
+    s >= 80 ? 'text-emerald-600 dark:text-emerald-400' :
+    s >= 60 ? 'text-lime-600   dark:text-lime-400'    :
+    s >= 40 ? 'text-amber-600  dark:text-amber-400'   :
+              'text-rose-500   dark:text-rose-400'
+  const barFill = (s: number) =>
+    s >= 80 ? 'bg-emerald-500' :
+    s >= 60 ? 'bg-lime-500'    :
+    s >= 40 ? 'bg-amber-500'   :
+              'bg-rose-500'
+
+  return (
+    <Card>
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Project Health</h3>
+          <p className="text-[11px] text-gray-400 dark:text-gray-600 mt-0.5">0–100 composite: cache hit · 1 − error · gold-ratio · 1 − recs/session</p>
+        </div>
+        <span className="text-[10px] text-gray-400 dark:text-gray-600">{health.length} project{health.length === 1 ? '' : 's'}</span>
+      </div>
+
+      <div className="flex items-center gap-3 text-[10px] text-gray-400 dark:text-gray-600 px-2 mb-1">
+        <span className="w-10 text-right shrink-0">score</span>
+        <span className="flex-1">project</span>
+        <span className="w-16 text-right shrink-0">sessions</span>
+        <span className="w-16 text-right shrink-0">cache</span>
+        <span className="w-16 text-right shrink-0">errors</span>
+        <span className="w-14 text-right shrink-0">gold</span>
+        <span className="w-16 text-right shrink-0">recs/sess</span>
+      </div>
+
+      <div className="flex flex-col gap-1">
+        {health.map(h => (
+          <div key={h.project} className="flex items-center gap-3 px-2 py-1.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-900/50 transition-colors">
+            <span className={`text-sm font-semibold tabular-nums w-10 text-right shrink-0 ${scoreTone(h.score)}`}>{h.score}</span>
+            <div className="flex-1 min-w-0 flex items-center gap-2">
+              <div className="flex-1 min-w-0">
+                <span className="text-sm text-gray-800 dark:text-gray-200 truncate block">{h.project}</span>
+                <div className="h-1 mt-1 rounded-full bg-gray-100 dark:bg-gray-800 overflow-hidden">
+                  <div className={`h-1 rounded-full ${barFill(h.score)}`} style={{ width: `${h.score}%` }} />
+                </div>
+              </div>
+              {h.lowConfidence && (
+                <span className="text-[10px] text-amber-600 dark:text-amber-400 shrink-0" title="Score is noisy with fewer than 3 sessions">low-conf</span>
+              )}
+            </div>
+            <span className="text-xs text-gray-500 dark:text-gray-500 tabular-nums w-16 text-right shrink-0">{h.sessionCount}</span>
+            <span className="text-xs text-gray-500 dark:text-gray-500 tabular-nums w-16 text-right shrink-0">{(h.cacheHitRate * 100).toFixed(0)}%</span>
+            <span className={`text-xs tabular-nums w-16 text-right shrink-0 ${h.errorRate > 0.05 ? 'text-rose-500 dark:text-rose-400' : 'text-gray-500 dark:text-gray-500'}`}>
+              {(h.errorRate * 100).toFixed(1)}%
+            </span>
+            <span className="text-xs text-gray-500 dark:text-gray-500 tabular-nums w-14 text-right shrink-0">{h.goldCount}</span>
+            <span className={`text-xs tabular-nums w-16 text-right shrink-0 ${h.recsPerSession > 1 ? 'text-amber-600 dark:text-amber-400' : 'text-gray-500 dark:text-gray-500'}`}>
+              {h.recsPerSession.toFixed(1)}
+            </span>
+          </div>
+        ))}
+      </div>
+    </Card>
+  )
+}
+
 function HotFilesCard({ files }: { files: HotFile[] }) {
   const max = Math.max(...files.map(f => f.totalOps), 1)
   return (
@@ -1711,6 +1782,7 @@ export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; 
   const recAgg = React.useMemo(() => aggregateRecommendations(filtered), [filtered])
   const recTrend = React.useMemo(() => recommendationTrend(sessions), [sessions])  // full history — month-over-month
   const gold = React.useMemo(() => goldStandardSessions(filtered), [filtered])
+  const health = React.useMemo(() => projectHealth(filtered), [filtered])
   const hasUsageData = usage.totalTokens > 0
   const maxHour = Math.max(...hourActivity.map(h => h.count), 1)
   const maxTool = Math.max(...topTools.map(t => t.count), 1)
@@ -1947,6 +2019,7 @@ export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; 
       {/* ── Projects ── */}
       {insightTab === 'projects' && (
         <div className="flex flex-col gap-5">
+          <ProjectHealthCard health={health} />
           <div className="grid grid-cols-2 gap-5">
             <MultiFileSessionsCard sessions={multiFileSess} onOpenSession={id => onOpenSession(id)} />
             <HotFilesCard files={files} />
