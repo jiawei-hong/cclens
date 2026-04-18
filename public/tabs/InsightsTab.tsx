@@ -1882,6 +1882,7 @@ export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; 
               recAgg,
               recTrend,
               gold,
+              regressions,
             })}
           >
             ↓ Report

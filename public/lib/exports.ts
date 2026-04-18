@@ -5,7 +5,7 @@ import type {
   MonthlyForecast, GoldStandardSession,
 } from '../../src/analyzer'
 import { sessionCostUSD } from '../../src/analyzer'
-import type { RecAggregate, RecTrend } from '../../src/recommendations'
+import type { RecAggregate, RecTrend, RegressionReport } from '../../src/recommendations'
 import { fmt, fmtDuration, fmtUSD, fmtTokenCount, fmtToolDuration } from './format'
 
 // ── CSV helpers ───────────────────────────────────────────────────────────────
@@ -157,6 +157,7 @@ export type InsightsExportInput = {
   recAgg?: RecAggregate
   recTrend?: RecTrend
   gold?: GoldStandardSession[]
+  regressions?: RegressionReport
 }
 
 export function exportInsightsAsMarkdown(data: InsightsExportInput) {
@@ -187,6 +188,25 @@ export function exportInsightsAsMarkdown(data: InsightsExportInput) {
     if (f.deltaVsLastMonthPct !== null) {
       const dir = f.deltaVsLastMonthPct >= 0 ? '↑' : '↓'
       L.push(`- **vs ${f.lastMonthLabel}:** ${dir} ${Math.abs(f.deltaVsLastMonthPct).toFixed(0)}% (${fmtUSD(f.spentLastMonth)} total)`)
+    }
+    L.push(``)
+  }
+
+  if (data.regressions && data.regressions.confident && data.regressions.regressions.length > 0) {
+    const rr = data.regressions
+    const fmtVal = (r: typeof rr.regressions[number], v: number) => {
+      if (r.fmt === 'usd')  return fmtUSD(v)
+      if (r.fmt === 'pct')  return `${(v * 100).toFixed(1)}%`
+      return v.toFixed(1)
+    }
+    L.push(`## Trending worse — last ${rr.recentWindowDays}d vs prior ${rr.baselineWindowDays}d`)
+    L.push(``)
+    L.push(`Based on ${rr.recentSessions} recent vs ${rr.baselineSessions} baseline sessions.`)
+    L.push(``)
+    L.push(`| Metric | Baseline | Recent | Change |`)
+    L.push(`| --- | ---: | ---: | ---: |`)
+    for (const r of rr.regressions) {
+      L.push(`| ${r.label} | ${fmtVal(r, r.baseline)} | ${fmtVal(r, r.recent)} | +${r.changePct.toFixed(0)}% worse |`)
     }
     L.push(``)
   }
