@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { summarizeProjects, globalToolStats, activityByHour, sessionDepthStats, taskBreakdown, trendStats, bashAntiPatterns, bashCommandBreakdown, skillUsageStats, skillGaps, agentBreakdown, hotFiles, multiFileSessions, thrashingSessions, totalUsage, usageByModel, dailyCost, toolErrorRates, activityHeatmap, slowestToolCalls, mcpUsageStats, contextWindowHotspots, costByTaskType, thinkingStats, sessionCacheRanking, interruptStats, monthlyCostForecast, goldStandardSessions } from '../../src/analyzer'
 import type { SessionType, BashAntiPattern, BashCategory, SkillUsage, SkillGap, AgentTypeUsage, HotFile, MultiFileSession, ThrashSession, TotalUsage, ModelUsageRow, ToolErrorStats, HeatmapCell, SlowToolCall, McpServerUsage, ContextHotspotStats, CostByTaskRow, ThinkingStats, SessionCacheStats, InterruptStats, MonthlyForecast, GoldStandardSession } from '../../src/analyzer'
 import { aggregateRecommendations, recommendationTrend, projectHealth, recentRegressions, type RecAggregate, type RecCategory, type RecSeverity, type RecTrend, type RuleTrend, type RuleTrendDirection, type ProjectHealth, type RegressionReport, type Regression } from '../../src/recommendations'
-import { generateProjectClaudeMd } from '../../src/claudeMd'
+import { generateProjectClaudeMd, claudeMdRules, CLAUDE_MD_SECTION_ORDER, type ClaudeMdRule } from '../../src/claudeMd'
 import type { Session, ProjectSummary } from '../../src/types'
 import { fmt, fmtDuration, fmtPace, fmtToolDuration, fmtTokenCount, fmtUSD, fmtChars, fmtTokensFromChars } from '../lib/format'
 import { toolColor, toolTickColor, taskTypeColor, taskTypeBar, TASK_DESCRIPTIONS } from '../lib/colors'
@@ -777,20 +777,52 @@ function GoldStandardCard({ sessions, onOpenSession }: { sessions: GoldStandardS
   )
 }
 
+function RuleCopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false)
+  const onClick = () => {
+    navigator.clipboard.writeText(text)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
+  }
+  return (
+    <button
+      onClick={onClick}
+      className={`shrink-0 text-[10px] px-2 py-1 rounded-md font-medium tabular-nums transition-colors ${
+        copied
+          ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300'
+          : 'bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'
+      }`}
+      title="Copy this one rule to clipboard — paste it into your existing CLAUDE.md"
+    >
+      {copied ? 'Copied ✓' : 'Copy'}
+    </button>
+  )
+}
+
 function ClaudeMdGeneratorCard({ sessions, antiPatterns, skillGaps }: {
   sessions: Session[]
   antiPatterns: BashAntiPattern[]
   skillGaps: SkillGap[]
 }) {
-  const [showPreview, setShowPreview] = useState(false)
-  const [copied, setCopied] = useState(false)
+  const [allCopied, setAllCopied] = useState(false)
+  const rules = React.useMemo(
+    () => claudeMdRules({ sessions, antiPatterns, skillGaps }),
+    [sessions, antiPatterns, skillGaps]
+  )
   const content = React.useMemo(
     () => generateProjectClaudeMd({ sessions, antiPatterns, skillGaps }),
     [sessions, antiPatterns, skillGaps]
   )
-  // Count non-header sections so we can tell the user how much actually landed.
-  const sectionCount = (content.match(/^## /gm) || []).length
-  const ruleCount    = (content.match(/^- /gm) || []).length
+
+  const grouped = React.useMemo(() => {
+    const m = new Map<ClaudeMdRule['section'], ClaudeMdRule[]>()
+    for (const r of rules) {
+      const list = m.get(r.section) ?? []
+      list.push(r)
+      m.set(r.section, list)
+    }
+    return m
+  }, [rules])
 
   const download = () => {
     const blob = new Blob([content], { type: 'text/markdown' })
@@ -801,11 +833,13 @@ function ClaudeMdGeneratorCard({ sessions, antiPatterns, skillGaps }: {
     a.click()
     URL.revokeObjectURL(url)
   }
-  const copy = () => {
+  const copyAll = () => {
     navigator.clipboard.writeText(content)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
+    setAllCopied(true)
+    setTimeout(() => setAllCopied(false), 2000)
   }
+
+  const totalSavings = rules.reduce((s, r) => s + r.savingsUSD, 0)
 
   return (
     <Card>
@@ -813,22 +847,48 @@ function ClaudeMdGeneratorCard({ sessions, antiPatterns, skillGaps }: {
         <div className="min-w-0">
           <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">Personalised CLAUDE.md</h3>
           <p className="text-sm text-gray-700 dark:text-gray-300">
-            Drop into your project root so Claude Code applies these rules on every session.
+            Copy individual rules to paste into your existing CLAUDE.md, or grab the whole file.
           </p>
           <p className="text-[11px] text-gray-400 dark:text-gray-600 mt-1">
-            {sectionCount === 0
+            {rules.length === 0
               ? 'Nothing actionable yet — your sessions are tracking well.'
-              : `${sectionCount} section${sectionCount === 1 ? '' : 's'} · ${ruleCount} rule${ruleCount === 1 ? '' : 's'}, derived from the patterns surfaced above.`}
+              : `${rules.length} rule${rules.length === 1 ? '' : 's'} across ${grouped.size} section${grouped.size === 1 ? '' : 's'}${totalSavings >= 0.01 ? ` · up to ${fmtUSD(totalSavings)} in savings` : ''}`}
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <Button size="sm" onClick={() => setShowPreview(p => !p)}>{showPreview ? 'Hide preview' : 'Preview'}</Button>
-          <Button size="sm" onClick={copy}>{copied ? 'Copied ✓' : 'Copy'}</Button>
+          <Button size="sm" onClick={copyAll}>{allCopied ? 'Copied ✓' : 'Copy all'}</Button>
           <Button size="sm" onClick={download}>↓ Download</Button>
         </div>
       </div>
-      {showPreview && (
-        <pre className="mt-4 p-3 rounded-lg bg-gray-50 dark:bg-gray-950 border border-gray-100 dark:border-gray-800 text-[11px] text-gray-700 dark:text-gray-300 font-mono whitespace-pre-wrap leading-relaxed max-h-96 overflow-auto">{content}</pre>
+
+      {rules.length > 0 && (
+        <div className="mt-4 flex flex-col gap-4">
+          {CLAUDE_MD_SECTION_ORDER.map(section => {
+            const list = grouped.get(section)
+            if (!list || list.length === 0) return null
+            return (
+              <div key={section}>
+                <h4 className="text-[10px] font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wide mb-2">{section}</h4>
+                <div className="flex flex-col gap-1.5">
+                  {list.map(r => (
+                    <div
+                      key={r.id}
+                      className="flex items-start gap-3 px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-900/50 border border-gray-100 dark:border-gray-800 hover:border-gray-200 dark:hover:border-gray-700 transition-colors"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs text-gray-800 dark:text-gray-200 leading-relaxed">
+                          {r.text.replace(/^- /, '')}
+                        </p>
+                        <p className="text-[10px] text-gray-400 dark:text-gray-600 mt-1 tabular-nums">{r.evidence}</p>
+                      </div>
+                      <RuleCopyButton text={r.text} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )
+          })}
+        </div>
       )}
     </Card>
   )

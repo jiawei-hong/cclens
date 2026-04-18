@@ -24,81 +24,159 @@ const MIN_RULE_SESSIONS       = 3
 const MIN_RULE_SAVINGS_USD    = 0.5
 const MIN_SKILL_GAP_SESSIONS  = 3
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// ── Structured rule type ─────────────────────────────────────────────────────
+// Each rule is its own record so the UI can render per-rule copy buttons and
+// evidence pills. The markdown exporter just joins `text` lines by section.
 
-function section(title: string, lines: string[]): string {
-  if (lines.length === 0) return ''
-  return `## ${title}\n\n${lines.join('\n')}\n\n`
+export type ClaudeMdRuleSection =
+  | 'Tool Usage Rules'
+  | 'Model Selection'
+  | 'Cache & Context'
+  | 'Workflow Rules'
+  | 'Preferred Skills'
+
+export type ClaudeMdRule = {
+  id: string                 // stable id so React can key by it
+  section: ClaudeMdRuleSection
+  text: string               // "- NEVER use `bash grep`…" — full markdown line
+  evidence: string           // human-readable evidence, e.g. "4 sessions · $1.20 potential savings"
+  count: number              // session count the rule is backed by
+  savingsUSD: number         // 0 if no $ figure
 }
 
-function bashRules(antiPatterns: BashAntiPattern[]): string[] {
-  return antiPatterns
-    .filter(p => p.count >= MIN_ANTIPATTERN_CALLS && BASH_RULE_TEXT[p.id])
-    .map(p => `- ${BASH_RULE_TEXT[p.id]}`)
+type RuleMap = Map<string, { count: number; savingsUSD: number }>
+
+function fmtEvidence(count: number, savingsUSD: number): string {
+  const parts: string[] = [`${count} session${count === 1 ? '' : 's'}`]
+  if (savingsUSD >= 0.01) parts.push(`$${savingsUSD.toFixed(2)} potential savings`)
+  return parts.join(' · ')
 }
 
-function modelRules(ruleById: Map<string, { count: number; savingsUSD: number }>): string[] {
-  const out: string[] = []
-  const wrongModel = ruleById.get('wrong-model-for-task')
-  if (wrongModel && wrongModel.count >= MIN_RULE_SESSIONS && wrongModel.savingsUSD >= MIN_RULE_SAVINGS_USD) {
-    out.push(`- Prefer Sonnet for conversation, exploration, and research tasks — Opus is only needed for deep reasoning or complex multi-step refactors. Flagged in ${wrongModel.count} past sessions ($${wrongModel.savingsUSD.toFixed(2)} potential savings).`)
+// ── Per-section rule builders ────────────────────────────────────────────────
+
+function bashRules(antiPatterns: BashAntiPattern[]): ClaudeMdRule[] {
+  const out: ClaudeMdRule[] = []
+  for (const p of antiPatterns) {
+    const text = BASH_RULE_TEXT[p.id]
+    if (!text) continue
+    if (p.count < MIN_ANTIPATTERN_CALLS) continue
+    out.push({
+      id: `bash-${p.id}`,
+      section: 'Tool Usage Rules',
+      text: `- ${text}`,
+      evidence: `${p.count} bash call${p.count === 1 ? '' : 's'} flagged`,
+      count: p.count,
+      savingsUSD: 0,
+    })
   }
   return out
 }
 
-function cacheRules(ruleById: Map<string, { count: number; savingsUSD: number }>): string[] {
-  const out: string[] = []
+function modelRules(ruleById: RuleMap): ClaudeMdRule[] {
+  const out: ClaudeMdRule[] = []
+  const wrongModel = ruleById.get('wrong-model-for-task')
+  if (wrongModel && wrongModel.count >= MIN_RULE_SESSIONS && wrongModel.savingsUSD >= MIN_RULE_SAVINGS_USD) {
+    out.push({
+      id: 'wrong-model-for-task',
+      section: 'Model Selection',
+      text: `- Prefer Sonnet for conversation, exploration, and research tasks — Opus is only needed for deep reasoning or complex multi-step refactors.`,
+      evidence: fmtEvidence(wrongModel.count, wrongModel.savingsUSD),
+      count: wrongModel.count,
+      savingsUSD: wrongModel.savingsUSD,
+    })
+  }
+  return out
+}
+
+function cacheRules(ruleById: RuleMap): ClaudeMdRule[] {
+  const out: ClaudeMdRule[] = []
   const h1 = ruleById.get('1h-cache-misused')
   if (h1 && h1.count >= MIN_RULE_SESSIONS) {
-    out.push(`- Do not request 1-hour cache TTL for short-lived sessions. Default to 5-minute (ephemeral) caching unless the prompt is genuinely reused across ≥1h.`)
+    out.push({
+      id: '1h-cache-misused',
+      section: 'Cache & Context',
+      text: `- Do not request 1-hour cache TTL for short-lived sessions. Default to 5-minute (ephemeral) caching unless the prompt is genuinely reused across ≥1h.`,
+      evidence: fmtEvidence(h1.count, h1.savingsUSD),
+      count: h1.count,
+      savingsUSD: h1.savingsUSD,
+    })
   }
   const lowHit = ruleById.get('low-cache-hit')
   if (lowHit && lowHit.count >= MIN_RULE_SESSIONS) {
-    out.push(`- Keep the session's stable prefix (CLAUDE.md, system prompt, project docs) at the top and avoid editing it mid-session — this is what the prompt cache hits against.`)
+    out.push({
+      id: 'low-cache-hit',
+      section: 'Cache & Context',
+      text: `- Keep the session's stable prefix (CLAUDE.md, system prompt, project docs) at the top and avoid editing it mid-session — this is what the prompt cache hits against.`,
+      evidence: fmtEvidence(lowHit.count, lowHit.savingsUSD),
+      count: lowHit.count,
+      savingsUSD: lowHit.savingsUSD,
+    })
   }
   return out
 }
 
-function workflowRules(ruleById: Map<string, { count: number; savingsUSD: number }>): string[] {
-  const out: string[] = []
-  const redundant = ruleById.get('redundant-reads')
-  if (redundant && redundant.count >= MIN_RULE_SESSIONS) {
-    out.push(`- Avoid re-reading the same file multiple times in one session. If you need a second look, use Grep or Read with offset/limit to fetch just the part you need.`)
-  }
-  const thrash = ruleById.get('thrashing')
-  if (thrash && thrash.count >= MIN_RULE_SESSIONS) {
-    out.push(`- If a tool call fails 2+ times with the same argument, stop and re-read the failure — do not retry a third time with the same input.`)
-  }
-  const errors = ruleById.get('high-error-rate')
-  if (errors && errors.count >= MIN_RULE_SESSIONS) {
-    out.push(`- When a tool errors, inspect the error before the next call. Do not chain speculative tool calls while earlier ones are still failing.`)
-  }
-  const linear = ruleById.get('linear-context-growth')
-  if (linear && linear.count >= MIN_RULE_SESSIONS) {
-    out.push(`- Keep tool result sizes small: prefer Grep + targeted Read over dumping full files. Context grows linearly when results are not trimmed.`)
+function workflowRules(ruleById: RuleMap): ClaudeMdRule[] {
+  const defs: { id: string; text: string }[] = [
+    { id: 'redundant-reads',       text: `- Avoid re-reading the same file multiple times in one session. If you need a second look, use Grep or Read with offset/limit to fetch just the part you need.` },
+    { id: 'thrashing',             text: `- If a tool call fails 2+ times with the same argument, stop and re-read the failure — do not retry a third time with the same input.` },
+    { id: 'high-error-rate',       text: `- When a tool errors, inspect the error before the next call. Do not chain speculative tool calls while earlier ones are still failing.` },
+    { id: 'linear-context-growth', text: `- Keep tool result sizes small: prefer Grep + targeted Read over dumping full files. Context grows linearly when results are not trimmed.` },
+  ]
+  const out: ClaudeMdRule[] = []
+  for (const d of defs) {
+    const ev = ruleById.get(d.id)
+    if (!ev || ev.count < MIN_RULE_SESSIONS) continue
+    out.push({
+      id: d.id,
+      section: 'Workflow Rules',
+      text: d.text,
+      evidence: fmtEvidence(ev.count, ev.savingsUSD),
+      count: ev.count,
+      savingsUSD: ev.savingsUSD,
+    })
   }
   return out
 }
 
-function skillHints(skillGaps: SkillGap[], ruleById: Map<string, { count: number; savingsUSD: number }>): string[] {
-  const out: string[] = []
+function skillHints(skillGaps: SkillGap[], ruleById: RuleMap): ClaudeMdRule[] {
+  const out: ClaudeMdRule[] = []
   const commitGap = ruleById.get('skill-gap-commit')
   const prGap     = ruleById.get('skill-gap-create-pr')
 
   if (commitGap && commitGap.count >= MIN_SKILL_GAP_SESSIONS) {
-    out.push(`- For git commits, prefer the \`commit\` skill (or \`/commit\` slash command) over composing \`git add\` + \`git commit\` manually — it handles staging, message conventions, and hook failures.`)
+    out.push({
+      id: 'skill-gap-commit',
+      section: 'Preferred Skills',
+      text: `- For git commits, prefer the \`commit\` skill (or \`/commit\` slash command) over composing \`git add\` + \`git commit\` manually — it handles staging, message conventions, and hook failures.`,
+      evidence: fmtEvidence(commitGap.count, commitGap.savingsUSD),
+      count: commitGap.count,
+      savingsUSD: commitGap.savingsUSD,
+    })
   }
   if (prGap && prGap.count >= MIN_SKILL_GAP_SESSIONS) {
-    out.push(`- For opening PRs, prefer the \`create-pr\` subagent or \`/create-pr\` command over \`gh pr create\` — it writes a structured title + body from the diff.`)
+    out.push({
+      id: 'skill-gap-create-pr',
+      section: 'Preferred Skills',
+      text: `- For opening PRs, prefer the \`create-pr\` subagent or \`/create-pr\` command over \`gh pr create\` — it writes a structured title + body from the diff.`,
+      evidence: fmtEvidence(prGap.count, prGap.savingsUSD),
+      count: prGap.count,
+      savingsUSD: prGap.savingsUSD,
+    })
   }
 
-  // Additional skills the user has a strong gap signal for
   const skillsAlreadyCovered = new Set(['/commit', '/create-pr'])
   const underused = skillGaps
     .filter(g => g.signalCount >= MIN_SKILL_GAP_SESSIONS && !skillsAlreadyCovered.has(g.skill))
     .slice(0, 3)
   for (const g of underused) {
-    out.push(`- Consider using the \`${g.skill}\` skill — ${g.howToUse} (${g.signalCount} past sessions would have benefited).`)
+    out.push({
+      id: `skill-${g.skill.replace(/[^a-z0-9]/gi, '-')}`,
+      section: 'Preferred Skills',
+      text: `- Consider using the \`${g.skill}\` skill — ${g.howToUse}.`,
+      evidence: `${g.signalCount} past session${g.signalCount === 1 ? '' : 's'} would have benefited`,
+      count: g.signalCount,
+      savingsUSD: 0,
+    })
   }
   return out
 }
@@ -111,33 +189,59 @@ export type ClaudeMdInput = {
   skillGaps: SkillGap[]
 }
 
-export function generateProjectClaudeMd(input: ClaudeMdInput): string {
+export const CLAUDE_MD_SECTION_ORDER: ClaudeMdRuleSection[] = [
+  'Tool Usage Rules',
+  'Model Selection',
+  'Cache & Context',
+  'Workflow Rules',
+  'Preferred Skills',
+]
+
+export function claudeMdRules(input: ClaudeMdInput): ClaudeMdRule[] {
   const { sessions, antiPatterns, skillGaps } = input
   const agg = aggregateRecommendations(sessions)
-
-  // Build a lookup by rule id so each section can check evidence without
-  // re-scanning the whole list.
-  const ruleById = new Map<string, { count: number; savingsUSD: number }>()
+  const ruleById: RuleMap = new Map()
   for (const r of agg.byRule) ruleById.set(r.id, { count: r.count, savingsUSD: r.savingsUSD })
+
+  return [
+    ...bashRules(antiPatterns),
+    ...modelRules(ruleById),
+    ...cacheRules(ruleById),
+    ...workflowRules(ruleById),
+    ...skillHints(skillGaps, ruleById),
+  ]
+}
+
+export function generateProjectClaudeMd(input: ClaudeMdInput): string {
+  const agg = aggregateRecommendations(input.sessions)
+  const rules = claudeMdRules(input)
 
   const header = [
     `<!-- Generated by cclens (claude-lens). Re-generate after notable behavior changes. -->`,
     `# Project Instructions`,
     ``,
-    `These rules were derived from ${agg.sessionCount > 0 ? agg.sessionCount : sessions.length} past Claude Code sessions in this project. Each section only appears when there is measurable evidence (${MIN_RULE_SESSIONS}+ sessions or $${MIN_RULE_SAVINGS_USD.toFixed(2)}+ in potential savings).`,
+    `These rules were derived from ${agg.sessionCount > 0 ? agg.sessionCount : input.sessions.length} past Claude Code sessions in this project. Each section only appears when there is measurable evidence (${MIN_RULE_SESSIONS}+ sessions or $${MIN_RULE_SAVINGS_USD.toFixed(2)}+ in potential savings).`,
     ``,
   ].join('\n')
 
-  const body =
-    section('Tool Usage Rules', bashRules(antiPatterns)) +
-    section('Model Selection',  modelRules(ruleById)) +
-    section('Cache & Context',  cacheRules(ruleById)) +
-    section('Workflow Rules',   workflowRules(ruleById)) +
-    section('Preferred Skills', skillHints(skillGaps, ruleById))
-
-  if (body.trim().length === 0) {
+  if (rules.length === 0) {
     return `${header}\n_No actionable rules yet — your sessions are tracking well. Re-generate after a few weeks of new activity._\n`
   }
+
+  const bySection = new Map<ClaudeMdRuleSection, ClaudeMdRule[]>()
+  for (const r of rules) {
+    const list = bySection.get(r.section) ?? []
+    list.push(r)
+    bySection.set(r.section, list)
+  }
+
+  const body = CLAUDE_MD_SECTION_ORDER
+    .map(section => {
+      const list = bySection.get(section)
+      if (!list || list.length === 0) return ''
+      return `## ${section}\n\n${list.map(r => r.text).join('\n')}\n\n`
+    })
+    .join('')
 
   return `${header}\n${body}`.trimEnd() + '\n'
 }
