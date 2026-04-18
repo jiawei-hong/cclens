@@ -716,3 +716,135 @@ export function projectHealth(sessions: Session[]): ProjectHealth[] {
 
   return out.sort((a, b) => b.score - a.score || b.sessionCount - a.sessionCount)
 }
+
+// ── Recent regression detector ───────────────────────────────────────────────
+// Compare the trailing 7-day window against the prior 14-to-7-day baseline on a
+// handful of high-signal metrics. Surface only those where things got notably
+// worse so the user has a single "what changed for the worse" entry point.
+
+export type RegressionMetric =
+  | 'avgCostPerSession'
+  | 'cacheHitRate'
+  | 'toolErrorRate'
+  | 'recsPerSession'
+
+export type Regression = {
+  metric: RegressionMetric
+  label: string
+  recent: number
+  baseline: number
+  changePct: number        // positive number, magnitude of worsening in percent
+  direction: 'worse'
+  fmt: 'usd' | 'pct' | 'count'
+  recentSessions: number
+  baselineSessions: number
+}
+
+export type RegressionReport = {
+  regressions: Regression[]
+  recentSessions: number
+  baselineSessions: number
+  recentWindowDays: number
+  baselineWindowDays: number
+  confident: boolean       // true when both buckets have ≥3 sessions
+}
+
+const REGRESSION_MIN_SESSIONS = 3
+const REGRESSION_MIN_CHANGE_PCT = 15
+
+function bucketMetrics(sessions: Session[]) {
+  let cacheIn = 0, cacheHit = 0
+  let toolCalls = 0, errorCalls = 0
+  let totalCost = 0, totalRecs = 0
+  for (const s of sessions) {
+    const u = s.stats.usage
+    cacheIn  += u.inputTokens + u.cacheCreateTokens + u.cacheReadTokens
+    cacheHit += u.cacheReadTokens
+    for (const t of s.turns) {
+      for (const tc of t.toolCalls) {
+        toolCalls++
+        if (tc.isError) errorCalls++
+      }
+    }
+    totalCost += sessionCostUSD(s)
+    totalRecs += sessionRecommendations(s).recommendations.length
+  }
+  const n = sessions.length
+  return {
+    avgCostPerSession: n === 0 ? 0 : totalCost / n,
+    cacheHitRate:      cacheIn === 0 ? 0 : cacheHit / cacheIn,
+    toolErrorRate:     toolCalls === 0 ? 0 : errorCalls / toolCalls,
+    recsPerSession:    n === 0 ? 0 : totalRecs / n,
+  }
+}
+
+export function recentRegressions(sessions: Session[], now = new Date()): RegressionReport {
+  const recentDays = 7
+  const baselineDays = 7
+  const nowMs = now.getTime()
+  const recentCutoff   = nowMs - recentDays * 24 * 60 * 60 * 1000
+  const baselineCutoff = nowMs - (recentDays + baselineDays) * 24 * 60 * 60 * 1000
+
+  const recent: Session[]   = []
+  const baseline: Session[] = []
+  for (const s of sessions) {
+    const t = new Date(s.startedAt).getTime()
+    if (t >= recentCutoff)                             recent.push(s)
+    else if (t >= baselineCutoff && t < recentCutoff)  baseline.push(s)
+  }
+
+  const confident = recent.length >= REGRESSION_MIN_SESSIONS && baseline.length >= REGRESSION_MIN_SESSIONS
+  if (!confident) {
+    return {
+      regressions: [],
+      recentSessions: recent.length,
+      baselineSessions: baseline.length,
+      recentWindowDays: recentDays,
+      baselineWindowDays: baselineDays,
+      confident: false,
+    }
+  }
+
+  const r = bucketMetrics(recent)
+  const b = bucketMetrics(baseline)
+
+  // For each metric, define the direction that counts as "worse" and its formatter.
+  const checks: { metric: RegressionMetric; label: string; higherIsWorse: boolean; recent: number; baseline: number; fmt: 'usd' | 'pct' | 'count' }[] = [
+    { metric: 'avgCostPerSession', label: 'Avg cost / session',   higherIsWorse: true,  recent: r.avgCostPerSession, baseline: b.avgCostPerSession, fmt: 'usd' },
+    { metric: 'cacheHitRate',      label: 'Cache hit rate',       higherIsWorse: false, recent: r.cacheHitRate,      baseline: b.cacheHitRate,      fmt: 'pct' },
+    { metric: 'toolErrorRate',     label: 'Tool error rate',      higherIsWorse: true,  recent: r.toolErrorRate,     baseline: b.toolErrorRate,     fmt: 'pct' },
+    { metric: 'recsPerSession',    label: 'Recommendations / session', higherIsWorse: true, recent: r.recsPerSession, baseline: b.recsPerSession, fmt: 'count' },
+  ]
+
+  const regressions: Regression[] = []
+  for (const c of checks) {
+    if (c.baseline === 0) continue  // no denominator, skip
+    const delta = c.recent - c.baseline
+    const worse = c.higherIsWorse ? delta > 0 : delta < 0
+    if (!worse) continue
+    const changePct = Math.abs(delta / c.baseline) * 100
+    if (changePct < REGRESSION_MIN_CHANGE_PCT) continue
+    regressions.push({
+      metric: c.metric,
+      label: c.label,
+      recent: c.recent,
+      baseline: c.baseline,
+      changePct,
+      direction: 'worse',
+      fmt: c.fmt,
+      recentSessions: recent.length,
+      baselineSessions: baseline.length,
+    })
+  }
+
+  regressions.sort((a, b) => b.changePct - a.changePct)
+
+  return {
+    regressions,
+    recentSessions: recent.length,
+    baselineSessions: baseline.length,
+    recentWindowDays: recentDays,
+    baselineWindowDays: baselineDays,
+    confident: true,
+  }
+}

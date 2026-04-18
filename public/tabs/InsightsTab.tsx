@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { summarizeProjects, globalToolStats, activityByHour, sessionDepthStats, taskBreakdown, trendStats, bashAntiPatterns, bashCommandBreakdown, skillUsageStats, skillGaps, agentBreakdown, hotFiles, multiFileSessions, thrashingSessions, totalUsage, usageByModel, dailyCost, toolErrorRates, activityHeatmap, slowestToolCalls, mcpUsageStats, contextWindowHotspots, costByTaskType, thinkingStats, sessionCacheRanking, interruptStats, monthlyCostForecast, goldStandardSessions } from '../../src/analyzer'
 import type { SessionType, BashAntiPattern, BashCategory, SkillUsage, SkillGap, AgentTypeUsage, HotFile, MultiFileSession, ThrashSession, TotalUsage, ModelUsageRow, ToolErrorStats, HeatmapCell, SlowToolCall, McpServerUsage, ContextHotspotStats, CostByTaskRow, ThinkingStats, SessionCacheStats, InterruptStats, MonthlyForecast, GoldStandardSession } from '../../src/analyzer'
-import { aggregateRecommendations, recommendationTrend, projectHealth, type RecAggregate, type RecCategory, type RecSeverity, type RecTrend, type RuleTrend, type RuleTrendDirection, type ProjectHealth } from '../../src/recommendations'
+import { aggregateRecommendations, recommendationTrend, projectHealth, recentRegressions, type RecAggregate, type RecCategory, type RecSeverity, type RecTrend, type RuleTrend, type RuleTrendDirection, type ProjectHealth, type RegressionReport, type Regression } from '../../src/recommendations'
 import { generateProjectClaudeMd } from '../../src/claudeMd'
 import type { Session, ProjectSummary } from '../../src/types'
 import { fmt, fmtDuration, fmtPace, fmtToolDuration, fmtTokenCount, fmtUSD, fmtChars, fmtTokensFromChars } from '../lib/format'
@@ -1482,6 +1482,43 @@ function MultiFileSessionsCard({ sessions, onOpenSession }: { sessions: MultiFil
   )
 }
 
+function RegressionAlertCard({ report }: { report: RegressionReport }) {
+  if (!report.confident || report.regressions.length === 0) return null
+
+  const fmtMetric = (r: Regression, v: number) => {
+    if (r.fmt === 'usd')   return fmtUSD(v)
+    if (r.fmt === 'pct')   return `${(v * 100).toFixed(1)}%`
+    return v.toFixed(1)
+  }
+
+  return (
+    <Card className="border-rose-200 dark:border-rose-500/30 bg-rose-50/50 dark:bg-rose-500/5">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-xs font-semibold text-rose-700 dark:text-rose-300 uppercase tracking-wide">
+          Trending worse · last {report.recentWindowDays}d vs prior {report.baselineWindowDays}d
+        </h3>
+        <span className="text-[10px] text-rose-600/70 dark:text-rose-400/70 tabular-nums">
+          {report.recentSessions} recent · {report.baselineSessions} baseline
+        </span>
+      </div>
+      <div className="flex flex-col gap-2">
+        {report.regressions.map(r => (
+          <div key={r.metric} className="flex items-center gap-3 text-xs">
+            <span className="text-gray-700 dark:text-gray-300 w-48 shrink-0">{r.label}</span>
+            <span className="tabular-nums text-gray-500 dark:text-gray-500 w-20 text-right">{fmtMetric(r, r.baseline)}</span>
+            <span className="text-gray-400">→</span>
+            <span className="tabular-nums text-gray-900 dark:text-gray-100 w-20 text-right font-medium">{fmtMetric(r, r.recent)}</span>
+            <Badge tone="danger" size="sm">+{r.changePct.toFixed(0)}% worse</Badge>
+          </div>
+        ))}
+      </div>
+      <p className="text-[10px] text-rose-600/70 dark:text-rose-400/70 mt-3 leading-relaxed">
+        Check the Opportunities tab for session-level breakdowns, or filter Sessions by the most recent 7 days to see what changed.
+      </p>
+    </Card>
+  )
+}
+
 function ProjectHealthCard({ health }: { health: ProjectHealth[] }) {
   if (health.length === 0) {
     return (
@@ -1783,6 +1820,7 @@ export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; 
   const recTrend = React.useMemo(() => recommendationTrend(sessions), [sessions])  // full history — month-over-month
   const gold = React.useMemo(() => goldStandardSessions(filtered), [filtered])
   const health = React.useMemo(() => projectHealth(filtered), [filtered])
+  const regressions = React.useMemo(() => recentRegressions(sessions), [sessions])  // full history — last 7d vs prior 7d
   const hasUsageData = usage.totalTokens > 0
   const maxHour = Math.max(...hourActivity.map(h => h.count), 1)
   const maxTool = Math.max(...topTools.map(t => t.count), 1)
@@ -1869,6 +1907,7 @@ export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; 
       {/* ── Overview ── */}
       {insightTab === 'overview' && (
         <div className="flex flex-col gap-5">
+          <RegressionAlertCard report={regressions} />
           <div className="grid grid-cols-2 gap-5">
             {/* Task Types */}
             <Card>
