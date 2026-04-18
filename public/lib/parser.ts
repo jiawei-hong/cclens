@@ -4,6 +4,7 @@ import {
   readSessionCache, writeSessionCache, readMemoryCache, writeMemoryCache,
   type CachedSession, type CachedMemory,
 } from './db'
+import { parseInWorker, workerAvailable } from './workerClient'
 
 export async function parseSessionFile(file: File): Promise<Session | null> {
   const raw = await file.text()
@@ -25,43 +26,82 @@ export async function parseSessionFiles(files: FileList | File[]): Promise<Sessi
 
 export type CachedParseResult<T> = { items: T[]; fromCache: number; reparsed: number }
 
-export async function parseSessionFilesCached(tracked: TrackedFile[]): Promise<CachedParseResult<Session>> {
+export type ParseProgress = (done: number, total: number) => void
+
+export async function parseSessionFilesCached(
+  tracked: TrackedFile[],
+  onProgress?: ParseProgress,
+): Promise<CachedParseResult<Session>> {
   const jsonl = tracked.filter(t => t.file.name.endsWith('.jsonl'))
   const cache = await readSessionCache().catch(() => new Map<string, CachedSession>())
 
   const keepPaths = new Set(jsonl.map(t => t.path))
   const toWrite: CachedSession[] = []
+  const sessions: Session[] = []
+  const total = jsonl.length
+  let done = 0
   let fromCache = 0
   let reparsed = 0
 
-  const results = await Promise.all(jsonl.map(async t => {
+  type Miss = { path: string; file: File; lastModified: number; size: number }
+  const misses: Miss[] = []
+
+  // Cheap pass: harvest cache hits on the main thread, queue misses for the worker.
+  for (const t of jsonl) {
     const cached = cache.get(t.path)
     if (cached && cached.lastModified === t.file.lastModified && cached.size === t.file.size) {
       fromCache++
-      return cached.session
+      done++
+      sessions.push(cached.session)
+    } else {
+      misses.push({ path: t.path, file: t.file, lastModified: t.file.lastModified, size: t.file.size })
     }
-    try {
-      const session = await parseSessionFile(t.file)
-      if (session) {
-        reparsed++
-        toWrite.push({
-          path: t.path,
-          lastModified: t.file.lastModified,
-          size: t.file.size,
-          session,
-        })
-        return session
+  }
+  if (onProgress && done > 0) onProgress(done, total)
+
+  if (misses.length > 0) {
+    const progressFromWorker = (workerDone: number) => {
+      if (onProgress) onProgress(fromCache + workerDone, total)
+    }
+    if (workerAvailable()) {
+      try {
+        const out = await parseInWorker(misses, workerDone => progressFromWorker(workerDone))
+        for (const r of out) {
+          if (r.session) {
+            reparsed++
+            sessions.push(r.session)
+            toWrite.push({ path: r.path, lastModified: r.lastModified, size: r.size, session: r.session })
+          }
+        }
+        done = fromCache + misses.length
+      } catch {
+        // Fall through to main-thread parsing if the worker failed to spawn.
+        await parseOnMain(misses)
       }
-    } catch { /* fall through */ }
-    return null
-  }))
+    } else {
+      await parseOnMain(misses)
+    }
+  }
+
+  async function parseOnMain(items: Miss[]) {
+    for (const m of items) {
+      try {
+        const session = await parseSessionFile(m.file)
+        if (session) {
+          reparsed++
+          sessions.push(session)
+          toWrite.push({ path: m.path, lastModified: m.lastModified, size: m.size, session })
+        }
+      } catch { /* skip */ }
+      done++
+      onProgress?.(done, total)
+    }
+  }
 
   // Best-effort cache write; don't block UI on quota errors.
   writeSessionCache(toWrite, keepPaths).catch(() => { /* quota / corruption */ })
 
-  const items = results
-    .filter((s): s is Session => s !== null)
-    .sort((a, b) => b.startedAt.localeCompare(a.startedAt))
+  const items = sessions.sort((a, b) => b.startedAt.localeCompare(a.startedAt))
   return { items, fromCache, reparsed }
 }
 

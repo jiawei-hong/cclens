@@ -86,7 +86,9 @@ function UploadScreen({ onLoad, theme, setTheme }: { onLoad: (data: { sessions: 
     const jsonlCount = tracked.filter(t => t.file.name.endsWith('.jsonl')).length
     if (jsonlCount === 0) throw new Error('No .jsonl files found in the selected folder.')
     setLoadingMsg(`Parsing ${jsonlCount} sessions…`)
-    const { items: sessions, fromCache, reparsed } = await parseSessionFilesCached(tracked)
+    const { items: sessions, fromCache, reparsed } = await parseSessionFilesCached(tracked, (done, total) => {
+      setLoadingMsg(`Parsing sessions ${done}/${total}…`)
+    })
     if (sessions.length === 0) throw new Error('No valid sessions found.')
     setLoadingMsg(fromCache > 0 ? `Loaded ${sessions.length} sessions (${fromCache} cached, ${reparsed} re-parsed). Parsing memory…` : 'Parsing memory files…')
     const { items: memory } = await parseMemoryFilesCached(tracked)

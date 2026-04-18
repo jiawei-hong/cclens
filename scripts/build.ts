@@ -3,9 +3,9 @@ import { mkdirSync, readFileSync, writeFileSync } from 'fs'
 
 mkdirSync('dist', { recursive: true })
 
-// 1. Bundle the app
+// 1. Bundle the app + the parse worker (served at /parseWorker.js)
 await build({
-  entrypoints: ['public/app.tsx'],
+  entrypoints: ['public/app.tsx', 'public/lib/parseWorker.ts'],
   outdir: 'dist',
   target: 'browser',
   minify: true,
