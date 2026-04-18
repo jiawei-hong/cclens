@@ -860,6 +860,67 @@ export function dailyCost(sessions: Session[], days = 30): { date: string; costU
   return out
 }
 
+// ── Monthly cost forecast ─────────────────────────────────────────────────────
+// Projects end-of-month spend based on the current month's daily pace and
+// compares against last month's total. The forecast is deliberately simple
+// (linear extrapolation from days-elapsed) — good enough to flag trajectory,
+// not a calendar-aware revenue model.
+
+export type MonthlyForecast = {
+  thisMonthLabel: string      // e.g. "Apr 2026"
+  lastMonthLabel: string      // e.g. "Mar 2026"
+  spentThisMonth: number      // USD, actual
+  spentLastMonth: number      // USD, actual (whole month)
+  projectedThisMonth: number  // USD, linear extrapolation
+  dailyAvgThisMonth: number   // USD/day
+  daysElapsed: number         // 1..31 (includes today)
+  daysInMonth: number         // 28..31
+  daysRemaining: number       // 0..30
+  deltaVsLastMonthPct: number | null  // projected vs last month total, null if no last-month data
+  hasData: boolean            // false if no sessions at all this month
+}
+
+const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+
+export function monthlyCostForecast(sessions: Session[], now = new Date()): MonthlyForecast {
+  const year       = now.getFullYear()
+  const month      = now.getMonth()              // 0..11
+  const daysInMo   = new Date(year, month + 1, 0).getDate()
+  const daysElap   = now.getDate()
+  const daysRem    = daysInMo - daysElap
+
+  const lastMonth     = month === 0 ? 11 : month - 1
+  const lastMonthYear = month === 0 ? year - 1 : year
+
+  let spentThis = 0
+  let spentLast = 0
+  for (const s of sessions) {
+    const d = new Date(s.startedAt)
+    if (isNaN(d.getTime())) continue
+    const y = d.getFullYear(), m = d.getMonth()
+    if (y === year && m === month) spentThis += sessionCostUSD(s)
+    else if (y === lastMonthYear && m === lastMonth) spentLast += sessionCostUSD(s)
+  }
+
+  const dailyAvg  = daysElap > 0 ? spentThis / daysElap : 0
+  const projected = dailyAvg * daysInMo
+  const deltaPct  = spentLast > 0 ? ((projected - spentLast) / spentLast) * 100 : null
+
+  return {
+    thisMonthLabel:      `${MONTH_NAMES[month]} ${year}`,
+    lastMonthLabel:      `${MONTH_NAMES[lastMonth]} ${lastMonthYear}`,
+    spentThisMonth:      spentThis,
+    spentLastMonth:      spentLast,
+    projectedThisMonth:  projected,
+    dailyAvgThisMonth:   dailyAvg,
+    daysElapsed:         daysElap,
+    daysInMonth:         daysInMo,
+    daysRemaining:       daysRem,
+    deltaVsLastMonthPct: deltaPct,
+    hasData:             spentThis > 0,
+  }
+}
+
 // ── Tool error rates ──────────────────────────────────────────────────────────
 
 export type ToolErrorRow = {

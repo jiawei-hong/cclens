@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
-import { summarizeProjects, globalToolStats, activityByHour, sessionDepthStats, taskBreakdown, trendStats, bashAntiPatterns, bashCommandBreakdown, skillUsageStats, skillGaps, agentBreakdown, hotFiles, multiFileSessions, thrashingSessions, totalUsage, usageByModel, dailyCost, toolErrorRates, activityHeatmap, slowestToolCalls, mcpUsageStats, contextWindowHotspots, costByTaskType, thinkingStats, sessionCacheRanking, interruptStats } from '../../src/analyzer'
-import type { SessionType, BashAntiPattern, BashCategory, SkillUsage, SkillGap, AgentTypeUsage, HotFile, MultiFileSession, ThrashSession, TotalUsage, ModelUsageRow, ToolErrorStats, HeatmapCell, SlowToolCall, McpServerUsage, ContextHotspotStats, CostByTaskRow, ThinkingStats, SessionCacheStats, InterruptStats } from '../../src/analyzer'
+import { summarizeProjects, globalToolStats, activityByHour, sessionDepthStats, taskBreakdown, trendStats, bashAntiPatterns, bashCommandBreakdown, skillUsageStats, skillGaps, agentBreakdown, hotFiles, multiFileSessions, thrashingSessions, totalUsage, usageByModel, dailyCost, toolErrorRates, activityHeatmap, slowestToolCalls, mcpUsageStats, contextWindowHotspots, costByTaskType, thinkingStats, sessionCacheRanking, interruptStats, monthlyCostForecast } from '../../src/analyzer'
+import type { SessionType, BashAntiPattern, BashCategory, SkillUsage, SkillGap, AgentTypeUsage, HotFile, MultiFileSession, ThrashSession, TotalUsage, ModelUsageRow, ToolErrorStats, HeatmapCell, SlowToolCall, McpServerUsage, ContextHotspotStats, CostByTaskRow, ThinkingStats, SessionCacheStats, InterruptStats, MonthlyForecast } from '../../src/analyzer'
 import { aggregateRecommendations, type RecAggregate, type RecCategory, type RecSeverity } from '../../src/recommendations'
 import type { Session, ProjectSummary } from '../../src/types'
 import { fmt, fmtDuration, fmtPace, fmtToolDuration, fmtTokenCount, fmtUSD, fmtChars, fmtTokensFromChars } from '../lib/format'
@@ -122,7 +122,76 @@ function CacheEfficiencyCard({ rows, onOpenSession }: { rows: SessionCacheStats[
   )
 }
 
-function CostPanel({ usage, modelRows, dailySeries, maxDailyCost, hasData, dailySeriesDays, costByTask, thinking, sessions }: {
+function MonthlyForecastCard({ forecast }: { forecast: MonthlyForecast }) {
+  if (!forecast.hasData) {
+    return (
+      <Card>
+        <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">{forecast.thisMonthLabel} Forecast</h3>
+        <p className="text-sm text-gray-500 dark:text-gray-400">No sessions recorded this month yet.</p>
+      </Card>
+    )
+  }
+
+  const pct = forecast.deltaVsLastMonthPct
+  const trending: 'up' | 'down' | 'flat' | null = pct === null ? null : pct > 5 ? 'up' : pct < -5 ? 'down' : 'flat'
+  const trendColor =
+    trending === 'up'   ? 'text-rose-500 dark:text-rose-400' :
+    trending === 'down' ? 'text-emerald-600 dark:text-emerald-400' :
+                          'text-gray-500 dark:text-gray-400'
+  const trendArrow = trending === 'up' ? '↑' : trending === 'down' ? '↓' : '→'
+  const progressPct = (forecast.daysElapsed / forecast.daysInMonth) * 100
+  const spentPct = forecast.projectedThisMonth > 0 ? (forecast.spentThisMonth / forecast.projectedThisMonth) * 100 : 0
+
+  return (
+    <Card>
+      <div className="flex items-start justify-between gap-6 flex-wrap">
+        <div className="min-w-0">
+          <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">{forecast.thisMonthLabel} Forecast</h3>
+          <div className="flex items-baseline gap-2">
+            <span className="text-3xl font-semibold text-gray-900 dark:text-gray-100 tabular-nums">{fmtUSD(forecast.projectedThisMonth)}</span>
+            <span className="text-xs text-gray-500 dark:text-gray-400">projected end-of-month</span>
+          </div>
+          {pct !== null && (
+            <div className="mt-1.5 flex items-center gap-2 text-[11px]">
+              <span className={`font-medium ${trendColor}`}>
+                {trendArrow} {Math.abs(pct).toFixed(0)}% vs {forecast.lastMonthLabel}
+              </span>
+              <span className="text-gray-400 dark:text-gray-600">({fmtUSD(forecast.spentLastMonth)} last month)</span>
+            </div>
+          )}
+          {pct === null && (
+            <p className="mt-1.5 text-[11px] text-gray-400 dark:text-gray-600">No {forecast.lastMonthLabel} data for comparison.</p>
+          )}
+        </div>
+
+        <div className="grid grid-cols-3 gap-x-6 gap-y-1 text-right shrink-0">
+          <span className="text-xs text-gray-500 dark:text-gray-400">Spent so far</span>
+          <span className="text-xs text-gray-500 dark:text-gray-400">Daily avg</span>
+          <span className="text-xs text-gray-500 dark:text-gray-400">Days left</span>
+          <span className="text-sm font-medium text-gray-900 dark:text-gray-100 tabular-nums">{fmtUSD(forecast.spentThisMonth)}</span>
+          <span className="text-sm font-medium text-gray-900 dark:text-gray-100 tabular-nums">{fmtUSD(forecast.dailyAvgThisMonth)}</span>
+          <span className="text-sm font-medium text-gray-900 dark:text-gray-100 tabular-nums">{forecast.daysRemaining}</span>
+        </div>
+      </div>
+
+      {/* Month progress bar: grey = elapsed-so-far as % of month; green = spent as % of projected */}
+      <div className="mt-4 relative h-2 rounded-full bg-gray-100 dark:bg-gray-800 overflow-hidden">
+        <div className="absolute inset-y-0 left-0 bg-indigo-500 rounded-full" style={{ width: `${spentPct}%` }} />
+        <div className="absolute inset-y-0 border-r-2 border-gray-400 dark:border-gray-600" style={{ left: `${progressPct}%` }} title={`Day ${forecast.daysElapsed} / ${forecast.daysInMonth}`} />
+      </div>
+      <div className="mt-1.5 flex items-center justify-between text-[10px] text-gray-400 dark:text-gray-600">
+        <span>Day 1</span>
+        <span className="font-medium text-gray-500 dark:text-gray-500">Day {forecast.daysElapsed} of {forecast.daysInMonth}</span>
+        <span>Day {forecast.daysInMonth}</span>
+      </div>
+      <p className="mt-3 text-[10px] text-gray-400 dark:text-gray-600 leading-relaxed">
+        Projected = current daily average × days in month. Linear extrapolation, so a quiet weekend pushes the number down.
+      </p>
+    </Card>
+  )
+}
+
+function CostPanel({ usage, modelRows, dailySeries, maxDailyCost, hasData, dailySeriesDays, costByTask, thinking, sessions, forecast }: {
   usage: TotalUsage
   modelRows: ModelUsageRow[]
   dailySeries: { date: string; costUSD: number }[]
@@ -132,6 +201,7 @@ function CostPanel({ usage, modelRows, dailySeries, maxDailyCost, hasData, daily
   costByTask: CostByTaskRow[]
   thinking: ThinkingStats
   sessions: Session[]
+  forecast: MonthlyForecast
 }) {
   if (!hasData) {
     return (
@@ -168,6 +238,8 @@ function CostPanel({ usage, modelRows, dailySeries, maxDailyCost, hasData, daily
           Your actual bill may be meaningfully higher than the estimate below.
         </div>
       )}
+      <MonthlyForecastCard forecast={forecast} />
+
       {/* 4 stat cards */}
       <div className="grid grid-cols-4 gap-5">
         <Card><Stat label="Est. Cost" value={fmtUSD(usage.costUSD)} sub={`${fmtTokenCount(usage.totalTokens)} tokens total`} /></Card>
@@ -1439,6 +1511,7 @@ export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; 
   const thinking = React.useMemo(() => thinkingStats(filtered, 10), [filtered])
   const cacheRanking = React.useMemo(() => sessionCacheRanking(filtered), [filtered])
   const heatmap = React.useMemo(() => activityHeatmap(sessions, 14), [sessions])  // fixed 14-week view
+  const forecast = React.useMemo(() => monthlyCostForecast(sessions), [sessions])  // full history — month-over-month
   const recAgg = React.useMemo(() => aggregateRecommendations(filtered), [filtered])
   const hasUsageData = usage.totalTokens > 0
   const maxHour = Math.max(...hourActivity.map(h => h.count), 1)
@@ -1631,7 +1704,7 @@ export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; 
       {/* ── Cost ── */}
       {insightTab === 'cost' && (
         <div className="flex flex-col gap-5">
-          <CostPanel usage={usage} modelRows={modelRows} dailySeries={dailyCostSeries} maxDailyCost={maxDailyCost} hasData={hasUsageData} dailySeriesDays={costSeriesDays} costByTask={costByTask} thinking={thinking} sessions={filtered} />
+          <CostPanel usage={usage} modelRows={modelRows} dailySeries={dailyCostSeries} maxDailyCost={maxDailyCost} hasData={hasUsageData} dailySeriesDays={costSeriesDays} costByTask={costByTask} thinking={thinking} sessions={filtered} forecast={forecast} />
           <CacheEfficiencyCard rows={cacheRanking} onOpenSession={id => onOpenSession(id)} />
         </div>
       )}
