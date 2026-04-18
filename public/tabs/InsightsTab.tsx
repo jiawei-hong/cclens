@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { summarizeProjects, globalToolStats, activityByHour, sessionDepthStats, taskBreakdown, trendStats, bashAntiPatterns, bashCommandBreakdown, skillUsageStats, skillGaps, agentBreakdown, hotFiles, multiFileSessions, thrashingSessions, totalUsage, usageByModel, dailyCost, toolErrorRates, activityHeatmap, slowestToolCalls, mcpUsageStats, contextWindowHotspots, costByTaskType, thinkingStats, sessionCacheRanking, interruptStats, monthlyCostForecast } from '../../src/analyzer'
 import type { SessionType, BashAntiPattern, BashCategory, SkillUsage, SkillGap, AgentTypeUsage, HotFile, MultiFileSession, ThrashSession, TotalUsage, ModelUsageRow, ToolErrorStats, HeatmapCell, SlowToolCall, McpServerUsage, ContextHotspotStats, CostByTaskRow, ThinkingStats, SessionCacheStats, InterruptStats, MonthlyForecast } from '../../src/analyzer'
 import { aggregateRecommendations, type RecAggregate, type RecCategory, type RecSeverity } from '../../src/recommendations'
+import { generateProjectClaudeMd } from '../../src/claudeMd'
 import type { Session, ProjectSummary } from '../../src/types'
 import { fmt, fmtDuration, fmtPace, fmtToolDuration, fmtTokenCount, fmtUSD, fmtChars, fmtTokensFromChars } from '../lib/format'
 import { toolColor, toolTickColor, taskTypeColor, taskTypeBar, TASK_DESCRIPTIONS } from '../lib/colors'
@@ -648,7 +649,64 @@ const REC_CATEGORY_TONE: Record<RecCategory, 'success' | 'primary' | 'warning' |
 
 const REC_CATEGORY_ORDER: RecCategory[] = ['cost', 'context', 'workflow', 'skill']
 
-function OpportunitiesView({ agg, totalSessions, onOpenSession }: { agg: RecAggregate; totalSessions: number; onOpenSession: (id: string, turnId?: string) => void }) {
+function ClaudeMdGeneratorCard({ sessions, antiPatterns, skillGaps }: {
+  sessions: Session[]
+  antiPatterns: BashAntiPattern[]
+  skillGaps: SkillGap[]
+}) {
+  const [showPreview, setShowPreview] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const content = React.useMemo(
+    () => generateProjectClaudeMd({ sessions, antiPatterns, skillGaps }),
+    [sessions, antiPatterns, skillGaps]
+  )
+  // Count non-header sections so we can tell the user how much actually landed.
+  const sectionCount = (content.match(/^## /gm) || []).length
+  const ruleCount    = (content.match(/^- /gm) || []).length
+
+  const download = () => {
+    const blob = new Blob([content], { type: 'text/markdown' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'CLAUDE.md'
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+  const copy = () => {
+    navigator.clipboard.writeText(content)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  return (
+    <Card>
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div className="min-w-0">
+          <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">Personalised CLAUDE.md</h3>
+          <p className="text-sm text-gray-700 dark:text-gray-300">
+            Drop into your project root so Claude Code applies these rules on every session.
+          </p>
+          <p className="text-[11px] text-gray-400 dark:text-gray-600 mt-1">
+            {sectionCount === 0
+              ? 'Nothing actionable yet — your sessions are tracking well.'
+              : `${sectionCount} section${sectionCount === 1 ? '' : 's'} · ${ruleCount} rule${ruleCount === 1 ? '' : 's'}, derived from the patterns surfaced above.`}
+          </p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <Button size="sm" onClick={() => setShowPreview(p => !p)}>{showPreview ? 'Hide preview' : 'Preview'}</Button>
+          <Button size="sm" onClick={copy}>{copied ? 'Copied ✓' : 'Copy'}</Button>
+          <Button size="sm" onClick={download}>↓ Download</Button>
+        </div>
+      </div>
+      {showPreview && (
+        <pre className="mt-4 p-3 rounded-lg bg-gray-50 dark:bg-gray-950 border border-gray-100 dark:border-gray-800 text-[11px] text-gray-700 dark:text-gray-300 font-mono whitespace-pre-wrap leading-relaxed max-h-96 overflow-auto">{content}</pre>
+      )}
+    </Card>
+  )
+}
+
+function OpportunitiesView({ agg, totalSessions, sessions, antiPatterns, skillGaps, onOpenSession }: { agg: RecAggregate; totalSessions: number; sessions: Session[]; antiPatterns: BashAntiPattern[]; skillGaps: SkillGap[]; onOpenSession: (id: string, turnId?: string) => void }) {
   if (agg.sessionCount === 0) {
     return (
       <Card>
@@ -766,6 +824,8 @@ function OpportunitiesView({ agg, totalSessions, onOpenSession }: { agg: RecAggr
           ))}
         </div>
       </Card>
+
+      <ClaudeMdGeneratorCard sessions={sessions} antiPatterns={antiPatterns} skillGaps={skillGaps} />
     </div>
   )
 }
@@ -1580,7 +1640,14 @@ export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; 
 
       {/* ── Opportunities ── */}
       {insightTab === 'opportunities' && (
-        <OpportunitiesView agg={recAgg} totalSessions={filtered.length} onOpenSession={onOpenSession} />
+        <OpportunitiesView
+          agg={recAgg}
+          totalSessions={filtered.length}
+          sessions={filtered}
+          antiPatterns={antiPatterns}
+          skillGaps={gaps}
+          onOpenSession={onOpenSession}
+        />
       )}
 
       {/* ── Overview ── */}
