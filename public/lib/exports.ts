@@ -2,8 +2,10 @@ import type { Session } from '../../src/types'
 import type {
   SessionType, TotalUsage, ModelUsageRow, BashAntiPattern,
   SlowToolCall, SkillUsage, SkillGap, McpServerUsage, HotFile, ToolErrorStats,
+  MonthlyForecast, GoldStandardSession,
 } from '../../src/analyzer'
 import { sessionCostUSD } from '../../src/analyzer'
+import type { RecAggregate, RecTrend } from '../../src/recommendations'
 import { fmt, fmtDuration, fmtUSD, fmtTokenCount, fmtToolDuration } from './format'
 
 // ── CSV helpers ───────────────────────────────────────────────────────────────
@@ -151,6 +153,10 @@ export type InsightsExportInput = {
   mcpServers: McpServerUsage[]
   hotFiles: HotFile[]
   errorStats: ToolErrorStats
+  forecast?: MonthlyForecast
+  recAgg?: RecAggregate
+  recTrend?: RecTrend
+  gold?: GoldStandardSession[]
 }
 
 export function exportInsightsAsMarkdown(data: InsightsExportInput) {
@@ -171,6 +177,71 @@ export function exportInsightsAsMarkdown(data: InsightsExportInput) {
   L.push(`| Avg tools / session | ${data.depth.avgToolCalls.toFixed(1)} |`)
   L.push(`| Avg turns / session | ${data.depth.avgTurns.toFixed(1)} |`)
   L.push(``)
+
+  if (data.forecast?.hasData) {
+    const f = data.forecast
+    L.push(`## ${f.thisMonthLabel} forecast`)
+    L.push(``)
+    L.push(`- **Projected end-of-month:** ${fmtUSD(f.projectedThisMonth)} (day ${f.daysElapsed} of ${f.daysInMonth})`)
+    L.push(`- **Spent so far:** ${fmtUSD(f.spentThisMonth)} · daily avg ${fmtUSD(f.dailyAvgThisMonth)}`)
+    if (f.deltaVsLastMonthPct !== null) {
+      const dir = f.deltaVsLastMonthPct >= 0 ? '↑' : '↓'
+      L.push(`- **vs ${f.lastMonthLabel}:** ${dir} ${Math.abs(f.deltaVsLastMonthPct).toFixed(0)}% (${fmtUSD(f.spentLastMonth)} total)`)
+    }
+    L.push(``)
+  }
+
+  if (data.recAgg && data.recAgg.sessionCount > 0) {
+    const a = data.recAgg
+    L.push(`## Opportunities`)
+    L.push(``)
+    L.push(`**Potential savings: ${fmtUSD(a.totalSavingsUSD)}** across ${a.sessionCount} session(s).`)
+    L.push(``)
+    L.push(`### Top issues`)
+    L.push(``)
+    L.push(`| Severity | Category | Rule | Sessions | Savings |`)
+    L.push(`| --- | --- | --- | ---: | ---: |`)
+    for (const r of a.byRule) {
+      const savings = r.savingsUSD > 0.01 ? fmtUSD(r.savingsUSD) : '—'
+      L.push(`| ${r.severity} | ${r.category} | ${r.title} | ${r.count} | ${savings} |`)
+    }
+    L.push(``)
+    if (a.topSessions.length > 0) {
+      L.push(`### Top sessions to review`)
+      L.push(``)
+      for (const s of a.topSessions) {
+        const savings = s.savingsUSD > 0.01 ? fmtUSD(s.savingsUSD) : '—'
+        L.push(`- **${s.project}** — ${s.count} issue(s), ${savings} savings (${new Date(s.startedAt).toLocaleDateString()})`)
+      }
+      L.push(``)
+    }
+  }
+
+  if (data.recTrend && data.recTrend.rules.length > 0) {
+    const t = data.recTrend
+    L.push(`## Trend over time`)
+    L.push(``)
+    L.push(`| Direction | Rule | ${t.monthLabels.join(' | ')} | Total |`)
+    L.push(`| --- | --- | ${t.monthLabels.map(() => '---:').join(' | ')} | ---: |`)
+    for (const r of t.rules) {
+      const monthCells = r.months.map(c => c === 0 ? '·' : String(c)).join(' | ')
+      L.push(`| ${r.direction} | ${r.title} | ${monthCells} | ${r.totalCount} |`)
+    }
+    L.push(``)
+  }
+
+  if (data.gold && data.gold.length > 0) {
+    L.push(`## Gold-standard sessions`)
+    L.push(``)
+    L.push(`Substantive sessions with hot cache, no errors, low \$/turn — learn from these.`)
+    L.push(``)
+    L.push(`| Score | Project | Turns | Cache hit | \$/turn | Started |`)
+    L.push(`| ---: | --- | ---: | ---: | ---: | --- |`)
+    for (const g of data.gold) {
+      L.push(`| ${(g.score * 100).toFixed(0)} | ${g.project} | ${g.turns} | ${(g.cacheHitRate * 100).toFixed(0)}% | ${fmtUSD(g.costPerTurn)} | ${new Date(g.startedAt).toLocaleDateString()} |`)
+    }
+    L.push(``)
+  }
 
   if (data.usage.totalTokens > 0) {
     L.push(`## Cost & tokens`)

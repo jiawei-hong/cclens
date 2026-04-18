@@ -1768,6 +1768,10 @@ export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; 
               mcpServers,
               hotFiles: files,
               errorStats,
+              forecast,
+              recAgg,
+              recTrend,
+              gold,
             })}
           >
             ↓ Report
