@@ -3,7 +3,7 @@ import { RiGitBranchLine, RiStarFill, RiStarLine, RiStickyNoteLine } from 'react
 import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso'
 import type { Session } from '../../src/types'
 import { sessionCostUSD } from '../../src/analyzer'
-import { fmt, fmtDuration, fmtPace } from '../lib/format'
+import { fmt, fmtDuration, fmtPace, fmtUSD } from '../lib/format'
 import { useBookmarks, useNotes } from '../lib/prefs'
 import { focusRing } from '../lib/ds'
 import { SessionDetailView } from '../components/SessionDetail'
@@ -299,7 +299,9 @@ export function SessionsTab({ sessions, initialSessionId, scrollToTurnId, onSess
                       <span className={`text-xs ${selected?.id === s.id ? 'text-indigo-300' : 'text-gray-400 dark:text-gray-700'}`}>·</span>
                       <span className={`text-xs ${selected?.id === s.id ? 'text-indigo-200' : 'text-gray-500 dark:text-gray-600'}`}>{fmtDuration(s.durationMs)}</span>
                       <span className={`text-xs ${selected?.id === s.id ? 'text-indigo-300' : 'text-gray-400 dark:text-gray-700'}`}>·</span>
-                      <span className={`text-xs ${selected?.id === s.id ? 'text-indigo-200' : 'text-gray-500 dark:text-gray-600'}`}>{fmtPace(s.durationMs, s.stats.toolCallCount)}</span>
+                      <span className={`text-xs tabular-nums ${selected?.id === s.id ? 'text-indigo-200' : 'text-gray-500 dark:text-gray-600'}`}>
+                        {sortKey === 'cost' ? fmtUSD(sessionCostUSD(s)) : fmtPace(s.durationMs, s.stats.toolCallCount)}
+                      </span>
                     </div>
                     {s.gitBranch && (
                       <div className={`flex items-center gap-1 mt-0.5 text-xs truncate ${selected?.id === s.id ? 'text-indigo-200' : 'text-gray-500 dark:text-gray-600'}`}>
