@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { createRoot } from 'react-dom/client'
-import { RiSunLine, RiMoonLine, RiComputerLine, RiArrowUpLine, RiSettings3Line } from 'react-icons/ri'
-import { parseSessionFiles, parseMemoryFiles, type TrackedFile } from './lib/parser'
+import { RiSunLine, RiMoonLine, RiComputerLine, RiArrowUpLine, RiSettings3Line, RiFolderHistoryLine } from 'react-icons/ri'
+import { parseSessionFiles, parseSessionFilesCached, parseMemoryFiles, parseMemoryFilesCached, type TrackedFile } from './lib/parser'
 import type { Session, MemoryEntry } from '../src/types'
 import { walkFolder } from './lib/walkDir'
+import { loadRootHandle, saveRootHandle, clearRootHandle, queryHandlePermission, requestHandlePermission } from './lib/db'
 import { InsightsTab } from './tabs/InsightsTab'
 import { SearchTab } from './tabs/SearchTab'
 import { MemoryTab } from './tabs/MemoryTab'
@@ -73,16 +74,22 @@ function UploadScreen({ onLoad, theme, setTheme }: { onLoad: (data: { sessions: 
   const [loading, setLoading] = useState(false)
   const [loadingMsg, setLoadingMsg] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [savedHandle, setSavedHandle] = useState<FileSystemDirectoryHandle | null>(null)
+  const [savedPerm, setSavedPerm] = useState<'granted' | 'prompt' | 'denied' | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const hasFolderPicker = typeof window !== 'undefined' && 'showDirectoryPicker' in window
 
-  const processTracked = async (tracked: TrackedFile[]) => {
-    const jsonlFiles = tracked.filter(t => t.file.name.endsWith('.jsonl')).map(t => t.file)
-    setLoadingMsg(`Parsing ${jsonlFiles.length} sessions…`)
-    const sessions = await parseSessionFiles(jsonlFiles)
+  const processTrackedHandle = async (dir: FileSystemDirectoryHandle) => {
+    setLoadingMsg('Scanning folder…')
+    const tracked = await walkFolder(dir)
+    const jsonlCount = tracked.filter(t => t.file.name.endsWith('.jsonl')).length
+    if (jsonlCount === 0) throw new Error('No .jsonl files found in the selected folder.')
+    setLoadingMsg(`Parsing ${jsonlCount} sessions…`)
+    const { items: sessions, fromCache, reparsed } = await parseSessionFilesCached(tracked)
     if (sessions.length === 0) throw new Error('No valid sessions found.')
-    setLoadingMsg('Parsing memory files…')
-    const memory = await parseMemoryFiles(tracked)
+    setLoadingMsg(fromCache > 0 ? `Loaded ${sessions.length} sessions (${fromCache} cached, ${reparsed} re-parsed). Parsing memory…` : 'Parsing memory files…')
+    const { items: memory } = await parseMemoryFilesCached(tracked)
+    saveRootHandle(dir).catch(() => { /* best-effort */ })
     onLoad({ sessions, memory })
   }
 
@@ -98,16 +105,51 @@ function UploadScreen({ onLoad, theme, setTheme }: { onLoad: (data: { sessions: 
     setLoading(true)
     try {
       const dir = await window.showDirectoryPicker({ mode: 'read' })
-      setLoadingMsg('Scanning folder…')
-      const tracked = await walkFolder(dir)
-      const jsonlCount = tracked.filter(t => t.file.name.endsWith('.jsonl')).length
-      if (jsonlCount === 0) throw new Error('No .jsonl files found in the selected folder.')
-      await processTracked(tracked)
+      await processTrackedHandle(dir)
     } catch (e: unknown) {
       if (e instanceof Error && e.name !== 'AbortError') setError(e.message)
     } finally {
       setLoading(false)
     }
+  }
+
+  const restoreSaved = async (handle: FileSystemDirectoryHandle) => {
+    setError(null)
+    setLoading(true)
+    try {
+      let perm = await queryHandlePermission(handle)
+      if (perm !== 'granted') perm = await requestHandlePermission(handle)
+      if (perm !== 'granted') throw new Error('Folder access was not granted.')
+      await processTrackedHandle(handle)
+    } catch (e: unknown) {
+      if (e instanceof Error && e.name !== 'AbortError') setError(e.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // On mount, look for a saved folder handle. If permission is already
+  // granted (common when the user previously chose "allow on every visit"),
+  // auto-load. Otherwise surface a "Restore previous folder" button.
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      const handle = await loadRootHandle()
+      if (!handle || cancelled) return
+      const perm = await queryHandlePermission(handle)
+      if (cancelled) return
+      setSavedHandle(handle)
+      setSavedPerm(perm)
+      if (perm === 'granted') restoreSaved(handle)
+    })()
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const forgetSaved = async () => {
+    await clearRootHandle().catch(() => { /* ignore */ })
+    setSavedHandle(null)
+    setSavedPerm(null)
   }
 
   const handleFiles = async (files: FileList | File[]) => {
@@ -145,6 +187,32 @@ function UploadScreen({ onLoad, theme, setTheme }: { onLoad: (data: { sessions: 
         </div>
       ) : (
         <div className="w-full max-w-lg flex flex-col gap-3">
+          {savedHandle && savedPerm !== 'granted' && (
+            <div className="flex flex-col gap-2 p-3 rounded-2xl bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-200 dark:border-indigo-800">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2 min-w-0">
+                  <RiFolderHistoryLine size={18} className="text-indigo-500 shrink-0" />
+                  <div className="flex flex-col min-w-0">
+                    <span className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">Restore previous folder</span>
+                    <span className="text-[11px] text-gray-500 dark:text-gray-400 truncate">{savedHandle.name} · cached sessions will load instantly</span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => restoreSaved(savedHandle)}
+                  className="shrink-0 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs rounded-lg font-medium transition-colors"
+                >
+                  Restore
+                </button>
+              </div>
+              <button
+                onClick={forgetSaved}
+                className="text-[11px] text-gray-500 hover:text-rose-500 dark:text-gray-500 dark:hover:text-rose-400 transition-colors self-start"
+              >
+                Forget this folder
+              </button>
+            </div>
+          )}
+
           {hasFolderPicker && (
             <button
               onClick={pickFolder}
