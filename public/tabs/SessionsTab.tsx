@@ -61,8 +61,13 @@ type ListItem =
   | { kind: 'header'; project: string; count: number; totalTurns: number; totalCalls: number; isCollapsed: boolean }
   | { kind: 'session'; session: Session }
 
-export function SessionsTab({ sessions, initialSessionId, scrollToTurnId }: { sessions: Session[]; initialSessionId: string | null; scrollToTurnId: string | null }) {
+export function SessionsTab({ sessions, initialSessionId, scrollToTurnId, onSessionSelect }: { sessions: Session[]; initialSessionId: string | null; scrollToTurnId: string | null; onSessionSelect?: (id: string | null) => void }) {
   const [selected, setSelected] = useState<Session | null>(null)
+
+  const selectAndNotify = (s: Session | null) => {
+    setSelected(s)
+    onSessionSelect?.(s?.id ?? null)
+  }
   const [filter, setFilter] = useState('')
   const [sortKey, setSortKey] = useState<SortKey>('recent')
   const [onlyBookmarked, setOnlyBookmarked] = useState(false)
@@ -152,7 +157,7 @@ export function SessionsTab({ sessions, initialSessionId, scrollToTurnId }: { se
           : (idx === -1 ? flatVisible.length - 1 : Math.max(idx - 1, 0))
         const nextSession = flatVisible[next]
         if (nextSession) {
-          setSelected(nextSession)
+          selectAndNotify(nextSession)
           scrollListToSession(nextSession.id)
         }
       }
@@ -267,7 +272,7 @@ export function SessionsTab({ sessions, initialSessionId, scrollToTurnId }: { se
               const isBookmarked = bookmarks.has(s.id)
               return (
                 <div className="ml-3 pl-2 border-l border-gray-200 dark:border-gray-800">
-                  <button id={`sess-${s.id}`} onClick={() => setSelected(s)}
+                  <button id={`sess-${s.id}`} onClick={() => selectAndNotify(s)}
                     className={`w-full text-left px-3 py-2 rounded-xl transition-colors ${focusRing} ${selected?.id === s.id ? 'bg-indigo-600' : 'hover:bg-gray-50 dark:hover:bg-gray-800'}`}>
                     <div className="flex items-center gap-2">
                       <span className={`text-xs ${selected?.id === s.id ? 'text-indigo-200' : 'text-gray-600 dark:text-gray-400'}`}>{fmt(s.startedAt)}</span>

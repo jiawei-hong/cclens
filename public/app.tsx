@@ -208,6 +208,30 @@ function NavTab({ label, active, onClick }: { label: string; active: boolean; on
 
 type Tab = 'insights' | 'sessions' | 'search' | 'memory'
 
+const TABS: Tab[] = ['insights', 'sessions', 'search', 'memory']
+
+type HashState = { tab: Tab; sessionId: string | null; turnId: string | null }
+
+function readHashState(): Partial<HashState> {
+  const raw = window.location.hash.replace(/^#/, '')
+  if (!raw) return {}
+  const params = new URLSearchParams(raw)
+  const tab = params.get('tab')
+  return {
+    tab: TABS.includes(tab as Tab) ? (tab as Tab) : undefined,
+    sessionId: params.get('session'),
+    turnId: params.get('turn'),
+  }
+}
+
+function encodeHashState(state: HashState): string {
+  const params = new URLSearchParams()
+  if (state.tab !== 'insights') params.set('tab', state.tab)
+  if (state.sessionId) params.set('session', state.sessionId)
+  if (state.turnId) params.set('turn', state.turnId)
+  return params.toString()
+}
+
 function ScrollToTopButton() {
   const [visible, setVisible] = useState(false)
   const scrolledEl = useRef<Element | null>(null)
@@ -245,13 +269,38 @@ function ScrollToTopButton() {
 function App() {
   const [sessions, setSessions] = useState<Session[] | null>(null)
   const [memory, setMemory] = useState<MemoryEntry[]>([])
-  const [tab, setTab] = useState<Tab>('insights')
-  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
-  const [selectedTurnId, setSelectedTurnId] = useState<string | null>(null)
+  const initialHash = React.useMemo(() => readHashState(), [])
+  const [tab, setTab] = useState<Tab>(initialHash.tab ?? 'insights')
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(initialHash.sessionId ?? null)
+  const [selectedTurnId, setSelectedTurnId] = useState<string | null>(initialHash.turnId ?? null)
   const [theme, setTheme] = useState<Theme>(() =>
     (localStorage.getItem('theme') as Theme) ?? 'system'
   )
   const [settingsOpen, setSettingsOpen] = useState(false)
+
+  // Sync state → hash (replaceState so nav doesn't spam history). Only writes
+  // once sessions are loaded, so a deep-link hash doesn't get clobbered during
+  // the async parse.
+  useEffect(() => {
+    if (!sessions) return
+    const encoded = encodeHashState({ tab, sessionId: selectedSessionId, turnId: selectedTurnId })
+    const nextHash = encoded ? `#${encoded}` : ''
+    if (window.location.hash === nextHash) return
+    const url = window.location.pathname + window.location.search + nextHash
+    window.history.replaceState(null, '', url)
+  }, [tab, selectedSessionId, selectedTurnId, sessions])
+
+  // Sync hash → state (back/forward button).
+  useEffect(() => {
+    const onHashChange = () => {
+      const h = readHashState()
+      if (h.tab && h.tab !== tab) setTab(h.tab)
+      if ((h.sessionId ?? null) !== selectedSessionId) setSelectedSessionId(h.sessionId ?? null)
+      if ((h.turnId ?? null) !== selectedTurnId) setSelectedTurnId(h.turnId ?? null)
+    }
+    window.addEventListener('hashchange', onHashChange)
+    return () => window.removeEventListener('hashchange', onHashChange)
+  }, [tab, selectedSessionId, selectedTurnId])
 
   useEffect(() => {
     const apply = () => {
@@ -319,7 +368,12 @@ function App() {
 
       <main className="flex-1 px-6 py-6 max-w-6xl w-full mx-auto">
         {tab === 'insights' && <InsightsTab sessions={sessions} onOpenSession={openSession} />}
-        {tab === 'sessions' && <SessionsTab sessions={sessions} initialSessionId={selectedSessionId} scrollToTurnId={selectedTurnId} />}
+        {tab === 'sessions' && <SessionsTab
+          sessions={sessions}
+          initialSessionId={selectedSessionId}
+          scrollToTurnId={selectedTurnId}
+          onSessionSelect={id => { setSelectedSessionId(id); setSelectedTurnId(null) }}
+        />}
         {tab === 'search' && <SearchTab sessions={sessions} onOpenSession={openSession} />}
         {tab === 'memory' && <MemoryTab memory={memory} />}
       </main>
