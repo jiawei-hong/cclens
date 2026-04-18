@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect, useState } from 'react'
 import { surface, radius } from './tokens'
 import { useEscapeKey, useScrollLock, useFocusTrap } from './hooks'
 
@@ -11,10 +11,12 @@ const sizeCls: Record<Size, string> = {
   xl: 'max-w-6xl',
 }
 
-// Modal — accessible dialog with focus trap, Esc-to-close, and body scroll
-// lock. Pass `open` to control visibility; the component renders nothing
-// when closed, so conditional mounting is not required at the call site
-// (but is also fine for perf).
+const ANIM_MS = 160
+
+// Modal — accessible dialog with focus trap, Esc-to-close, body scroll lock,
+// and enter/exit animations. Stays mounted through the exit transition so
+// the dialog can fade/slide back out before unmount. `prefers-reduced-motion`
+// skips the transition automatically via Tailwind's motion-reduce variant.
 
 export function Modal({ open, onClose, size = 'lg', title, children, className = '' }: {
   open: boolean
@@ -24,15 +26,33 @@ export function Modal({ open, onClose, size = 'lg', title, children, className =
   children: React.ReactNode
   className?: string
 }) {
+  const [mounted, setMounted] = useState(open)
+  const [visible, setVisible] = useState(false)
+
+  useEffect(() => {
+    if (open) {
+      setMounted(true)
+      // Paint once with the "hidden" classes before flipping to "visible",
+      // otherwise the browser collapses both states and skips the transition.
+      const raf = requestAnimationFrame(() => {
+        requestAnimationFrame(() => setVisible(true))
+      })
+      return () => cancelAnimationFrame(raf)
+    }
+    setVisible(false)
+    const t = setTimeout(() => setMounted(false), ANIM_MS)
+    return () => clearTimeout(t)
+  }, [open])
+
   useEscapeKey(open, onClose)
-  useScrollLock(open)
+  useScrollLock(mounted)
   const ref = useFocusTrap<HTMLDivElement>(open)
 
-  if (!open) return null
+  if (!mounted) return null
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-stretch justify-center bg-black/60 p-4 sm:p-8"
+      className={`fixed inset-0 z-50 flex items-stretch justify-center p-4 sm:p-8 transition-colors duration-150 ease-out motion-reduce:transition-none ${visible ? 'bg-black/60' : 'bg-black/0'}`}
       onClick={onClose}
       role="presentation"
     >
@@ -43,7 +63,7 @@ export function Modal({ open, onClose, size = 'lg', title, children, className =
         aria-label={title}
         tabIndex={-1}
         onClick={e => e.stopPropagation()}
-        className={`${surface.dialog} ${radius.lg} w-full ${sizeCls[size]} flex flex-col overflow-hidden ${className}`}
+        className={`${surface.dialog} ${radius.lg} w-full ${sizeCls[size]} flex flex-col overflow-hidden transition-all duration-150 ease-out motion-reduce:transition-none ${visible ? 'opacity-100 scale-100 translate-y-0' : 'opacity-0 scale-[0.97] translate-y-1'} ${className}`}
       >
         {title && (
           <Modal.Header title={title} onClose={onClose} />
