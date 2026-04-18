@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { summarizeProjects, globalToolStats, activityByHour, sessionDepthStats, taskBreakdown, trendStats, bashAntiPatterns, bashCommandBreakdown, skillUsageStats, skillGaps, agentBreakdown, hotFiles, multiFileSessions, thrashingSessions, totalUsage, usageByModel, dailyCost, toolErrorRates, activityHeatmap, slowestToolCalls, mcpUsageStats, contextWindowHotspots, costByTaskType, thinkingStats, sessionCacheRanking, interruptStats, monthlyCostForecast, goldStandardSessions } from '../../src/analyzer'
 import type { SessionType, BashAntiPattern, BashCategory, SkillUsage, SkillGap, AgentTypeUsage, HotFile, MultiFileSession, ThrashSession, TotalUsage, ModelUsageRow, ToolErrorStats, HeatmapCell, SlowToolCall, McpServerUsage, ContextHotspotStats, CostByTaskRow, ThinkingStats, SessionCacheStats, InterruptStats, MonthlyForecast, GoldStandardSession } from '../../src/analyzer'
 import { aggregateRecommendations, recommendationTrend, projectHealth, recentRegressions, type RecAggregate, type RecCategory, type RecSeverity, type RecTrend, type RuleTrend, type RuleTrendDirection, type ProjectHealth, type RegressionReport, type Regression } from '../../src/recommendations'
+import { userHabits, type HabitReport, type Habit, type HabitStatus } from '../../src/habits'
 import { generateProjectClaudeMd, claudeMdRules, CLAUDE_MD_SECTION_ORDER, type ClaudeMdRule } from '../../src/claudeMd'
 import type { Session, ProjectSummary } from '../../src/types'
 import { fmt, fmtDuration, fmtPace, fmtToolDuration, fmtTokenCount, fmtUSD, fmtChars, fmtTokensFromChars } from '../lib/format'
@@ -1579,6 +1580,94 @@ function RegressionAlertCard({ report }: { report: RegressionReport }) {
   )
 }
 
+// ── Your Habits ─────────────────────────────────────────────────────────────
+// Flips the lens from "what Claude did wrong" to "what *you* do" — model
+// picks, context splitting, commit hygiene, retry discipline. Each row shows
+// a quantified bad-rate, a one-line fix, and an optional breakdown.
+
+const HABIT_STATUS_DOT: Record<HabitStatus, string> = {
+  good: 'bg-emerald-500',
+  ok:   'bg-amber-500',
+  bad:  'bg-rose-500',
+}
+
+const HABIT_STATUS_LABEL: Record<HabitStatus, string> = {
+  good: 'good',
+  ok:   'watch',
+  bad:  'fix',
+}
+
+const HABIT_STATUS_BADGE: Record<HabitStatus, 'success' | 'warning' | 'danger'> = {
+  good: 'success',
+  ok:   'warning',
+  bad:  'danger',
+}
+
+const BREAKDOWN_TONE: Record<'danger' | 'warning' | 'neutral', string> = {
+  danger:  'text-rose-700 dark:text-rose-300',
+  warning: 'text-amber-700 dark:text-amber-300',
+  neutral: 'text-gray-600 dark:text-gray-400',
+}
+
+function HabitRow({ habit }: { habit: Habit }) {
+  return (
+    <div className="flex flex-col gap-1.5 rounded-xl border border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 px-4 py-3">
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className={`w-2 h-2 rounded-full ${HABIT_STATUS_DOT[habit.status]}`} />
+        <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">{habit.title}</span>
+        <Badge tone={HABIT_STATUS_BADGE[habit.status]} size="sm">{HABIT_STATUS_LABEL[habit.status]}</Badge>
+        {habit.penaltyUSD != null && habit.penaltyUSD >= 0.01 && (
+          <Badge tone="neutral" size="sm">~{fmtUSD(habit.penaltyUSD)} penalty</Badge>
+        )}
+      </div>
+      <p className="text-xs text-gray-700 dark:text-gray-300 leading-snug">{habit.headline}</p>
+      {habit.status !== 'good' && (
+        <p className="text-[11px] text-gray-500 dark:text-gray-500 leading-snug">
+          <span className="font-medium text-gray-600 dark:text-gray-400">Try: </span>{habit.actionHint}
+        </p>
+      )}
+      {habit.breakdown && habit.breakdown.length > 0 && (
+        <ul className="flex flex-col gap-0.5 mt-1">
+          {habit.breakdown.map((b, i) => (
+            <li key={i} className="flex items-center gap-2 text-[11px]">
+              <span className="text-gray-500 dark:text-gray-500 w-28 shrink-0">{b.label}</span>
+              <span className={BREAKDOWN_TONE[b.tone]}>{b.value}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+function YourHabitsCard({ report }: { report: HabitReport }) {
+  if (report.totalSessions < 5) return null
+  const bad = report.habits.filter(h => h.status === 'bad').length
+  const ok  = report.habits.filter(h => h.status === 'ok').length
+  const good = report.habits.filter(h => h.status === 'good').length
+
+  return (
+    <Card>
+      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <div className="flex items-center gap-2">
+          <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
+            Your Habits
+          </h3>
+          <span className="text-[10px] text-gray-400 dark:text-gray-600">what *you* do, across {report.totalSessions} sessions</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          {good > 0 && <Badge tone="success" size="sm">{good} good</Badge>}
+          {ok   > 0 && <Badge tone="warning" size="sm">{ok} watch</Badge>}
+          {bad  > 0 && <Badge tone="danger"  size="sm">{bad} fix</Badge>}
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        {report.habits.map(h => <HabitRow key={h.id} habit={h} />)}
+      </div>
+    </Card>
+  )
+}
+
 function median(nums: number[]): number {
   if (nums.length === 0) return 0
   const sorted = [...nums].sort((a, b) => a - b)
@@ -1945,6 +2034,7 @@ export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; 
   const gold = React.useMemo(() => goldStandardSessions(filtered), [filtered])
   const health = React.useMemo(() => projectHealth(filtered), [filtered])
   const regressions = React.useMemo(() => recentRegressions(sessions), [sessions])  // full history — last 7d vs prior 7d
+  const habits = React.useMemo(() => userHabits(filtered), [filtered])
   const hasUsageData = usage.totalTokens > 0
   const maxHour = Math.max(...hourActivity.map(h => h.count), 1)
   const maxTool = Math.max(...topTools.map(t => t.count), 1)
@@ -2033,6 +2123,7 @@ export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; 
       {insightTab === 'overview' && (
         <div className="flex flex-col gap-5">
           <RegressionAlertCard report={regressions} />
+          <YourHabitsCard report={habits} />
           <div className="grid grid-cols-2 gap-5">
             {/* Task Types */}
             <Card>
