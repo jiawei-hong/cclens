@@ -10,6 +10,7 @@ import { SearchTab } from './tabs/SearchTab'
 import { MemoryTab } from './tabs/MemoryTab'
 import { SessionsTab } from './tabs/SessionsTab'
 import { SettingsModal } from './components/SettingsModal'
+import { ShortcutsHelp } from './components/ShortcutsHelp'
 
 // ── Theme ─────────────────────────────────────────────────────────────────────
 
@@ -345,6 +346,7 @@ function App() {
     (localStorage.getItem('theme') as Theme) ?? 'system'
   )
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [helpOpen, setHelpOpen] = useState(false)
 
   // Sync state → hash (replaceState so nav doesn't spam history). Only writes
   // once sessions are loaded, so a deep-link hash doesn't get clobbered during
@@ -387,15 +389,44 @@ function App() {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+      if (e.metaKey || e.ctrlKey || e.altKey) return
+
+      // `?` toggles help even while the help modal itself is open. Any other
+      // modal being open suppresses global shortcuts so they don't fire
+      // behind the dialog.
+      if (e.key === '?') {
+        e.preventDefault()
+        setHelpOpen(v => !v)
+        return
+      }
+      if (settingsOpen || helpOpen) return
+
       if (e.key === '/') {
         e.preventDefault()
         setTab('search')
         setTimeout(() => document.querySelector<HTMLInputElement>('input[placeholder*="Search"]')?.focus(), 50)
+        return
       }
+
+      if (e.key === 'Escape' && tab === 'sessions' && selectedSessionId) {
+        e.preventDefault()
+        setSelectedSessionId(null)
+        setSelectedTurnId(null)
+        return
+      }
+
+      if (e.key === '1') { setTab('insights'); return }
+      if (e.key === '2') { setTab('sessions'); return }
+      if (e.key === '3') {
+        setTab('search')
+        setTimeout(() => document.querySelector<HTMLInputElement>('input[placeholder*="Search"]')?.focus(), 50)
+        return
+      }
+      if (e.key === '4' && memory.length > 0) { setTab('memory'); return }
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [])
+  }, [tab, selectedSessionId, memory.length, settingsOpen, helpOpen])
 
   const openSession = (id: string, turnId?: string) => {
     setSelectedSessionId(id)
@@ -419,6 +450,14 @@ function App() {
           <NavTab label="Memory" active={tab === 'memory'} onClick={() => setTab('memory')} />
         )}
         <div className="ml-auto flex items-center gap-3">
+          <button
+            onClick={() => setHelpOpen(true)}
+            title="Keyboard shortcuts (?)"
+            aria-label="Keyboard shortcuts"
+            className="flex items-center justify-center w-8 h-8 rounded-lg text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 border border-gray-200 dark:border-gray-700 transition-colors text-xs font-semibold"
+          >
+            ?
+          </button>
           <button
             onClick={() => setSettingsOpen(true)}
             title="Settings"
@@ -447,6 +486,7 @@ function App() {
       </main>
       <ScrollToTopButton />
       <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <ShortcutsHelp open={helpOpen} onClose={() => setHelpOpen(false)} />
     </div>
   )
 }

@@ -63,9 +63,14 @@ type ListItem =
 
 export function SessionsTab({ sessions, initialSessionId, scrollToTurnId, onSessionSelect }: { sessions: Session[]; initialSessionId: string | null; scrollToTurnId: string | null; onSessionSelect?: (id: string | null) => void }) {
   const [selected, setSelected] = useState<Session | null>(null)
+  // Tracks what we last synced from `initialSessionId` so an in-tab click
+  // (which propagates back through the prop) doesn't re-run the cross-tab
+  // "collapse other projects" side-effect.
+  const lastSyncedId = useRef<string | null>(null)
 
   const selectAndNotify = (s: Session | null) => {
     setSelected(s)
+    lastSyncedId.current = s?.id ?? null
     onSessionSelect?.(s?.id ?? null)
   }
   const [filter, setFilter] = useState('')
@@ -78,14 +83,19 @@ export function SessionsTab({ sessions, initialSessionId, scrollToTurnId, onSess
   const listRef = useRef<VirtuosoHandle>(null)
 
   useEffect(() => {
-    if (initialSessionId) {
-      const s = sessions.find(s => s.id === initialSessionId) ?? null
-      setSelected(s)
-      if (s) {
-        const allProjects = new Set(sessions.map(x => x.project))
-        allProjects.delete(s.project)
-        setCollapsedProjects(allProjects)
-      }
+    const next = initialSessionId ?? null
+    if (lastSyncedId.current === next) return
+    lastSyncedId.current = next
+    if (!next) {
+      setSelected(null)
+      return
+    }
+    const s = sessions.find(s => s.id === next) ?? null
+    setSelected(s)
+    if (s) {
+      const allProjects = new Set(sessions.map(x => x.project))
+      allProjects.delete(s.project)
+      setCollapsedProjects(allProjects)
     }
   }, [initialSessionId, sessions])
 
