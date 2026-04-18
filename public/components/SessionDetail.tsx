@@ -8,6 +8,7 @@ import { useNotes, useDiffMode } from '../lib/prefs'
 import { MarkdownText, FileIcon } from '../lib/ui'
 import { Button, Card, Tab, TabGroup, Badge, focusRing } from '../lib/ds'
 import { SessionCompareModal } from './SessionCompare'
+import { RecommendationsPanel } from './RecommendationsPanel'
 
 // ── Session Timeline ──────────────────────────────────────────────────────────
 
@@ -620,6 +621,7 @@ export function SessionDetailView({ session, allSessions, scrollToTurnId }: { se
         </div>
       </Card>
 
+      <RecommendationsPanel session={session} />
       <SessionTimeline session={session} />
       <ContextGrowthChart session={session} />
 

@@ -1,12 +1,13 @@
 import React, { useState } from 'react'
 import { summarizeProjects, globalToolStats, activityByHour, sessionDepthStats, taskBreakdown, trendStats, bashAntiPatterns, bashCommandBreakdown, skillUsageStats, skillGaps, agentBreakdown, hotFiles, multiFileSessions, thrashingSessions, totalUsage, usageByModel, dailyCost, toolErrorRates, activityHeatmap, slowestToolCalls, mcpUsageStats, contextWindowHotspots, costByTaskType, thinkingStats, sessionCacheRanking, interruptStats } from '../../src/analyzer'
 import type { SessionType, BashAntiPattern, BashCategory, SkillUsage, SkillGap, AgentTypeUsage, HotFile, MultiFileSession, ThrashSession, TotalUsage, ModelUsageRow, ToolErrorStats, HeatmapCell, SlowToolCall, McpServerUsage, ContextHotspotStats, CostByTaskRow, ThinkingStats, SessionCacheStats, InterruptStats } from '../../src/analyzer'
+import { aggregateRecommendations, type RecAggregate, type RecCategory, type RecSeverity } from '../../src/recommendations'
 import type { Session, ProjectSummary } from '../../src/types'
 import { fmt, fmtDuration, fmtPace, fmtToolDuration, fmtTokenCount, fmtUSD, fmtChars, fmtTokensFromChars } from '../lib/format'
 import { toolColor, toolTickColor, taskTypeColor, taskTypeBar, TASK_DESCRIPTIONS } from '../lib/colors'
 import { exportInsightsAsMarkdown, exportDailyCostCSV, exportSessionsCSV } from '../lib/exports'
 import { Tooltip, FileIcon } from '../lib/ui'
-import { Button, Card, Tab, TabGroup, Stat, StatStrip, EmptyState } from '../lib/ds'
+import { Button, Card, Tab, TabGroup, Stat, StatStrip, EmptyState, Badge } from '../lib/ds'
 import { ToolDeepDiveModal } from '../components/ToolDeepDive'
 
 // ── Workflow Insight Cards ────────────────────────────────────────────────────
@@ -548,6 +549,152 @@ function ToolErrorsCard({ stats }: { stats: ToolErrorStats }) {
         </div>
       )}
     </Card>
+  )
+}
+
+// ── Opportunities (aggregate recommendations) ───────────────────────────────
+
+const REC_SEVERITY_TONE: Record<RecSeverity, 'danger' | 'warning' | 'neutral'> = {
+  high:   'danger',
+  medium: 'warning',
+  low:    'neutral',
+}
+
+const REC_CATEGORY_LABEL: Record<RecCategory, string> = {
+  cost:     'Cost',
+  context:  'Context',
+  skill:    'Skill',
+  workflow: 'Workflow',
+}
+
+const REC_CATEGORY_TONE: Record<RecCategory, 'success' | 'primary' | 'warning' | 'neutral'> = {
+  cost:     'success',
+  context:  'primary',
+  skill:    'warning',
+  workflow: 'neutral',
+}
+
+const REC_CATEGORY_ORDER: RecCategory[] = ['cost', 'context', 'workflow', 'skill']
+
+function OpportunitiesView({ agg, totalSessions, onOpenSession }: { agg: RecAggregate; totalSessions: number; onOpenSession: (id: string, turnId?: string) => void }) {
+  if (agg.sessionCount === 0) {
+    return (
+      <Card>
+        <EmptyState
+          title="No opportunities found"
+          description="Every session in the current range looks efficient — no cost, context, skill, or workflow recommendations to act on."
+        />
+      </Card>
+    )
+  }
+
+  const maxCatCount = Math.max(...REC_CATEGORY_ORDER.map(c => agg.byCategory[c].count), 1)
+  const maxRuleSavings = Math.max(...agg.byRule.map(r => r.savingsUSD), 0.0001)
+
+  return (
+    <div className="flex flex-col gap-5">
+      {/* ── Banner ── */}
+      <Card>
+        <div className="flex items-center justify-between flex-wrap gap-4">
+          <div>
+            <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">Potential Savings</h3>
+            <div className="flex items-baseline gap-2">
+              <span className="text-3xl font-semibold text-emerald-600 dark:text-emerald-400 tabular-nums">
+                {fmtUSD(agg.totalSavingsUSD)}
+              </span>
+              <span className="text-sm text-gray-500 dark:text-gray-400">across {agg.sessionCount} of {totalSessions} sessions</span>
+            </div>
+            <p className="text-[11px] text-gray-400 dark:text-gray-600 mt-1.5 max-w-xl leading-relaxed">
+              Estimated savings if every flagged suggestion were applied. Numbers compare current spend against the same token mix on a cheaper model, shorter cache TTL, or removed redundant reads.
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-right">
+            <span className="text-xs text-gray-500 dark:text-gray-400">Sessions flagged</span>
+            <span className="text-sm font-medium text-gray-900 dark:text-gray-100 tabular-nums">{agg.sessionCount}</span>
+            <span className="text-xs text-gray-500 dark:text-gray-400">Distinct rules</span>
+            <span className="text-sm font-medium text-gray-900 dark:text-gray-100 tabular-nums">{agg.byRule.length}</span>
+          </div>
+        </div>
+      </Card>
+
+      {/* ── By category ── */}
+      <Card>
+        <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-4">By Category</h3>
+        <div className="grid grid-cols-4 gap-4">
+          {REC_CATEGORY_ORDER.map(cat => {
+            const c = agg.byCategory[cat]
+            const pct = (c.count / maxCatCount) * 100
+            return (
+              <div key={cat} className="flex flex-col gap-2">
+                <Badge tone={REC_CATEGORY_TONE[cat]} size="sm">{REC_CATEGORY_LABEL[cat]}</Badge>
+                <div className="flex items-baseline gap-1.5">
+                  <span className="text-xl font-semibold text-gray-900 dark:text-gray-100 tabular-nums">{c.count}</span>
+                  <span className="text-[11px] text-gray-500 dark:text-gray-500">issues</span>
+                </div>
+                <div className="h-1 rounded-full bg-gray-100 dark:bg-gray-800 overflow-hidden">
+                  <div className="h-1 bg-indigo-500 rounded-full" style={{ width: `${pct}%` }} />
+                </div>
+                {c.savingsUSD > 0.01 && (
+                  <span className="text-[11px] text-emerald-600 dark:text-emerald-400 tabular-nums">save {fmtUSD(c.savingsUSD)}</span>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      </Card>
+
+      {/* ── By rule (ranked) ── */}
+      <Card>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Top Issues</h3>
+          <span className="text-[10px] text-gray-400 dark:text-gray-600">ranked by potential savings</span>
+        </div>
+        <div className="flex flex-col gap-2">
+          {agg.byRule.map(r => {
+            const barPct = r.savingsUSD > 0 ? (r.savingsUSD / maxRuleSavings) * 100 : 0
+            return (
+              <div key={r.id} className="flex items-center gap-3 px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-950 border border-gray-100 dark:border-gray-800">
+                <Badge tone={REC_SEVERITY_TONE[r.severity]} size="sm">{r.severity}</Badge>
+                <Badge tone={REC_CATEGORY_TONE[r.category]} size="sm">{REC_CATEGORY_LABEL[r.category]}</Badge>
+                <span className="flex-1 text-sm text-gray-800 dark:text-gray-200 truncate">{r.title}</span>
+                <span className="text-[11px] text-gray-500 dark:text-gray-500 tabular-nums w-20 text-right shrink-0">{r.count}× sessions</span>
+                <div className="w-24 h-1 rounded-full bg-gray-100 dark:bg-gray-800 overflow-hidden shrink-0">
+                  <div className="h-1 bg-emerald-500 rounded-full" style={{ width: `${barPct}%` }} />
+                </div>
+                <span className="text-xs font-medium text-gray-900 dark:text-gray-100 tabular-nums w-16 text-right shrink-0">
+                  {r.savingsUSD > 0.01 ? fmtUSD(r.savingsUSD) : '—'}
+                </span>
+              </div>
+            )
+          })}
+        </div>
+      </Card>
+
+      {/* ── Top sessions ── */}
+      <Card>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Top Sessions to Review</h3>
+          <span className="text-[10px] text-gray-400 dark:text-gray-600">highest potential savings first</span>
+        </div>
+        <div className="flex flex-col gap-1">
+          {agg.topSessions.map(s => (
+            <button
+              key={s.sessionId}
+              onClick={() => onOpenSession(s.sessionId)}
+              className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors text-left group"
+            >
+              <span className="text-sm font-semibold text-emerald-600 dark:text-emerald-400 tabular-nums w-16 shrink-0">
+                {s.savingsUSD > 0.01 ? fmtUSD(s.savingsUSD) : '—'}
+              </span>
+              <span className="text-xs text-gray-500 dark:text-gray-500 tabular-nums w-12 shrink-0">{s.count} issue{s.count === 1 ? '' : 's'}</span>
+              <span className="flex-1 text-sm text-gray-800 dark:text-gray-200 truncate">{s.project}</span>
+              <span className="text-[11px] text-gray-400 dark:text-gray-600 shrink-0">{fmt(s.startedAt)}</span>
+              <span className="text-gray-400 dark:text-gray-600 text-xs group-hover:text-indigo-400 transition-colors shrink-0">→</span>
+            </button>
+          ))}
+        </div>
+      </Card>
+    </div>
   )
 }
 
@@ -1292,12 +1439,13 @@ export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; 
   const thinking = React.useMemo(() => thinkingStats(filtered, 10), [filtered])
   const cacheRanking = React.useMemo(() => sessionCacheRanking(filtered), [filtered])
   const heatmap = React.useMemo(() => activityHeatmap(sessions, 14), [sessions])  // fixed 14-week view
+  const recAgg = React.useMemo(() => aggregateRecommendations(filtered), [filtered])
   const hasUsageData = usage.totalTokens > 0
   const maxHour = Math.max(...hourActivity.map(h => h.count), 1)
   const maxTool = Math.max(...topTools.map(t => t.count), 1)
   const maxDailyCost = Math.max(...dailyCostSeries.map(d => d.costUSD), 0.0001)
 
-  const [insightTab, setInsightTab] = useState<'overview' | 'cost' | 'efficiency' | 'skills' | 'projects'>('overview')
+  const [insightTab, setInsightTab] = useState<'opportunities' | 'overview' | 'cost' | 'efficiency' | 'skills' | 'projects'>('opportunities')
   const totalToolCalls = topTools.reduce((s, t) => s + t.count, 0)
 
   // Sub-tabs render via <TabGroup variant="subtle"> below.
@@ -1321,6 +1469,7 @@ export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; 
       {/* ── Sub-tab nav + range picker + export ── */}
       <div className="flex items-center justify-between gap-2">
         <TabGroup value={insightTab} onChange={setInsightTab} variant="subtle">
+          <Tab value="opportunities" badge={recAgg.sessionCount}>Opportunities</Tab>
           <Tab value="overview">Overview</Tab>
           <Tab value="cost">Cost</Tab>
           <Tab value="efficiency">Efficiency</Tab>
@@ -1355,6 +1504,11 @@ export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; 
           <RangePicker range={range} setRange={setRange} />
         </div>
       </div>
+
+      {/* ── Opportunities ── */}
+      {insightTab === 'opportunities' && (
+        <OpportunitiesView agg={recAgg} totalSessions={filtered.length} onOpenSession={onOpenSession} />
+      )}
 
       {/* ── Overview ── */}
       {insightTab === 'overview' && (
