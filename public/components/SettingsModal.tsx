@@ -1,7 +1,16 @@
-import React, { useRef, useState } from 'react'
-import { RiDownloadLine, RiUploadLine } from 'react-icons/ri'
+import React, { useEffect, useRef, useState } from 'react'
+import { RiDownloadLine, RiUploadLine, RiDeleteBin6Line } from 'react-icons/ri'
 import { Modal, Button } from '../lib/ds'
 import { exportPrefs, importPrefs, type ImportMode, type ImportResult } from '../lib/prefs'
+import { getCacheStats, clearAllCaches, type CacheStats } from '../lib/db'
+
+function fmtBytes(n: number | null): string {
+  if (n == null) return '—'
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
+  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`
+  return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`
+}
 
 type Status =
   | { kind: 'idle' }
@@ -11,7 +20,30 @@ type Status =
 export function SettingsModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [mode, setMode] = useState<ImportMode>('merge')
   const [status, setStatus] = useState<Status>({ kind: 'idle' })
+  const [cacheStats, setCacheStats] = useState<CacheStats | null>(null)
+  const [confirming, setConfirming] = useState(false)
+  const [clearing, setClearing] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
+
+  const refreshCacheStats = () => {
+    getCacheStats().then(setCacheStats).catch(() => setCacheStats(null))
+  }
+
+  useEffect(() => {
+    if (!open) return
+    refreshCacheStats()
+  }, [open])
+
+  const handleClearCache = async () => {
+    setClearing(true)
+    try {
+      await clearAllCaches()
+      refreshCacheStats()
+      setConfirming(false)
+    } finally {
+      setClearing(false)
+    }
+  }
 
   const handleExport = () => {
     const data = exportPrefs()
@@ -47,6 +79,7 @@ export function SettingsModal({ open, onClose }: { open: boolean; onClose: () =>
 
   const close = () => {
     setStatus({ kind: 'idle' })
+    setConfirming(false)
     onClose()
   }
 
@@ -108,6 +141,66 @@ export function SettingsModal({ open, onClose }: { open: boolean; onClose: () =>
               {' '}({status.result.notesTotal} total).
             </p>
           )}
+        </section>
+
+        <section className="flex flex-col gap-2">
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Session cache</h3>
+          <p className="text-xs text-gray-500 dark:text-gray-400">
+            Parsed sessions, memory entries, and the saved folder handle live in IndexedDB. Clear this if parsing seems stale or you want to hand the origin's storage back to the browser.
+          </p>
+
+          <div className="flex flex-col gap-3 mt-2">
+            <div className="grid grid-cols-2 gap-2 p-3 rounded-xl bg-gray-50 dark:bg-gray-950 border border-gray-200 dark:border-gray-800 text-[11px]">
+              <div className="flex flex-col gap-0.5">
+                <span className="text-gray-500 dark:text-gray-500">Cached sessions</span>
+                <span className="text-sm font-medium tabular-nums text-gray-800 dark:text-gray-200">{cacheStats?.sessions ?? '—'}</span>
+              </div>
+              <div className="flex flex-col gap-0.5">
+                <span className="text-gray-500 dark:text-gray-500">Cached memory entries</span>
+                <span className="text-sm font-medium tabular-nums text-gray-800 dark:text-gray-200">{cacheStats?.memory ?? '—'}</span>
+              </div>
+              <div className="flex flex-col gap-0.5">
+                <span className="text-gray-500 dark:text-gray-500">Storage used (all origin)</span>
+                <span className="text-sm font-medium tabular-nums text-gray-800 dark:text-gray-200">
+                  {fmtBytes(cacheStats?.usageBytes ?? null)}
+                  {cacheStats?.quotaBytes ? <span className="text-gray-400 dark:text-gray-600 font-normal"> / {fmtBytes(cacheStats.quotaBytes)}</span> : null}
+                </span>
+              </div>
+              <div className="flex flex-col gap-0.5">
+                <span className="text-gray-500 dark:text-gray-500">Saved folder handle</span>
+                <span className="text-sm font-medium text-gray-800 dark:text-gray-200">{cacheStats?.hasHandle ? 'Yes' : 'No'}</span>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between gap-3">
+              {confirming ? (
+                <>
+                  <span className="text-xs text-rose-600 dark:text-rose-400">
+                    This wipes all cached sessions and forgets the saved folder. Continue?
+                  </span>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Button variant="ghost" size="sm" onClick={() => setConfirming(false)} disabled={clearing}>Cancel</Button>
+                    <Button variant="danger" size="sm" onClick={handleClearCache} disabled={clearing}>
+                      {clearing ? 'Clearing…' : 'Clear cache'}
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <span className="text-[11px] text-gray-500 dark:text-gray-500">Bookmarks and notes (in localStorage) are not affected.</span>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    icon={<RiDeleteBin6Line size={13} />}
+                    onClick={() => setConfirming(true)}
+                    disabled={!cacheStats || (cacheStats.sessions === 0 && cacheStats.memory === 0 && !cacheStats.hasHandle)}
+                  >
+                    Clear cache
+                  </Button>
+                </>
+              )}
+            </div>
+          </div>
         </section>
       </Modal.Body>
       <Modal.Footer>

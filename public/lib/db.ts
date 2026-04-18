@@ -139,6 +139,52 @@ export async function clearRootHandle(): Promise<void> {
   })
 }
 
+// ── Cache maintenance ─────────────────────────────────────────────────────────
+
+export type CacheStats = {
+  sessions: number
+  memory: number
+  hasHandle: boolean
+  usageBytes: number | null
+  quotaBytes: number | null
+}
+
+export async function getCacheStats(): Promise<CacheStats> {
+  let sessions = 0
+  let memory = 0
+  let hasHandle = false
+  try {
+    const db = await openDB()
+    const tx = db.transaction([SESSIONS_STORE, MEMORY_STORE, META_STORE], 'readonly')
+    sessions = await promisify(tx.objectStore(SESSIONS_STORE).count() as IDBRequest<number>)
+    memory = await promisify(tx.objectStore(MEMORY_STORE).count() as IDBRequest<number>)
+    const row = await promisify(tx.objectStore(META_STORE).get(ROOT_HANDLE_KEY) as IDBRequest<{ key: string; handle: FileSystemDirectoryHandle } | undefined>)
+    hasHandle = !!row?.handle
+  } catch { /* empty / unavailable */ }
+
+  let usageBytes: number | null = null
+  let quotaBytes: number | null = null
+  try {
+    const est = await navigator.storage?.estimate?.()
+    usageBytes = est?.usage ?? null
+    quotaBytes = est?.quota ?? null
+  } catch { /* not supported */ }
+
+  return { sessions, memory, hasHandle, usageBytes, quotaBytes }
+}
+
+export async function clearAllCaches(): Promise<void> {
+  const db = await openDB()
+  const tx = db.transaction([SESSIONS_STORE, MEMORY_STORE, META_STORE], 'readwrite')
+  tx.objectStore(SESSIONS_STORE).clear()
+  tx.objectStore(MEMORY_STORE).clear()
+  tx.objectStore(META_STORE).clear()
+  return new Promise((resolve, reject) => {
+    tx.oncomplete = () => resolve()
+    tx.onerror = () => reject(tx.error)
+  })
+}
+
 // ── Permission helpers ────────────────────────────────────────────────────────
 
 type PermState = 'granted' | 'denied' | 'prompt'
