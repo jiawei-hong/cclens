@@ -1,11 +1,34 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { RiGitBranchLine, RiStarFill, RiStarLine } from 'react-icons/ri'
+import { RiGitBranchLine, RiStarFill, RiStarLine, RiStickyNoteLine } from 'react-icons/ri'
 import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso'
 import type { Session } from '../../src/types'
+import { sessionCostUSD } from '../../src/analyzer'
 import { fmt, fmtDuration, fmtPace } from '../lib/format'
 import { useBookmarks, useNotes } from '../lib/prefs'
 import { focusRing } from '../lib/ds'
 import { SessionDetailView } from '../components/SessionDetail'
+
+type SortKey = 'recent' | 'oldest' | 'cost' | 'turns' | 'duration' | 'calls'
+
+const SORT_LABELS: Record<SortKey, string> = {
+  recent:   'Recent',
+  oldest:   'Oldest',
+  cost:     'Cost',
+  turns:    'Turns',
+  duration: 'Duration',
+  calls:    'Tool calls',
+}
+
+function sortValue(s: Session, key: SortKey): number {
+  switch (key) {
+    case 'recent':   return new Date(s.startedAt).getTime()
+    case 'oldest':   return -new Date(s.startedAt).getTime()
+    case 'cost':     return sessionCostUSD(s)
+    case 'turns':    return s.turns.length
+    case 'duration': return s.durationMs
+    case 'calls':    return s.stats.toolCallCount
+  }
+}
 
 function sessionPreview(session: Session): string {
   const firstUser = session.turns.find(t => t.role === 'user')
@@ -17,16 +40,21 @@ function sessionPreview(session: Session): string {
     .slice(0, 72)
 }
 
-function groupSessionsByProject(sessions: Session[]): { project: string; sessions: Session[] }[] {
+function groupSessionsByProject(sessions: Session[], sortKey: SortKey): { project: string; sessions: Session[] }[] {
   const map = new Map<string, Session[]>()
   for (const s of sessions) {
     const list = map.get(s.project) ?? []
     list.push(s)
     map.set(s.project, list)
   }
-  return [...map.entries()]
-    .map(([project, sessions]) => ({ project, sessions }))
-    .sort((a, b) => b.sessions[0]!.startedAt.localeCompare(a.sessions[0]!.startedAt))
+  const groups = [...map.entries()].map(([project, sessions]) => {
+    const sorted = [...sessions].sort((a, b) => sortValue(b, sortKey) - sortValue(a, sortKey))
+    return { project, sessions: sorted }
+  })
+  // Project header order follows the sort: project whose top session ranks
+  // highest appears first.
+  groups.sort((a, b) => sortValue(b.sessions[0]!, sortKey) - sortValue(a.sessions[0]!, sortKey))
+  return groups
 }
 
 type ListItem =
@@ -36,6 +64,9 @@ type ListItem =
 export function SessionsTab({ sessions, initialSessionId, scrollToTurnId }: { sessions: Session[]; initialSessionId: string | null; scrollToTurnId: string | null }) {
   const [selected, setSelected] = useState<Session | null>(null)
   const [filter, setFilter] = useState('')
+  const [sortKey, setSortKey] = useState<SortKey>('recent')
+  const [onlyBookmarked, setOnlyBookmarked] = useState(false)
+  const [onlyNoted, setOnlyNoted] = useState(false)
   const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(new Set())
   const { bookmarks, toggle: toggleBookmark } = useBookmarks()
   const { notes } = useNotes()
@@ -59,10 +90,22 @@ export function SessionsTab({ sessions, initialSessionId, scrollToTurnId }: { se
 
   const detailRef = useRef<HTMLDivElement>(null)
 
-  const filtered = filter
-    ? sessions.filter(s => s.project.toLowerCase().includes(filter.toLowerCase()))
-    : sessions
-  const groups = React.useMemo(() => groupSessionsByProject(filtered), [filtered])
+  const noteIds = React.useMemo(
+    () => new Set(Object.entries(notes).filter(([, v]) => v.trim()).map(([k]) => k)),
+    [notes]
+  )
+
+  const filtered = React.useMemo(() => {
+    const q = filter.trim().toLowerCase()
+    return sessions.filter(s => {
+      if (q && !s.project.toLowerCase().includes(q)) return false
+      if (onlyBookmarked && !bookmarks.has(s.id)) return false
+      if (onlyNoted && !noteIds.has(s.id)) return false
+      return true
+    })
+  }, [sessions, filter, onlyBookmarked, onlyNoted, bookmarks, noteIds])
+
+  const groups = React.useMemo(() => groupSessionsByProject(filtered, sortKey), [filtered, sortKey])
 
   const items = React.useMemo<ListItem[]>(() => {
     const out: ListItem[] = []
@@ -141,6 +184,55 @@ export function SessionsTab({ sessions, initialSessionId, scrollToTurnId }: { se
         <input type="text" placeholder="Filter by project..." value={filter}
           onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFilter(e.target.value)}
           className={`w-full bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 text-sm px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 focus:outline-none focus:border-indigo-500 placeholder:text-gray-400 dark:placeholder:text-gray-600 ${focusRing}`} />
+
+        <div className="flex items-center gap-1.5">
+          <select
+            value={sortKey}
+            onChange={e => setSortKey(e.target.value as SortKey)}
+            title="Sort sessions"
+            className={`bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 text-xs px-2 py-1 rounded-lg border border-gray-200 dark:border-gray-700 focus:outline-none focus:border-indigo-400 dark:focus:border-indigo-500 ${focusRing}`}
+          >
+            {(Object.keys(SORT_LABELS) as SortKey[]).map(k => (
+              <option key={k} value={k}>{SORT_LABELS[k]}</option>
+            ))}
+          </select>
+
+          <button
+            onClick={() => setOnlyBookmarked(v => !v)}
+            title={onlyBookmarked ? 'Show all sessions' : 'Show only bookmarked'}
+            aria-pressed={onlyBookmarked}
+            className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs border transition-colors ${focusRing} ${
+              onlyBookmarked
+                ? 'bg-amber-500/15 border-amber-400 text-amber-700 dark:text-amber-300'
+                : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+            }`}
+          >
+            {onlyBookmarked ? <RiStarFill size={11} /> : <RiStarLine size={11} />}
+          </button>
+
+          <button
+            onClick={() => setOnlyNoted(v => !v)}
+            title={onlyNoted ? 'Show all sessions' : 'Show only sessions with notes'}
+            aria-pressed={onlyNoted}
+            className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs border transition-colors ${focusRing} ${
+              onlyNoted
+                ? 'bg-indigo-500/15 border-indigo-400 text-indigo-700 dark:text-indigo-300'
+                : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+            }`}
+          >
+            <RiStickyNoteLine size={11} />
+          </button>
+
+          {(onlyBookmarked || onlyNoted || sortKey !== 'recent') && (
+            <button
+              onClick={() => { setOnlyBookmarked(false); setOnlyNoted(false); setSortKey('recent') }}
+              title="Reset sort & filters"
+              className="ml-auto text-[10px] text-gray-400 dark:text-gray-600 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
+            >
+              reset
+            </button>
+          )}
+        </div>
 
         <div className="flex-1 min-h-0 pr-1">
           <Virtuoso
