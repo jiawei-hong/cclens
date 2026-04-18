@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { createRoot } from 'react-dom/client'
-import { RiSunLine, RiMoonLine, RiComputerLine, RiArrowUpLine } from 'react-icons/ri'
+import { RiSunLine, RiMoonLine, RiComputerLine, RiArrowUpLine, RiSettings3Line } from 'react-icons/ri'
 import { parseSessionFiles, parseMemoryFiles, type TrackedFile } from './lib/parser'
 import type { Session, MemoryEntry } from '../src/types'
 import { walkFolder } from './lib/walkDir'
@@ -8,6 +8,7 @@ import { InsightsTab } from './tabs/InsightsTab'
 import { SearchTab } from './tabs/SearchTab'
 import { MemoryTab } from './tabs/MemoryTab'
 import { SessionsTab } from './tabs/SessionsTab'
+import { SettingsModal } from './components/SettingsModal'
 
 // ── Theme ─────────────────────────────────────────────────────────────────────
 
@@ -250,6 +251,7 @@ function App() {
   const [theme, setTheme] = useState<Theme>(() =>
     (localStorage.getItem('theme') as Theme) ?? 'system'
   )
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   useEffect(() => {
     const apply = () => {
@@ -300,6 +302,14 @@ function App() {
           <NavTab label="Memory" active={tab === 'memory'} onClick={() => setTab('memory')} />
         )}
         <div className="ml-auto flex items-center gap-3">
+          <button
+            onClick={() => setSettingsOpen(true)}
+            title="Settings"
+            aria-label="Settings"
+            className="flex items-center justify-center w-8 h-8 rounded-lg text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 border border-gray-200 dark:border-gray-700 transition-colors"
+          >
+            <RiSettings3Line size={14} />
+          </button>
           <ThemeToggle theme={theme} setTheme={setTheme} />
           <button onClick={() => { setSessions(null); setMemory([]) }} className="text-xs text-gray-500 dark:text-gray-600 hover:text-gray-600 dark:hover:text-gray-400 transition-colors">
             ↩ Upload new files
@@ -314,6 +324,7 @@ function App() {
         {tab === 'memory' && <MemoryTab memory={memory} />}
       </main>
       <ScrollToTopButton />
+      <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>
   )
 }
