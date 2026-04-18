@@ -2,11 +2,80 @@ import React, { useState, useEffect, useRef } from 'react'
 import { RiGitBranchLine, RiStarFill, RiStarLine, RiStickyNoteLine } from 'react-icons/ri'
 import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso'
 import type { Session } from '../../src/types'
-import { sessionCostUSD } from '../../src/analyzer'
+import { sessionCostUSD, goldStandardSessions } from '../../src/analyzer'
+import { sessionRecommendations } from '../../src/recommendations'
 import { fmt, fmtDuration, fmtPace, fmtUSD } from '../lib/format'
 import { useBookmarks, useNotes } from '../lib/prefs'
 import { focusRing } from '../lib/ds'
 import { SessionDetailView } from '../components/SessionDetail'
+
+// ── Session row badges ───────────────────────────────────────────────────────
+// Quick visual cues on each row so users can triage sessions without opening
+// them. Four signals, each backed by existing analyzer logic:
+//   • gold      — in goldStandardSessions (worth learning from)
+//   • expensive — top 10% by cost AND ≥ $0.50
+//   • err       — tool error rate > 10% (≥ 5 calls)
+//   • issues    — has at least one high-severity recommendation
+
+type SessionBadgeSet = {
+  gold: Set<string>
+  expensive: Set<string>
+  errored: Set<string>
+  hasIssues: Set<string>
+}
+
+function computeSessionBadges(sessions: Session[]): SessionBadgeSet {
+  const gold = new Set(goldStandardSessions(sessions).map(g => g.sessionId))
+
+  const costs = sessions.map(s => ({ id: s.id, cost: sessionCostUSD(s) }))
+    .sort((a, b) => b.cost - a.cost)
+  const topCount = Math.max(1, Math.floor(costs.length * 0.1))
+  const expensive = new Set(costs.slice(0, topCount).filter(x => x.cost >= 0.5).map(x => x.id))
+
+  const errored = new Set<string>()
+  const hasIssues = new Set<string>()
+  for (const s of sessions) {
+    let tc = 0, err = 0
+    for (const t of s.turns) for (const c of t.toolCalls) { tc++; if (c.isError) err++ }
+    if (tc >= 5 && err / tc > 0.1) errored.add(s.id)
+
+    const { recommendations } = sessionRecommendations(s)
+    if (recommendations.some(r => r.severity === 'high')) hasIssues.add(s.id)
+  }
+
+  return { gold, expensive, errored, hasIssues }
+}
+
+function SessionRowBadges({ id, badges, selected }: { id: string; badges: SessionBadgeSet; selected: boolean }) {
+  const pills: { key: string; label: string; tone: 'gold' | 'cost' | 'err' | 'issue'; title: string }[] = []
+  if (badges.gold.has(id))      pills.push({ key: 'gold',   label: 'gold',   tone: 'gold',  title: 'Gold-standard session — high cache hit, low errors, cheap per turn' })
+  if (badges.expensive.has(id)) pills.push({ key: 'cost',   label: '$$',     tone: 'cost',  title: 'Expensive — top 10% of sessions by cost' })
+  if (badges.errored.has(id))   pills.push({ key: 'err',    label: 'err',    tone: 'err',   title: 'High tool error rate (>10%)' })
+  if (badges.hasIssues.has(id)) pills.push({ key: 'issues', label: 'issues', tone: 'issue', title: 'Has a high-severity recommendation' })
+  if (pills.length === 0) return null
+
+  const palette = (tone: string) => {
+    if (selected) return 'bg-white/20 text-white'
+    switch (tone) {
+      case 'gold':  return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300'
+      case 'cost':  return 'bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300'
+      case 'err':   return 'bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-300'
+      case 'issue': return 'bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300'
+      default:      return 'bg-gray-100 text-gray-600'
+    }
+  }
+
+  return (
+    <span className="flex items-center gap-1 shrink-0">
+      {pills.map(p => (
+        <span key={p.key} title={p.title}
+          className={`text-[9px] leading-none px-1 py-[2px] rounded font-semibold uppercase tracking-wider ${palette(p.tone)}`}>
+          {p.label}
+        </span>
+      ))}
+    </span>
+  )
+}
 
 type SortKey = 'recent' | 'oldest' | 'cost' | 'turns' | 'duration' | 'calls'
 
@@ -109,6 +178,8 @@ export function SessionsTab({ sessions, initialSessionId, scrollToTurnId, onSess
     () => new Set(Object.entries(notes).filter(([, v]) => v.trim()).map(([k]) => k)),
     [notes]
   )
+
+  const badges = React.useMemo(() => computeSessionBadges(sessions), [sessions])
 
   const filtered = React.useMemo(() => {
     const q = filter.trim().toLowerCase()
@@ -286,6 +357,7 @@ export function SessionsTab({ sessions, initialSessionId, scrollToTurnId, onSess
                     className={`w-full text-left px-3 py-2 rounded-xl transition-colors ${focusRing} ${selected?.id === s.id ? 'bg-indigo-600' : 'hover:bg-gray-50 dark:hover:bg-gray-800'}`}>
                     <div className="flex items-center gap-2">
                       <span className={`text-xs ${selected?.id === s.id ? 'text-indigo-200' : 'text-gray-600 dark:text-gray-400'}`}>{fmt(s.startedAt)}</span>
+                      <SessionRowBadges id={s.id} badges={badges} selected={selected?.id === s.id} />
                       <span
                         role="button"
                         tabIndex={0}
