@@ -24,6 +24,37 @@ const MIN_RULE_SESSIONS       = 3
 const MIN_RULE_SAVINGS_USD    = 0.5
 const MIN_SKILL_GAP_SESSIONS  = 3
 
+// ── Rule text keyed by recommendation id ─────────────────────────────────────
+// One CLAUDE.md rule line per rec id. Used by the aggregator below *and* by
+// the inline turn-coaching UI so a single click can drop the exact rule into
+// the user's CLAUDE.md. Kept flat and un-gated on thresholds — the text is
+// always the right text; evidence gating happens elsewhere.
+
+export const RULE_TEXT_BY_REC_ID: Record<string, string> = {
+  'wrong-model-for-task':
+    `Prefer Sonnet for conversation, exploration, and research tasks — Opus is only needed for deep reasoning or complex multi-step refactors.`,
+  '1h-cache-misused':
+    `Do not request 1-hour cache TTL for short-lived sessions. Default to 5-minute (ephemeral) caching unless the prompt is genuinely reused across ≥1h.`,
+  'low-cache-hit':
+    `Keep the session's stable prefix (CLAUDE.md, system prompt, project docs) at the top and avoid editing it mid-session — this is what the prompt cache hits against.`,
+  'linear-context-growth':
+    `Keep tool result sizes small: prefer Grep + targeted Read over dumping full files. Context grows linearly when results are not trimmed.`,
+  'redundant-reads':
+    `Avoid re-reading the same file multiple times in one session. If you need a second look, use Grep or Read with offset/limit to fetch just the part you need.`,
+  'thrashing':
+    `If a tool call fails 2+ times with the same argument, stop and re-read the failure — do not retry a third time with the same input.`,
+  'high-error-rate':
+    `When a tool errors, inspect the error before the next call. Do not chain speculative tool calls while earlier ones are still failing.`,
+  'bash-antipatterns':
+    `Prefer native tools (Read with offset/limit, Grep, Glob, Edit) over their Bash equivalents (cat/grep/ls/find/sed) — the native tools are scoped and do not dump raw output into context.`,
+  'peak-near-compact':
+    `Keep sessions focused — split long work across multiple sessions and avoid loading full files so context stays well below the 200k auto-compact threshold.`,
+  'skill-gap-commit':
+    `For git commits, prefer the \`commit\` skill (or \`/commit\` slash command) over composing \`git add\` + \`git commit\` manually — it handles staging, message conventions, and hook failures.`,
+  'skill-gap-create-pr':
+    `For opening PRs, prefer the \`create-pr\` subagent or \`/create-pr\` command over \`gh pr create\` — it writes a structured title + body from the diff.`,
+}
+
 // ── Structured rule type ─────────────────────────────────────────────────────
 // Each rule is its own record so the UI can render per-rule copy buttons and
 // evidence pills. The markdown exporter just joins `text` lines by section.

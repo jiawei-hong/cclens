@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react'
-import { RiTimeLine, RiTerminalLine, RiChat3Line, RiFlashlightLine, RiGitBranchLine, RiLinkM, RiCheckLine } from 'react-icons/ri'
+import React, { useState, useEffect, useMemo } from 'react'
+import { RiTimeLine, RiTerminalLine, RiChat3Line, RiFlashlightLine, RiGitBranchLine, RiLinkM, RiCheckLine, RiLightbulbFlashLine } from 'react-icons/ri'
 import type { Session } from '../../src/types'
 import { fmtDuration, fmtPace } from '../lib/format'
 import { toolColor, toolTickColor } from '../lib/colors'
@@ -9,6 +9,60 @@ import { MarkdownText, FileIcon } from '../lib/ui'
 import { Button, Card, Tab, TabGroup, Badge, focusRing } from '../lib/ds'
 import { SessionCompareModal } from './SessionCompare'
 import { RecommendationsPanel } from './RecommendationsPanel'
+import { sessionRecommendations, type Recommendation } from '../../src/recommendations'
+import { RULE_TEXT_BY_REC_ID } from '../../src/claudeMd'
+
+// ── Inline turn coach ─────────────────────────────────────────────────────────
+// Surfaces the recommendations that flagged *this specific turn* so the user
+// can see why it was called out and copy the matching CLAUDE.md rule.
+
+const COACH_SEVERITY_TONE = {
+  high:   'danger',
+  medium: 'warning',
+  low:    'neutral',
+} as const
+
+function TurnCoach({ recs }: { recs: Recommendation[] }) {
+  const [copiedId, setCopiedId] = useState<string | null>(null)
+  const copy = async (rec: Recommendation) => {
+    const rule = RULE_TEXT_BY_REC_ID[rec.id] ?? rec.actionHint
+    try {
+      await navigator.clipboard.writeText(`- ${rule}`)
+      setCopiedId(rec.id)
+      setTimeout(() => setCopiedId(null), 1500)
+    } catch { /* clipboard blocked — best-effort */ }
+  }
+  return (
+    <div className="flex flex-col gap-1.5 rounded-lg border border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 px-3 py-2">
+      <div className="flex items-center gap-1.5">
+        <span className="text-amber-600 dark:text-amber-400"><RiLightbulbFlashLine size={12} /></span>
+        <span className="text-[10px] uppercase tracking-wide font-medium text-amber-700 dark:text-amber-300">
+          Coach · flagged this turn
+        </span>
+      </div>
+      {recs.map(rec => (
+        <div key={rec.id} className="flex items-start justify-between gap-2">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <Badge tone={COACH_SEVERITY_TONE[rec.severity]} size="sm">{rec.severity}</Badge>
+              <span className="text-xs font-medium text-gray-900 dark:text-gray-100">{rec.title}</span>
+            </div>
+            <p className="text-[11px] text-gray-600 dark:text-gray-400 mt-0.5 leading-snug">{rec.actionHint}</p>
+          </div>
+          {RULE_TEXT_BY_REC_ID[rec.id] && (
+            <button
+              onClick={() => copy(rec)}
+              className={`text-[11px] px-2 py-1 rounded bg-white dark:bg-gray-900 border border-amber-200 dark:border-amber-500/30 text-amber-700 dark:text-amber-300 hover:border-amber-400 font-medium shrink-0 ${focusRing}`}
+              title="Copy this rule as a CLAUDE.md line"
+            >
+              {copiedId === rec.id ? '✓ copied' : 'Copy rule'}
+            </button>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
 
 // ── Session Timeline ──────────────────────────────────────────────────────────
 
@@ -550,6 +604,18 @@ export function SessionDetailView({ session, allSessions, scrollToTurnId }: { se
   })
   const filesCount = React.useMemo(() => buildFileChanges(session).length, [session.id])
 
+  const recsByTurn = useMemo(() => {
+    const m = new Map<string, Recommendation[]>()
+    for (const r of sessionRecommendations(session).recommendations) {
+      for (const uuid of r.turnUuids ?? []) {
+        const list = m.get(uuid) ?? []
+        list.push(r)
+        m.set(uuid, list)
+      }
+    }
+    return m
+  }, [session.id])
+
   useEffect(() => {
     if (!scrollToTurnId) return
     const el = document.getElementById(`turn-${scrollToTurnId}`)
@@ -659,6 +725,7 @@ export function SessionDetailView({ session, allSessions, scrollToTurnId }: { se
                 {turn.role === 'user' ? 'U' : 'C'}
               </div>
               <div className={`max-w-[85%] flex flex-col gap-2 min-w-0 ${turn.role === 'assistant' ? 'flex-1' : ''}`}>
+                {recsByTurn.get(turn.uuid) && <TurnCoach recs={recsByTurn.get(turn.uuid)!} />}
                 {turn.role === 'assistant' && turn.thinkingBlocks > 0 && (
                   <span
                     title={`${turn.thinkingBlocks} thinking block${turn.thinkingBlocks === 1 ? '' : 's'} — Anthropic bills these tokens but they are not reported in usage.output_tokens`}
