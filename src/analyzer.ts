@@ -786,6 +786,84 @@ export function sessionCacheRanking(sessions: Session[], limit = 12): SessionCac
     .slice(0, limit)
 }
 
+// ── Gold-standard sessions ────────────────────────────────────────────────────
+// Positive mirror of the "Top Sessions to Review" list: sessions that got a lot
+// done cheaply, with a hot cache, no errors, and no retry loops. Intended as a
+// "learn from these" prompt, not a leaderboard — sorted by a combined efficiency
+// score rather than any single axis.
+
+export type GoldStandardSession = {
+  sessionId: string
+  project: string
+  startedAt: string
+  turns: number
+  toolCalls: number
+  cacheHitRate: number     // 0..1
+  errorRate: number        // 0..1
+  costUSD: number
+  costPerTurn: number
+  durationMs: number
+  score: number            // 0..1 composite, higher is better
+}
+
+export function goldStandardSessions(sessions: Session[], limit = 8): GoldStandardSession[] {
+  const scored: GoldStandardSession[] = []
+  for (const s of sessions) {
+    const turns = s.turns.length
+    const toolCalls = s.stats.toolCallCount
+    // Skip trivial sessions — they'd dominate on cost-per-turn without any
+    // signal about whether the user actually handled a real task well.
+    if (turns < 10 || toolCalls < 10) continue
+
+    const { inputTokens, cacheCreateTokens, cacheReadTokens } = s.stats.usage
+    const cacheDenom = inputTokens + cacheCreateTokens + cacheReadTokens
+    const cacheHitRate = cacheDenom === 0 ? 0 : cacheReadTokens / cacheDenom
+
+    let totalCalls = 0, errorCalls = 0
+    for (const t of s.turns) {
+      for (const tc of t.toolCalls) {
+        totalCalls++
+        if (tc.isError) errorCalls++
+      }
+    }
+    const errorRate = totalCalls === 0 ? 0 : errorCalls / totalCalls
+    // Disqualify sessions with any meaningful error rate — a "gold" session
+    // should not teach the user to tolerate failing tool calls.
+    if (errorRate > 0.02) continue
+
+    const cost = sessionCostUSD(s)
+    const costPerTurn = cost / turns
+
+    // Composite score: high cache-hit + low $/turn (within-corpus normalised later),
+    // scaled slightly by session size so bigger well-run sessions beat small perfect ones.
+    scored.push({
+      sessionId: s.id,
+      project: s.project,
+      startedAt: s.startedAt,
+      turns,
+      toolCalls,
+      cacheHitRate,
+      errorRate,
+      costUSD: cost,
+      costPerTurn,
+      durationMs: s.durationMs,
+      score: 0,  // filled in below after we know the corpus costPerTurn range
+    })
+  }
+  if (scored.length === 0) return []
+
+  const maxCostPerTurn = Math.max(...scored.map(s => s.costPerTurn), 0.0001)
+  const maxTurns       = Math.max(...scored.map(s => s.turns), 1)
+  for (const s of scored) {
+    const cacheBonus = s.cacheHitRate                    // 0..1, higher is better
+    const cheapBonus = 1 - (s.costPerTurn / maxCostPerTurn)  // 0..1, higher is better
+    const sizeBonus  = Math.min(1, s.turns / maxTurns)   // 0..1, reward substantive work
+    s.score = 0.45 * cacheBonus + 0.45 * cheapBonus + 0.10 * sizeBonus
+  }
+
+  return scored.sort((a, b) => b.score - a.score).slice(0, limit)
+}
+
 export type ModelUsageRow = {
   model: string
   shortLabel: string   // opus / sonnet / haiku / other — for color mapping

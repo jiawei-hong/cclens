@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
-import { summarizeProjects, globalToolStats, activityByHour, sessionDepthStats, taskBreakdown, trendStats, bashAntiPatterns, bashCommandBreakdown, skillUsageStats, skillGaps, agentBreakdown, hotFiles, multiFileSessions, thrashingSessions, totalUsage, usageByModel, dailyCost, toolErrorRates, activityHeatmap, slowestToolCalls, mcpUsageStats, contextWindowHotspots, costByTaskType, thinkingStats, sessionCacheRanking, interruptStats, monthlyCostForecast } from '../../src/analyzer'
-import type { SessionType, BashAntiPattern, BashCategory, SkillUsage, SkillGap, AgentTypeUsage, HotFile, MultiFileSession, ThrashSession, TotalUsage, ModelUsageRow, ToolErrorStats, HeatmapCell, SlowToolCall, McpServerUsage, ContextHotspotStats, CostByTaskRow, ThinkingStats, SessionCacheStats, InterruptStats, MonthlyForecast } from '../../src/analyzer'
+import { summarizeProjects, globalToolStats, activityByHour, sessionDepthStats, taskBreakdown, trendStats, bashAntiPatterns, bashCommandBreakdown, skillUsageStats, skillGaps, agentBreakdown, hotFiles, multiFileSessions, thrashingSessions, totalUsage, usageByModel, dailyCost, toolErrorRates, activityHeatmap, slowestToolCalls, mcpUsageStats, contextWindowHotspots, costByTaskType, thinkingStats, sessionCacheRanking, interruptStats, monthlyCostForecast, goldStandardSessions } from '../../src/analyzer'
+import type { SessionType, BashAntiPattern, BashCategory, SkillUsage, SkillGap, AgentTypeUsage, HotFile, MultiFileSession, ThrashSession, TotalUsage, ModelUsageRow, ToolErrorStats, HeatmapCell, SlowToolCall, McpServerUsage, ContextHotspotStats, CostByTaskRow, ThinkingStats, SessionCacheStats, InterruptStats, MonthlyForecast, GoldStandardSession } from '../../src/analyzer'
 import { aggregateRecommendations, type RecAggregate, type RecCategory, type RecSeverity } from '../../src/recommendations'
 import { generateProjectClaudeMd } from '../../src/claudeMd'
 import type { Session, ProjectSummary } from '../../src/types'
@@ -649,6 +649,53 @@ const REC_CATEGORY_TONE: Record<RecCategory, 'success' | 'primary' | 'warning' |
 
 const REC_CATEGORY_ORDER: RecCategory[] = ['cost', 'context', 'workflow', 'skill']
 
+function GoldStandardCard({ sessions, onOpenSession }: { sessions: GoldStandardSession[]; onOpenSession: (id: string) => void }) {
+  if (sessions.length === 0) {
+    return (
+      <Card>
+        <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">Gold-Standard Sessions</h3>
+        <p className="text-sm text-gray-500 dark:text-gray-400">
+          Nothing qualifies yet — gold sessions need ≥10 turns, ≥10 tool calls, {'<'}2% error rate.
+        </p>
+      </Card>
+    )
+  }
+  return (
+    <Card>
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Gold-Standard Sessions</h3>
+          <p className="text-[11px] text-gray-400 dark:text-gray-600 mt-0.5">Substantive sessions with hot cache, no errors, low $/turn — learn from these</p>
+        </div>
+        <span className="text-[10px] text-gray-400 dark:text-gray-600">{sessions.length} session{sessions.length === 1 ? '' : 's'}</span>
+      </div>
+      <div className="flex flex-col gap-1">
+        {sessions.map(s => (
+          <button
+            key={s.sessionId}
+            onClick={() => onOpenSession(s.sessionId)}
+            className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors text-left group"
+          >
+            <span className="text-sm font-semibold text-amber-600 dark:text-amber-400 tabular-nums w-10 shrink-0">
+              {(s.score * 100).toFixed(0)}
+            </span>
+            <span className="flex-1 text-sm text-gray-800 dark:text-gray-200 truncate">{s.project}</span>
+            <span className="text-[11px] text-gray-500 dark:text-gray-500 tabular-nums w-16 text-right shrink-0">{s.turns} turns</span>
+            <span className="text-[11px] text-emerald-600 dark:text-emerald-400 tabular-nums w-20 text-right shrink-0" title="Cache hit rate">
+              {(s.cacheHitRate * 100).toFixed(0)}% cache
+            </span>
+            <span className="text-[11px] text-gray-500 dark:text-gray-500 tabular-nums w-16 text-right shrink-0" title="Cost per turn">
+              {fmtUSD(s.costPerTurn)}/turn
+            </span>
+            <span className="text-[11px] text-gray-400 dark:text-gray-600 shrink-0">{fmt(s.startedAt)}</span>
+            <span className="text-gray-400 dark:text-gray-600 text-xs group-hover:text-indigo-400 transition-colors shrink-0">→</span>
+          </button>
+        ))}
+      </div>
+    </Card>
+  )
+}
+
 function ClaudeMdGeneratorCard({ sessions, antiPatterns, skillGaps }: {
   sessions: Session[]
   antiPatterns: BashAntiPattern[]
@@ -706,15 +753,18 @@ function ClaudeMdGeneratorCard({ sessions, antiPatterns, skillGaps }: {
   )
 }
 
-function OpportunitiesView({ agg, totalSessions, sessions, antiPatterns, skillGaps, onOpenSession }: { agg: RecAggregate; totalSessions: number; sessions: Session[]; antiPatterns: BashAntiPattern[]; skillGaps: SkillGap[]; onOpenSession: (id: string, turnId?: string) => void }) {
+function OpportunitiesView({ agg, totalSessions, sessions, antiPatterns, skillGaps, gold, onOpenSession }: { agg: RecAggregate; totalSessions: number; sessions: Session[]; antiPatterns: BashAntiPattern[]; skillGaps: SkillGap[]; gold: GoldStandardSession[]; onOpenSession: (id: string, turnId?: string) => void }) {
   if (agg.sessionCount === 0) {
     return (
-      <Card>
-        <EmptyState
-          title="No opportunities found"
-          description="Every session in the current range looks efficient — no cost, context, skill, or workflow recommendations to act on."
-        />
-      </Card>
+      <div className="flex flex-col gap-5">
+        <Card>
+          <EmptyState
+            title="No opportunities found"
+            description="Every session in the current range looks efficient — no cost, context, skill, or workflow recommendations to act on."
+          />
+        </Card>
+        <GoldStandardCard sessions={gold} onOpenSession={onOpenSession} />
+      </div>
     )
   }
 
@@ -824,6 +874,8 @@ function OpportunitiesView({ agg, totalSessions, sessions, antiPatterns, skillGa
           ))}
         </div>
       </Card>
+
+      <GoldStandardCard sessions={gold} onOpenSession={onOpenSession} />
 
       <ClaudeMdGeneratorCard sessions={sessions} antiPatterns={antiPatterns} skillGaps={skillGaps} />
     </div>
@@ -1573,6 +1625,7 @@ export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; 
   const heatmap = React.useMemo(() => activityHeatmap(sessions, 14), [sessions])  // fixed 14-week view
   const forecast = React.useMemo(() => monthlyCostForecast(sessions), [sessions])  // full history — month-over-month
   const recAgg = React.useMemo(() => aggregateRecommendations(filtered), [filtered])
+  const gold = React.useMemo(() => goldStandardSessions(filtered), [filtered])
   const hasUsageData = usage.totalTokens > 0
   const maxHour = Math.max(...hourActivity.map(h => h.count), 1)
   const maxTool = Math.max(...topTools.map(t => t.count), 1)
@@ -1646,6 +1699,7 @@ export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; 
           sessions={filtered}
           antiPatterns={antiPatterns}
           skillGaps={gaps}
+          gold={gold}
           onOpenSession={onOpenSession}
         />
       )}
