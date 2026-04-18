@@ -114,6 +114,8 @@ function SessionTimeline({ session }: { session: Session }) {
 function ContextGrowthChart({ session }: { session: Session }) {
   const { contextSeries, contextLimit } = session.stats
   if (contextSeries.length < 2) return null
+  const first = contextSeries[0]!
+  const last  = contextSeries[contextSeries.length - 1]!
 
   const W = 600
   const H = 56
@@ -165,13 +167,13 @@ function ContextGrowthChart({ session }: { session: Session }) {
       </svg>
       <div className="flex items-center justify-between mt-0.5">
         <span className="text-[10px] text-gray-400 dark:text-gray-600 tabular-nums">
-          {new Date(contextSeries[0].ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          {new Date(first.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
         </span>
         {thresholdVisible && (
           <span className="text-[10px] text-rose-400 dark:text-rose-500">— 95% limit</span>
         )}
         <span className="text-[10px] text-gray-400 dark:text-gray-600 tabular-nums">
-          {new Date(contextSeries[contextSeries.length - 1].ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          {new Date(last.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
         </span>
       </div>
     </Card>

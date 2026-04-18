@@ -30,6 +30,7 @@ function makeSession(overrides: Partial<Session> & { id: string; project?: strin
       modelUsage: {},
       peakContextTokens: 0,
       contextLimit: 200_000,
+      contextSeries: [],
       totalThinkingBlocks: 0,
       ...(overrides.stats ?? {}),
     },
@@ -38,9 +39,9 @@ function makeSession(overrides: Partial<Session> & { id: string; project?: strin
 
 describe('priceFor', () => {
   it('applies new Opus pricing for 4.5+', () => {
-    expect(priceFor('claude-opus-4-7')).toEqual({ input: 5, output: 25, cacheCreate: 6.25, cacheRead: 0.5 })
-    expect(priceFor('claude-opus-4-6')).toEqual({ input: 5, output: 25, cacheCreate: 6.25, cacheRead: 0.5 })
-    expect(priceFor('claude-opus-4-5')).toEqual({ input: 5, output: 25, cacheCreate: 6.25, cacheRead: 0.5 })
+    expect(priceFor('claude-opus-4-7')).toEqual({ input: 5, output: 25, cacheCreate: 6.25, cacheCreate1h: 10, cacheRead: 0.5 })
+    expect(priceFor('claude-opus-4-6')).toEqual({ input: 5, output: 25, cacheCreate: 6.25, cacheCreate1h: 10, cacheRead: 0.5 })
+    expect(priceFor('claude-opus-4-5')).toEqual({ input: 5, output: 25, cacheCreate: 6.25, cacheCreate1h: 10, cacheRead: 0.5 })
   })
 
   it('treats [1m] context tag as standard pricing (no surcharge)', () => {
@@ -49,22 +50,22 @@ describe('priceFor', () => {
   })
 
   it('keeps legacy Opus pricing for 4 / 4.1', () => {
-    expect(priceFor('claude-opus-4-1')).toEqual({ input: 15, output: 75, cacheCreate: 18.75, cacheRead: 1.5 })
-    expect(priceFor('claude-opus-4-0')).toEqual({ input: 15, output: 75, cacheCreate: 18.75, cacheRead: 1.5 })
+    expect(priceFor('claude-opus-4-1')).toEqual({ input: 15, output: 75, cacheCreate: 18.75, cacheCreate1h: 30, cacheRead: 1.5 })
+    expect(priceFor('claude-opus-4-0')).toEqual({ input: 15, output: 75, cacheCreate: 18.75, cacheCreate1h: 30, cacheRead: 1.5 })
   })
 
   it('returns new Haiku pricing for 4.5+ and legacy for 3.5', () => {
-    expect(priceFor('claude-haiku-4-5')).toEqual({ input: 1, output: 5, cacheCreate: 1.25, cacheRead: 0.1 })
-    expect(priceFor('claude-haiku-3-5')).toEqual({ input: 0.8, output: 4, cacheCreate: 1.0, cacheRead: 0.08 })
+    expect(priceFor('claude-haiku-4-5')).toEqual({ input: 1, output: 5, cacheCreate: 1.25, cacheCreate1h: 2, cacheRead: 0.1 })
+    expect(priceFor('claude-haiku-3-5')).toEqual({ input: 0.8, output: 4, cacheCreate: 1.0, cacheCreate1h: 1.6, cacheRead: 0.08 })
   })
 
   it('returns Sonnet pricing regardless of version', () => {
-    expect(priceFor('claude-sonnet-4-6')).toEqual({ input: 3, output: 15, cacheCreate: 3.75, cacheRead: 0.3 })
-    expect(priceFor('claude-sonnet-3-7')).toEqual({ input: 3, output: 15, cacheCreate: 3.75, cacheRead: 0.3 })
+    expect(priceFor('claude-sonnet-4-6')).toEqual({ input: 3, output: 15, cacheCreate: 3.75, cacheCreate1h: 6, cacheRead: 0.3 })
+    expect(priceFor('claude-sonnet-3-7')).toEqual({ input: 3, output: 15, cacheCreate: 3.75, cacheCreate1h: 6, cacheRead: 0.3 })
   })
 
   it('falls back to Sonnet pricing for unknown models', () => {
-    expect(priceFor('claude-mystery-99')).toEqual({ input: 3, output: 15, cacheCreate: 3.75, cacheRead: 0.3 })
+    expect(priceFor('claude-mystery-99')).toEqual({ input: 3, output: 15, cacheCreate: 3.75, cacheCreate1h: 6, cacheRead: 0.3 })
   })
 })
 
@@ -104,6 +105,7 @@ describe('classifySession', () => {
       modelUsage: {},
       peakContextTokens: 0,
       contextLimit: 200_000,
+      contextSeries: [],
       totalThinkingBlocks: 0,
     },
   })
@@ -182,7 +184,7 @@ describe('costByTaskType', () => {
         totalTextLength: 0,
         usage: { inputTokens: 1_000_000, outputTokens: 1_000_000, cacheCreateTokens: 0, cacheCreate1hTokens: 0, cacheReadTokens: 0 },
         modelUsage: { 'claude-opus-4-7': { inputTokens: 1_000_000, outputTokens: 1_000_000, cacheCreateTokens: 0, cacheCreate1hTokens: 0, cacheReadTokens: 0 } },
-        peakContextTokens: 0, contextLimit: 200_000, totalThinkingBlocks: 0,
+        peakContextTokens: 0, contextLimit: 200_000, contextSeries: [], totalThinkingBlocks: 0,
       },
     })
     // Research session on Sonnet 4.6: 1M input + 1M output ≈ $3 + $15 = $18
@@ -194,7 +196,7 @@ describe('costByTaskType', () => {
         totalTextLength: 0,
         usage: { inputTokens: 1_000_000, outputTokens: 1_000_000, cacheCreateTokens: 0, cacheCreate1hTokens: 0, cacheReadTokens: 0 },
         modelUsage: { 'claude-sonnet-4-6': { inputTokens: 1_000_000, outputTokens: 1_000_000, cacheCreateTokens: 0, cacheCreate1hTokens: 0, cacheReadTokens: 0 } },
-        peakContextTokens: 0, contextLimit: 200_000, totalThinkingBlocks: 0,
+        peakContextTokens: 0, contextLimit: 200_000, contextSeries: [], totalThinkingBlocks: 0,
       },
     })
     const rows = costByTaskType([coding, research])
@@ -216,7 +218,7 @@ describe('costByTaskType', () => {
         totalTextLength: 0,
         usage: { inputTokens: 100, outputTokens: 50, cacheCreateTokens: 0, cacheCreate1hTokens: 0, cacheReadTokens: 0 },
         modelUsage: { 'claude-sonnet-4-6': { inputTokens: 100, outputTokens: 50, cacheCreateTokens: 0, cacheCreate1hTokens: 0, cacheReadTokens: 0 } },
-        peakContextTokens: 0, contextLimit: 200_000, totalThinkingBlocks: 0,
+        peakContextTokens: 0, contextLimit: 200_000, contextSeries: [], totalThinkingBlocks: 0,
       },
     })
     const rows = costByTaskType([s])
@@ -234,6 +236,7 @@ function statsWithPeak(peak: number, limit: number) {
     modelUsage: {},
     peakContextTokens: peak,
     contextLimit: limit,
+    contextSeries: [],
     totalThinkingBlocks: 0,
   }
 }
@@ -246,7 +249,7 @@ describe('thinkingStats', () => {
         userTurns: 0, assistantTurns: turns,
         toolCallCount: 0, toolBreakdown: {}, totalTextLength: 0,
         usage: { inputTokens: 0, outputTokens: 0, cacheCreateTokens: 0, cacheCreate1hTokens: 0, cacheReadTokens: 0 },
-        modelUsage: {}, peakContextTokens: 0, contextLimit: 200_000,
+        modelUsage: {}, peakContextTokens: 0, contextLimit: 200_000, contextSeries: [],
         totalThinkingBlocks: blocks,
       },
     })
