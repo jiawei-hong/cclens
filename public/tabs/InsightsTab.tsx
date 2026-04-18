@@ -1519,6 +1519,15 @@ function RegressionAlertCard({ report }: { report: RegressionReport }) {
   )
 }
 
+function median(nums: number[]): number {
+  if (nums.length === 0) return 0
+  const sorted = [...nums].sort((a, b) => a - b)
+  const mid = Math.floor(sorted.length / 2)
+  return sorted.length % 2 === 0
+    ? (sorted[mid - 1]! + sorted[mid]!) / 2
+    : sorted[mid]!
+}
+
 function ProjectHealthCard({ health }: { health: ProjectHealth[] }) {
   if (health.length === 0) {
     return (
@@ -1528,6 +1537,18 @@ function ProjectHealthCard({ health }: { health: ProjectHealth[] }) {
       </Card>
     )
   }
+
+  // Baseline: median across projects with enough sessions to be trustworthy.
+  // Falls back to all projects if nothing is confident yet.
+  const confident = health.filter(h => !h.lowConfidence)
+  const pool = confident.length > 0 ? confident : health
+  const medianScore = median(pool.map(h => h.score))
+  const medianCache = median(pool.map(h => h.cacheHitRate))
+  const medianError = median(pool.map(h => h.errorRate))
+  const medianGold  = median(pool.map(h => h.goldCount))
+  const medianRecs  = median(pool.map(h => h.recsPerSession))
+  const showBaseline = pool.length >= 2  // one project = nothing to compare against
+
   const scoreTone = (s: number) =>
     s >= 80 ? 'text-emerald-600 dark:text-emerald-400' :
     s >= 60 ? 'text-lime-600   dark:text-lime-400'    :
@@ -1538,6 +1559,20 @@ function ProjectHealthCard({ health }: { health: ProjectHealth[] }) {
     s >= 60 ? 'bg-lime-500'    :
     s >= 40 ? 'bg-amber-500'   :
               'bg-rose-500'
+
+  // Up/down indicator vs median. `higherIsBetter=true` means above median is good.
+  const marker = (value: number, baseline: number, higherIsBetter: boolean): { glyph: string; tone: string } => {
+    if (!showBaseline || baseline === 0) return { glyph: '', tone: '' }
+    const diff = value - baseline
+    // Ignore near-zero deltas: within 5% of median (absolute, since metrics vary in scale).
+    const threshold = Math.max(Math.abs(baseline) * 0.05, 0.005)
+    if (Math.abs(diff) < threshold) return { glyph: '·', tone: 'text-gray-400 dark:text-gray-600' }
+    const good = higherIsBetter ? diff > 0 : diff < 0
+    return {
+      glyph: diff > 0 ? '▲' : '▼',
+      tone: good ? 'text-emerald-500 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400',
+    }
+  }
 
   return (
     <Card>
@@ -1559,8 +1594,28 @@ function ProjectHealthCard({ health }: { health: ProjectHealth[] }) {
         <span className="w-16 text-right shrink-0">recs/sess</span>
       </div>
 
+      {showBaseline && (
+        <div
+          className="flex items-center gap-3 px-2 py-1.5 mb-1 rounded-lg bg-gray-50 dark:bg-gray-900/50 border border-dashed border-gray-200 dark:border-gray-800 text-[11px] text-gray-500 dark:text-gray-400"
+          title={`Median across ${pool.length} project${pool.length === 1 ? '' : 's'}${confident.length === 0 ? ' (no confident projects yet)' : ''}`}
+        >
+          <span className="tabular-nums w-10 text-right shrink-0 font-medium">{medianScore.toFixed(0)}</span>
+          <span className="flex-1 italic">your median{confident.length === 0 && ' (low-conf)'}</span>
+          <span className="tabular-nums w-16 text-right shrink-0">—</span>
+          <span className="tabular-nums w-16 text-right shrink-0">{(medianCache * 100).toFixed(0)}%</span>
+          <span className="tabular-nums w-16 text-right shrink-0">{(medianError * 100).toFixed(1)}%</span>
+          <span className="tabular-nums w-14 text-right shrink-0">{medianGold.toFixed(medianGold < 1 ? 1 : 0)}</span>
+          <span className="tabular-nums w-16 text-right shrink-0">{medianRecs.toFixed(1)}</span>
+        </div>
+      )}
+
       <div className="flex flex-col gap-1">
-        {health.map(h => (
+        {health.map(h => {
+          const mCache = marker(h.cacheHitRate, medianCache, true)
+          const mError = marker(h.errorRate,    medianError, false)
+          const mGold  = marker(h.goldCount,    medianGold,  true)
+          const mRecs  = marker(h.recsPerSession, medianRecs, false)
+          return (
           <div key={h.project} className="flex items-center gap-3 px-2 py-1.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-900/50 transition-colors">
             <span className={`text-sm font-semibold tabular-nums w-10 text-right shrink-0 ${scoreTone(h.score)}`}>{h.score}</span>
             <div className="flex-1 min-w-0 flex items-center gap-2">
@@ -1575,16 +1630,25 @@ function ProjectHealthCard({ health }: { health: ProjectHealth[] }) {
               )}
             </div>
             <span className="text-xs text-gray-500 dark:text-gray-500 tabular-nums w-16 text-right shrink-0">{h.sessionCount}</span>
-            <span className="text-xs text-gray-500 dark:text-gray-500 tabular-nums w-16 text-right shrink-0">{(h.cacheHitRate * 100).toFixed(0)}%</span>
+            <span className="text-xs text-gray-500 dark:text-gray-500 tabular-nums w-16 text-right shrink-0">
+              {mCache.glyph && <span className={`mr-1 ${mCache.tone}`}>{mCache.glyph}</span>}
+              {(h.cacheHitRate * 100).toFixed(0)}%
+            </span>
             <span className={`text-xs tabular-nums w-16 text-right shrink-0 ${h.errorRate > 0.05 ? 'text-rose-500 dark:text-rose-400' : 'text-gray-500 dark:text-gray-500'}`}>
+              {mError.glyph && <span className={`mr-1 ${mError.tone}`}>{mError.glyph}</span>}
               {(h.errorRate * 100).toFixed(1)}%
             </span>
-            <span className="text-xs text-gray-500 dark:text-gray-500 tabular-nums w-14 text-right shrink-0">{h.goldCount}</span>
+            <span className="text-xs text-gray-500 dark:text-gray-500 tabular-nums w-14 text-right shrink-0">
+              {mGold.glyph && <span className={`mr-1 ${mGold.tone}`}>{mGold.glyph}</span>}
+              {h.goldCount}
+            </span>
             <span className={`text-xs tabular-nums w-16 text-right shrink-0 ${h.recsPerSession > 1 ? 'text-amber-600 dark:text-amber-400' : 'text-gray-500 dark:text-gray-500'}`}>
+              {mRecs.glyph && <span className={`mr-1 ${mRecs.tone}`}>{mRecs.glyph}</span>}
               {h.recsPerSession.toFixed(1)}
             </span>
           </div>
-        ))}
+          )
+        })}
       </div>
     </Card>
   )
