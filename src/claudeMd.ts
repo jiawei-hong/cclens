@@ -243,6 +243,63 @@ export function claudeMdRules(input: ClaudeMdInput): ClaudeMdRule[] {
   ]
 }
 
+// ── Diff mode: what's missing from an existing CLAUDE.md ────────────────────
+// Maps each rule id to a list of distinctive phrases. If the existing
+// CLAUDE.md contains any phrase (case-insensitive) we consider the rule
+// already covered. Hand-curated so it stays stable as the rule text evolves.
+
+export const MATCH_PHRASES_BY_RULE_ID: Record<string, string[]> = {
+  // Tool Usage Rules (bash anti-patterns)
+  'bash-grep':        ['bash grep', 'bash rg', 'Grep tool'],
+  'bash-find':        ['bash find', 'Glob tool'],
+  'bash-cat':         ['bash cat', 'bash head', 'bash tail'],
+  'bash-ls':          ['bash ls'],
+  'bash-echo_write':  ['echo >', 'echo >>'],
+  'bash-sed':         ['bash sed'],
+  'bash-awk':         ['bash awk'],
+  // Model Selection
+  'wrong-model-for-task': ['Prefer Sonnet', '/model sonnet', 'Opus is only needed'],
+  // Cache & Context
+  '1h-cache-misused':     ['1-hour cache', '5-minute', 'ephemeral cach'],
+  'low-cache-hit':        ['stable prefix', 'prompt cache'],
+  // Workflow Rules
+  'redundant-reads':        ['re-read', 're-reading'],
+  'thrashing':              ['fails 2+ times', 'stop and re-read the failure'],
+  'high-error-rate':        ['inspect the error'],
+  'linear-context-growth':  ['tool result sizes'],
+  // Preferred Skills
+  'skill-gap-commit':     ['/commit', '`commit` skill'],
+  'skill-gap-create-pr':  ['/create-pr', 'create-pr subagent'],
+}
+
+export type ClaudeMdDiff = {
+  covered: ClaudeMdRule[]
+  missing: ClaudeMdRule[]
+}
+
+export function claudeMdDiff(existing: string, rules: ClaudeMdRule[]): ClaudeMdDiff {
+  const haystack = existing.toLowerCase()
+  const covered: ClaudeMdRule[] = []
+  const missing: ClaudeMdRule[] = []
+
+  for (const rule of rules) {
+    const phrases = MATCH_PHRASES_BY_RULE_ID[rule.id]
+    let hit = false
+    if (phrases && phrases.length > 0) {
+      hit = phrases.some(p => haystack.includes(p.toLowerCase()))
+    } else if (rule.id.startsWith('skill-')) {
+      const slug = rule.id.slice('skill-'.length).replace(/-/g, '')
+      hit = haystack.includes('/' + slug.toLowerCase())
+    } else {
+      hit = haystack.includes(rule.text.slice(2, 40).toLowerCase())
+    }
+    if (hit) covered.push(rule)
+    else missing.push(rule)
+  }
+
+  return { covered, missing }
+}
+
 export function generateProjectClaudeMd(input: ClaudeMdInput): string {
   const agg = aggregateRecommendations(input.sessions)
   const rules = claudeMdRules(input)

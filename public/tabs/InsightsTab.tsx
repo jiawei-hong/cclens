@@ -2,8 +2,8 @@ import React, { useState } from 'react'
 import { summarizeProjects, globalToolStats, activityByHour, sessionDepthStats, taskBreakdown, trendStats, bashAntiPatterns, bashCommandBreakdown, skillUsageStats, skillGaps, agentBreakdown, hotFiles, multiFileSessions, thrashingSessions, totalUsage, usageByModel, dailyCost, toolErrorRates, activityHeatmap, slowestToolCalls, mcpUsageStats, contextWindowHotspots, costByTaskType, thinkingStats, sessionCacheRanking, interruptStats, monthlyCostForecast, goldStandardSessions } from '../../src/analyzer'
 import type { SessionType, BashAntiPattern, BashCategory, SkillUsage, SkillGap, AgentTypeUsage, HotFile, MultiFileSession, ThrashSession, TotalUsage, ModelUsageRow, ToolErrorStats, HeatmapCell, SlowToolCall, McpServerUsage, ContextHotspotStats, CostByTaskRow, ThinkingStats, SessionCacheStats, InterruptStats, MonthlyForecast, GoldStandardSession } from '../../src/analyzer'
 import { aggregateRecommendations, recommendationTrend, projectHealth, recentRegressions, type RecAggregate, type RecCategory, type RecSeverity, type RecTrend, type RuleTrend, type RuleTrendDirection, type ProjectHealth, type RegressionReport, type Regression } from '../../src/recommendations'
-import { userHabits, type HabitReport, type Habit, type HabitStatus } from '../../src/habits'
-import { generateProjectClaudeMd, claudeMdRules, CLAUDE_MD_SECTION_ORDER, type ClaudeMdRule } from '../../src/claudeMd'
+import { userHabitsTrend, type HabitReportWithTrend, type HabitWithTrend, type HabitStatus, type HabitTrendDirection } from '../../src/habits'
+import { generateProjectClaudeMd, claudeMdRules, claudeMdDiff, CLAUDE_MD_SECTION_ORDER, type ClaudeMdRule } from '../../src/claudeMd'
 import type { Session, ProjectSummary } from '../../src/types'
 import { fmt, fmtDuration, fmtPace, fmtToolDuration, fmtTokenCount, fmtUSD, fmtChars, fmtTokensFromChars } from '../lib/format'
 import { toolColor, toolTickColor, taskTypeColor, taskTypeBar, TASK_DESCRIPTIONS } from '../lib/colors'
@@ -806,6 +806,8 @@ function ClaudeMdGeneratorCard({ sessions, antiPatterns, skillGaps }: {
   skillGaps: SkillGap[]
 }) {
   const [allCopied, setAllCopied] = useState(false)
+  const [diffOpen, setDiffOpen] = useState(false)
+  const [existingMd, setExistingMd] = useState('')
   const rules = React.useMemo(
     () => claudeMdRules({ sessions, antiPatterns, skillGaps }),
     [sessions, antiPatterns, skillGaps]
@@ -824,6 +826,11 @@ function ClaudeMdGeneratorCard({ sessions, antiPatterns, skillGaps }: {
     }
     return m
   }, [rules])
+
+  const diff = React.useMemo(() => {
+    if (!existingMd.trim()) return null
+    return claudeMdDiff(existingMd, rules)
+  }, [existingMd, rules])
 
   const download = () => {
     const blob = new Blob([content], { type: 'text/markdown' })
@@ -867,30 +874,84 @@ function ClaudeMdGeneratorCard({ sessions, antiPatterns, skillGaps }: {
           {CLAUDE_MD_SECTION_ORDER.map(section => {
             const list = grouped.get(section)
             if (!list || list.length === 0) return null
+            const missingIds = diff ? new Set(diff.missing.map(r => r.id)) : null
             return (
               <div key={section}>
                 <h4 className="text-[10px] font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wide mb-2">{section}</h4>
                 <div className="flex flex-col gap-1.5">
-                  {list.map(r => (
-                    <div
-                      key={r.id}
-                      className="flex items-start gap-3 px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-900/50 border border-gray-100 dark:border-gray-800 hover:border-gray-200 dark:hover:border-gray-700 transition-colors"
-                    >
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs text-gray-800 dark:text-gray-200 leading-relaxed">
-                          {r.text.replace(/^- /, '')}
-                        </p>
-                        <p className="text-[10px] text-gray-400 dark:text-gray-600 mt-1 tabular-nums">{r.evidence}</p>
+                  {list.map(r => {
+                    const status: 'covered' | 'missing' | 'untracked' =
+                      !missingIds ? 'untracked'
+                      : missingIds.has(r.id) ? 'missing'
+                      : 'covered'
+                    return (
+                      <div
+                        key={r.id}
+                        className={`flex items-start gap-3 px-3 py-2 rounded-lg border transition-colors ${
+                          status === 'covered'
+                            ? 'bg-emerald-50/50 dark:bg-emerald-500/5 border-emerald-200 dark:border-emerald-500/30'
+                            : status === 'missing'
+                              ? 'bg-amber-50/70 dark:bg-amber-500/10 border-amber-300 dark:border-amber-500/40'
+                              : 'bg-gray-50 dark:bg-gray-900/50 border-gray-100 dark:border-gray-800 hover:border-gray-200 dark:hover:border-gray-700'
+                        }`}
+                      >
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap mb-0.5">
+                            {status === 'covered' && <Badge tone="success" size="sm">already in CLAUDE.md</Badge>}
+                            {status === 'missing' && <Badge tone="warning" size="sm">missing — add this</Badge>}
+                          </div>
+                          <p className={`text-xs leading-relaxed ${status === 'covered' ? 'text-gray-500 dark:text-gray-500' : 'text-gray-800 dark:text-gray-200'}`}>
+                            {r.text.replace(/^- /, '')}
+                          </p>
+                          <p className="text-[10px] text-gray-400 dark:text-gray-600 mt-1 tabular-nums">{r.evidence}</p>
+                        </div>
+                        <RuleCopyButton text={r.text} />
                       </div>
-                      <RuleCopyButton text={r.text} />
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               </div>
             )
           })}
         </div>
       )}
+
+      <div className="mt-5 pt-4 border-t border-gray-100 dark:border-gray-800">
+        <button
+          onClick={() => setDiffOpen(v => !v)}
+          className="flex items-center gap-2 text-[11px] font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide hover:text-gray-700 dark:hover:text-gray-200 transition-colors"
+        >
+          <span>{diffOpen ? '▾' : '▸'}</span>
+          <span>Compare with your existing CLAUDE.md</span>
+          {diff && (
+            <span className="ml-1 text-[10px] normal-case tracking-normal">
+              <Badge tone="success" size="sm">{diff.covered.length} covered</Badge>{' '}
+              <Badge tone="warning" size="sm">{diff.missing.length} missing</Badge>
+            </span>
+          )}
+        </button>
+        {diffOpen && (
+          <div className="mt-3 flex flex-col gap-2">
+            <p className="text-[11px] text-gray-500 dark:text-gray-500 leading-relaxed">
+              Paste the content of your project's <code className="text-[10px] px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800">CLAUDE.md</code> (or <code className="text-[10px] px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800">~/.claude/CLAUDE.md</code>) below. Rules already covered will be dimmed; missing rules stay highlighted so you can copy them one by one.
+            </p>
+            <textarea
+              value={existingMd}
+              onChange={e => setExistingMd(e.target.value)}
+              placeholder="Paste existing CLAUDE.md content here…"
+              className="w-full h-40 text-xs font-mono bg-gray-50 dark:bg-gray-950 border border-gray-200 dark:border-gray-800 rounded-lg p-3 focus:outline-none focus:border-indigo-400 dark:focus:border-indigo-500 text-gray-800 dark:text-gray-200 placeholder:text-gray-400 dark:placeholder:text-gray-600 resize-y"
+              spellCheck={false}
+            />
+            {existingMd.trim() && diff && (
+              <p className="text-[11px] text-gray-600 dark:text-gray-400">
+                {diff.missing.length === 0
+                  ? `Your CLAUDE.md already covers all ${rules.length} suggested rule${rules.length === 1 ? '' : 's'}.`
+                  : `${diff.missing.length} of ${rules.length} suggested rule${rules.length === 1 ? '' : 's'} are not yet in your CLAUDE.md.`}
+              </p>
+            )}
+          </div>
+        )}
+      </div>
     </Card>
   )
 }
@@ -1609,13 +1670,45 @@ const BREAKDOWN_TONE: Record<'danger' | 'warning' | 'neutral', string> = {
   neutral: 'text-gray-600 dark:text-gray-400',
 }
 
-function HabitRow({ habit }: { habit: Habit }) {
+const TREND_GLYPH: Record<HabitTrendDirection, string> = {
+  improving: '↓',
+  worsening: '↑',
+  stable:    '→',
+  'insufficient-data': '·',
+}
+
+const TREND_TONE: Record<HabitTrendDirection, string> = {
+  improving: 'text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-500/15 border-emerald-200 dark:border-emerald-500/30',
+  worsening: 'text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-500/15 border-rose-200 dark:border-rose-500/30',
+  stable:    'text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700',
+  'insufficient-data': 'text-gray-400 dark:text-gray-600 bg-transparent border-transparent',
+}
+
+function HabitTrendChip({ trend, windowDays }: { trend: NonNullable<HabitWithTrend['trend']>; windowDays: number }) {
+  if (trend.direction === 'insufficient-data') return null
+  const absPp = Math.abs(trend.deltaPp)
+  const label = trend.direction === 'stable'
+    ? `steady (${windowDays}d)`
+    : `${Math.round(absPp)}pp ${trend.direction === 'improving' ? 'better' : 'worse'}`
+  return (
+    <span
+      title={`Last ${windowDays}d: ${(trend.recentBadRate * 100).toFixed(0)}% · prior ${windowDays}d: ${(trend.baselineBadRate * 100).toFixed(0)}%`}
+      className={`inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded border font-medium tabular-nums ${TREND_TONE[trend.direction]}`}
+    >
+      <span>{TREND_GLYPH[trend.direction]}</span>
+      <span>{label}</span>
+    </span>
+  )
+}
+
+function HabitRow({ habit, windowDays }: { habit: HabitWithTrend; windowDays: number }) {
   return (
     <div className="flex flex-col gap-1.5 rounded-xl border border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 px-4 py-3">
       <div className="flex items-center gap-2 flex-wrap">
         <span className={`w-2 h-2 rounded-full ${HABIT_STATUS_DOT[habit.status]}`} />
         <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">{habit.title}</span>
         <Badge tone={HABIT_STATUS_BADGE[habit.status]} size="sm">{HABIT_STATUS_LABEL[habit.status]}</Badge>
+        {habit.trend && <HabitTrendChip trend={habit.trend} windowDays={windowDays} />}
         {habit.penaltyUSD != null && habit.penaltyUSD >= 0.01 && (
           <Badge tone="neutral" size="sm">~{fmtUSD(habit.penaltyUSD)} penalty</Badge>
         )}
@@ -1640,7 +1733,7 @@ function HabitRow({ habit }: { habit: Habit }) {
   )
 }
 
-function YourHabitsCard({ report }: { report: HabitReport }) {
+function YourHabitsCard({ report }: { report: HabitReportWithTrend }) {
   if (report.totalSessions < 5) return null
   const bad = report.habits.filter(h => h.status === 'bad').length
   const ok  = report.habits.filter(h => h.status === 'ok').length
@@ -1653,7 +1746,7 @@ function YourHabitsCard({ report }: { report: HabitReport }) {
           <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
             Your Habits
           </h3>
-          <span className="text-[10px] text-gray-400 dark:text-gray-600">what *you* do, across {report.totalSessions} sessions</span>
+          <span className="text-[10px] text-gray-400 dark:text-gray-600">what *you* do, across {report.totalSessions} sessions · trend = last {report.recentWindowDays}d vs prior {report.baselineWindowDays}d</span>
         </div>
         <div className="flex items-center gap-1.5">
           {good > 0 && <Badge tone="success" size="sm">{good} good</Badge>}
@@ -1662,7 +1755,7 @@ function YourHabitsCard({ report }: { report: HabitReport }) {
         </div>
       </div>
       <div className="grid grid-cols-2 gap-2">
-        {report.habits.map(h => <HabitRow key={h.id} habit={h} />)}
+        {report.habits.map(h => <HabitRow key={h.id} habit={h} windowDays={report.recentWindowDays} />)}
       </div>
     </Card>
   )
@@ -2034,7 +2127,7 @@ export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; 
   const gold = React.useMemo(() => goldStandardSessions(filtered), [filtered])
   const health = React.useMemo(() => projectHealth(filtered), [filtered])
   const regressions = React.useMemo(() => recentRegressions(sessions), [sessions])  // full history — last 7d vs prior 7d
-  const habits = React.useMemo(() => userHabits(filtered), [filtered])
+  const habits = React.useMemo(() => userHabitsTrend(filtered), [filtered])
   const hasUsageData = usage.totalTokens > 0
   const maxHour = Math.max(...hourActivity.map(h => h.count), 1)
   const maxTool = Math.max(...topTools.map(t => t.count), 1)

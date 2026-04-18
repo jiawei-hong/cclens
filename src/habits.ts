@@ -229,3 +229,86 @@ export function userHabits(sessions: Session[]): HabitReport {
     totalSessions: sessions.length,
   }
 }
+
+// ── Trend: last N days vs prior N days ──────────────────────────────────────
+// Tracks whether each habit's bad-rate is improving, worsening, or stable so
+// the UI can reinforce adoption ("you went from 60% to 30% in 14 days").
+
+export type HabitTrendDirection = 'improving' | 'worsening' | 'stable' | 'insufficient-data'
+
+export type HabitTrend = {
+  direction: HabitTrendDirection
+  recentBadRate: number
+  baselineBadRate: number
+  recentSampleSize: number
+  baselineSampleSize: number
+  deltaPp: number        // recent - baseline, in percentage points
+}
+
+export type HabitWithTrend = Habit & { trend?: HabitTrend }
+
+export type HabitReportWithTrend = {
+  habits: HabitWithTrend[]
+  totalSessions: number
+  recentWindowDays: number
+  baselineWindowDays: number
+}
+
+const RECENT_WINDOW_DAYS = 14
+const BASELINE_WINDOW_DAYS = 14
+const MIN_TREND_SAMPLE = 3
+const MIN_TREND_DELTA_PP = 10  // < 10 percentage points = stable
+
+export function userHabitsTrend(sessions: Session[], now: Date = new Date()): HabitReportWithTrend {
+  const nowMs = now.getTime()
+  const dayMs = 24 * 60 * 60 * 1000
+  const recentCutoff   = nowMs - RECENT_WINDOW_DAYS * dayMs
+  const baselineCutoff = nowMs - (RECENT_WINDOW_DAYS + BASELINE_WINDOW_DAYS) * dayMs
+
+  const recentSessions: Session[] = []
+  const baselineSessions: Session[] = []
+  for (const s of sessions) {
+    const t = new Date(s.startedAt).getTime()
+    if (t >= recentCutoff) recentSessions.push(s)
+    else if (t >= baselineCutoff) baselineSessions.push(s)
+  }
+
+  const current = userHabits(sessions).habits
+  const recent   = userHabits(recentSessions).habits
+  const baseline = userHabits(baselineSessions).habits
+
+  const withTrend: HabitWithTrend[] = current.map(h => {
+    const r = recent.find(x => x.id === h.id)
+    const b = baseline.find(x => x.id === h.id)
+    if (!r || !b) return h
+    const deltaPp = (r.badRate - b.badRate) * 100
+    let direction: HabitTrendDirection
+    if (r.sampleSize < MIN_TREND_SAMPLE || b.sampleSize < MIN_TREND_SAMPLE) {
+      direction = 'insufficient-data'
+    } else if (Math.abs(deltaPp) < MIN_TREND_DELTA_PP) {
+      direction = 'stable'
+    } else if (deltaPp < 0) {
+      direction = 'improving'
+    } else {
+      direction = 'worsening'
+    }
+    return {
+      ...h,
+      trend: {
+        direction,
+        recentBadRate: r.badRate,
+        baselineBadRate: b.badRate,
+        recentSampleSize: r.sampleSize,
+        baselineSampleSize: b.sampleSize,
+        deltaPp,
+      },
+    }
+  })
+
+  return {
+    habits: withTrend,
+    totalSessions: sessions.length,
+    recentWindowDays: RECENT_WINDOW_DAYS,
+    baselineWindowDays: BASELINE_WINDOW_DAYS,
+  }
+}
