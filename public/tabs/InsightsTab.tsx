@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { summarizeProjects, globalToolStats, activityByHour, sessionDepthStats, taskBreakdown, trendStats, bashAntiPatterns, bashCommandBreakdown, skillUsageStats, skillGaps, agentBreakdown, hotFiles, multiFileSessions, thrashingSessions, totalUsage, usageByModel, dailyCost, toolErrorRates, activityHeatmap, slowestToolCalls, mcpUsageStats, contextWindowHotspots, costByTaskType, thinkingStats, sessionCacheRanking, interruptStats, monthlyCostForecast, goldStandardSessions } from '../../src/analyzer'
 import type { SessionType, BashAntiPattern, BashCategory, SkillUsage, SkillGap, AgentTypeUsage, HotFile, MultiFileSession, ThrashSession, TotalUsage, ModelUsageRow, ToolErrorStats, HeatmapCell, SlowToolCall, McpServerUsage, ContextHotspotStats, CostByTaskRow, ThinkingStats, SessionCacheStats, InterruptStats, MonthlyForecast, GoldStandardSession } from '../../src/analyzer'
-import { aggregateRecommendations, type RecAggregate, type RecCategory, type RecSeverity } from '../../src/recommendations'
+import { aggregateRecommendations, recommendationTrend, type RecAggregate, type RecCategory, type RecSeverity, type RecTrend, type RuleTrend, type RuleTrendDirection } from '../../src/recommendations'
 import { generateProjectClaudeMd } from '../../src/claudeMd'
 import type { Session, ProjectSummary } from '../../src/types'
 import { fmt, fmtDuration, fmtPace, fmtToolDuration, fmtTokenCount, fmtUSD, fmtChars, fmtTokensFromChars } from '../lib/format'
@@ -649,6 +649,87 @@ const REC_CATEGORY_TONE: Record<RecCategory, 'success' | 'primary' | 'warning' |
 
 const REC_CATEGORY_ORDER: RecCategory[] = ['cost', 'context', 'workflow', 'skill']
 
+function RecommendationTrendCard({ trend }: { trend: RecTrend }) {
+  if (trend.rules.length === 0) {
+    return (
+      <Card>
+        <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">Trend Over Time</h3>
+        <p className="text-sm text-gray-500 dark:text-gray-400">No recommendations recorded in the last {trend.monthKeys.length} months.</p>
+      </Card>
+    )
+  }
+
+  const maxCount = Math.max(...trend.rules.flatMap(r => r.months), 1)
+  const dirStyle: Record<RuleTrendDirection, { icon: string; color: string; label: string }> = {
+    improving: { icon: '↓', color: 'text-emerald-600 dark:text-emerald-400', label: 'improving' },
+    worsening: { icon: '↑', color: 'text-rose-500 dark:text-rose-400',      label: 'worsening' },
+    stable:    { icon: '→', color: 'text-gray-400 dark:text-gray-600',      label: 'stable'    },
+    new:       { icon: '●', color: 'text-amber-500 dark:text-amber-400',    label: 'new'       },
+  }
+
+  return (
+    <Card>
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Trend Over Time</h3>
+          <p className="text-[11px] text-gray-400 dark:text-gray-600 mt-0.5">Same rules, tracked month-by-month — are things getting better?</p>
+        </div>
+        <span className="text-[10px] text-gray-400 dark:text-gray-600">last {trend.monthKeys.length} months</span>
+      </div>
+
+      {/* Column header row — mini month labels */}
+      <div className="flex items-center gap-3 text-[10px] text-gray-400 dark:text-gray-600 px-2 mb-1">
+        <span className="w-16" />                    {/* direction column */}
+        <span className="flex-1" />                   {/* title column */}
+        <div className="flex items-end gap-0.5">
+          {trend.monthLabels.map((lbl, i) => (
+            <span key={i} className="w-5 text-center tabular-nums">{lbl.slice(0, 3)}</span>
+          ))}
+        </div>
+        <span className="w-10 text-right">total</span>
+      </div>
+
+      <div className="flex flex-col gap-1">
+        {trend.rules.map(r => {
+          const style = dirStyle[r.direction]
+          return (
+            <div key={r.id} className="flex items-center gap-3 px-2 py-1.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-900/50 transition-colors">
+              <span className={`text-[11px] font-medium tabular-nums w-16 shrink-0 ${style.color}`} title={`Trend: ${style.label}`}>
+                <span className="mr-1">{style.icon}</span>{style.label}
+              </span>
+              <div className="flex-1 min-w-0 flex items-center gap-2">
+                <Badge tone={REC_CATEGORY_TONE[r.category]} size="sm">{REC_CATEGORY_LABEL[r.category]}</Badge>
+                <span className="text-xs text-gray-700 dark:text-gray-300 truncate">{r.title}</span>
+              </div>
+              <div className="flex items-end gap-0.5 shrink-0" title={trend.monthLabels.map((lbl, i) => `${lbl}: ${r.months[i]}`).join(' · ')}>
+                {r.months.map((count, i) => {
+                  const heightPx = count === 0 ? 2 : Math.max(3, Math.round((count / maxCount) * 20))
+                  const isLatest = i === r.months.length - 1
+                  const fill = count === 0
+                    ? 'bg-gray-200 dark:bg-gray-800'
+                    : isLatest
+                      ? 'bg-indigo-500'
+                      : 'bg-indigo-400/60 dark:bg-indigo-500/50'
+                  return (
+                    <div key={i} className="w-5 h-5 flex items-end justify-center">
+                      <div className={`w-4 rounded-sm ${fill}`} style={{ height: `${heightPx}px` }} />
+                    </div>
+                  )
+                })}
+              </div>
+              <span className="text-xs font-medium text-gray-900 dark:text-gray-100 tabular-nums w-10 text-right shrink-0">{r.totalCount}</span>
+            </div>
+          )
+        })}
+      </div>
+
+      <p className="text-[10px] text-gray-400 dark:text-gray-600 mt-3 leading-relaxed">
+        Each bar is the number of sessions that triggered this rule in that month. Direction compares the older half of the window vs the newer half.
+      </p>
+    </Card>
+  )
+}
+
 function GoldStandardCard({ sessions, onOpenSession }: { sessions: GoldStandardSession[]; onOpenSession: (id: string) => void }) {
   if (sessions.length === 0) {
     return (
@@ -753,7 +834,7 @@ function ClaudeMdGeneratorCard({ sessions, antiPatterns, skillGaps }: {
   )
 }
 
-function OpportunitiesView({ agg, totalSessions, sessions, antiPatterns, skillGaps, gold, onOpenSession }: { agg: RecAggregate; totalSessions: number; sessions: Session[]; antiPatterns: BashAntiPattern[]; skillGaps: SkillGap[]; gold: GoldStandardSession[]; onOpenSession: (id: string, turnId?: string) => void }) {
+function OpportunitiesView({ agg, trend, totalSessions, sessions, antiPatterns, skillGaps, gold, onOpenSession }: { agg: RecAggregate; trend: RecTrend; totalSessions: number; sessions: Session[]; antiPatterns: BashAntiPattern[]; skillGaps: SkillGap[]; gold: GoldStandardSession[]; onOpenSession: (id: string, turnId?: string) => void }) {
   if (agg.sessionCount === 0) {
     return (
       <div className="flex flex-col gap-5">
@@ -763,6 +844,7 @@ function OpportunitiesView({ agg, totalSessions, sessions, antiPatterns, skillGa
             description="Every session in the current range looks efficient — no cost, context, skill, or workflow recommendations to act on."
           />
         </Card>
+        <RecommendationTrendCard trend={trend} />
         <GoldStandardCard sessions={gold} onOpenSession={onOpenSession} />
       </div>
     )
@@ -849,6 +931,8 @@ function OpportunitiesView({ agg, totalSessions, sessions, antiPatterns, skillGa
           })}
         </div>
       </Card>
+
+      <RecommendationTrendCard trend={trend} />
 
       {/* ── Top sessions ── */}
       <Card>
@@ -1625,6 +1709,7 @@ export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; 
   const heatmap = React.useMemo(() => activityHeatmap(sessions, 14), [sessions])  // fixed 14-week view
   const forecast = React.useMemo(() => monthlyCostForecast(sessions), [sessions])  // full history — month-over-month
   const recAgg = React.useMemo(() => aggregateRecommendations(filtered), [filtered])
+  const recTrend = React.useMemo(() => recommendationTrend(sessions), [sessions])  // full history — month-over-month
   const gold = React.useMemo(() => goldStandardSessions(filtered), [filtered])
   const hasUsageData = usage.totalTokens > 0
   const maxHour = Math.max(...hourActivity.map(h => h.count), 1)
@@ -1695,6 +1780,7 @@ export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; 
       {insightTab === 'opportunities' && (
         <OpportunitiesView
           agg={recAgg}
+          trend={recTrend}
           totalSessions={filtered.length}
           sessions={filtered}
           antiPatterns={antiPatterns}

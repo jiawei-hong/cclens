@@ -433,6 +433,135 @@ export function sessionRecommendations(s: Session): SessionRecommendations {
   return { sessionId: s.id, recommendations: recs, totalSavingsUSD }
 }
 
+// ── Trend over time ──────────────────────────────────────────────────────────
+// Per-rule monthly occurrence counts for the last N months. Lets the UI show
+// whether the same issues keep recurring or are fading out — i.e. turns the
+// recommendations surface from a static scorecard into a feedback loop.
+
+export type RuleTrendDirection = 'improving' | 'worsening' | 'stable' | 'new'
+
+export type RuleTrend = {
+  id: string
+  title: string
+  category: RecCategory
+  severity: RecSeverity   // worst seen
+  months: number[]        // oldest → newest, length === RecTrend.monthKeys.length
+  totalCount: number
+  latestCount: number     // most recent month
+  direction: RuleTrendDirection
+}
+
+export type RecTrend = {
+  monthKeys:   string[]   // 'YYYY-MM', oldest → newest
+  monthLabels: string[]   // 'Apr 26' etc, oldest → newest
+  rules:       RuleTrend[]
+}
+
+const TREND_MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+
+function monthKey(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+}
+
+function monthLabel(key: string): string {
+  const [y, m] = key.split('-')
+  return `${TREND_MONTH_NAMES[Number(m) - 1]} ${y!.slice(2)}`
+}
+
+function classifyDirection(months: number[]): RuleTrendDirection {
+  const nonZero = months.filter(c => c > 0)
+  if (nonZero.length === 0)  return 'stable'
+  if (nonZero.length === 1 && months[months.length - 1]! > 0) return 'new'
+
+  // Split the window in two and compare halves. Simple and robust with sparse data.
+  const mid   = Math.floor(months.length / 2)
+  const older = months.slice(0, mid).reduce((a, b) => a + b, 0)
+  const newer = months.slice(mid).reduce((a, b) => a + b, 0)
+  if (older === 0 && newer > 0) return 'worsening'
+  if (newer === 0 && older > 0) return 'improving'
+  if (older === 0 && newer === 0) return 'stable'
+  const delta = (newer - older) / older
+  if (delta <= -0.33) return 'improving'
+  if (delta >=  0.33) return 'worsening'
+  return 'stable'
+}
+
+export function recommendationTrend(sessions: Session[], monthsBack = 6, now = new Date()): RecTrend {
+  // Build the rolling month window (oldest → newest).
+  const monthKeys: string[] = []
+  for (let i = monthsBack - 1; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
+    monthKeys.push(monthKey(d))
+  }
+  const idx = new Map(monthKeys.map((k, i) => [k, i]))
+
+  // rule id → metadata + month-indexed counts
+  const byRuleMeta = new Map<string, {
+    id: string
+    titleSample: string   // first title seen, number-normalised
+    category: RecCategory
+    worstSeverity: RecSeverity
+    months: number[]
+  }>()
+
+  for (const s of sessions) {
+    const d = new Date(s.startedAt)
+    if (isNaN(d.getTime())) continue
+    const key = monthKey(d)
+    const mIdx = idx.get(key)
+    if (mIdx === undefined) continue  // outside window
+
+    const recs = sessionRecommendations(s).recommendations
+    for (const r of recs) {
+      let entry = byRuleMeta.get(r.id)
+      if (!entry) {
+        entry = {
+          id: r.id,
+          titleSample: r.title.replace(/\b\d[\d,.]*\b/g, 'N'),
+          category: r.category,
+          worstSeverity: r.severity,
+          months: new Array(monthKeys.length).fill(0),
+        }
+        byRuleMeta.set(r.id, entry)
+      }
+      entry.months[mIdx]!++
+      if (SEVERITY_ORDER[r.severity] < SEVERITY_ORDER[entry.worstSeverity]) {
+        entry.worstSeverity = r.severity
+      }
+    }
+  }
+
+  const rules: RuleTrend[] = []
+  for (const e of byRuleMeta.values()) {
+    const total = e.months.reduce((a, b) => a + b, 0)
+    if (total === 0) continue
+    rules.push({
+      id: e.id,
+      title: e.titleSample,
+      category: e.category,
+      severity: e.worstSeverity,
+      months: e.months,
+      totalCount: total,
+      latestCount: e.months[e.months.length - 1] ?? 0,
+      direction: classifyDirection(e.months),
+    })
+  }
+
+  // Sort: worsening/new first, then by latest count desc — surface things to act on.
+  const DIR_ORDER: Record<RuleTrendDirection, number> = { worsening: 0, new: 1, stable: 2, improving: 3 }
+  rules.sort((a, b) =>
+    DIR_ORDER[a.direction] - DIR_ORDER[b.direction]
+    || b.latestCount - a.latestCount
+    || b.totalCount - a.totalCount
+  )
+
+  return {
+    monthKeys,
+    monthLabels: monthKeys.map(monthLabel),
+    rules,
+  }
+}
+
 export type RecAggregate = {
   totalSavingsUSD: number
   sessionCount: number              // sessions with at least one recommendation
