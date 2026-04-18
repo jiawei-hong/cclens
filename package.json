@@ -8,6 +8,7 @@
     "dev": "bun --hot src/server.ts",
     "start": "bun src/server.ts",
     "build": "bun scripts/build.ts",
+    "cli": "bun src/cli.ts",
     "test": "bun test",
     "typecheck": "tsc --noEmit"
   },

@@ -54,6 +54,18 @@ bun run typecheck # run TypeScript type checking
 bun run build     # production build
 ```
 
+### Generate a personalized CLAUDE.md (CLI)
+
+Derive project rules from your own session history and drop them into a project:
+
+```bash
+bun run cli md --cwd > CLAUDE.md      # scope to the project matching $PWD
+bun run cli md --project cclens       # scope by project directory name
+bun run cli md                        # all projects (global ruleset)
+```
+
+Only rules with measurable evidence (3+ sessions or $0.50+ in potential savings) are emitted, so the output is safe to commit as-is.
+
 ## Where are my Claude Code sessions?
 
 ```
