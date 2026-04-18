@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { RiTimeLine, RiTerminalLine, RiChat3Line, RiFlashlightLine, RiGitBranchLine } from 'react-icons/ri'
+import { RiTimeLine, RiTerminalLine, RiChat3Line, RiFlashlightLine, RiGitBranchLine, RiLinkM, RiCheckLine } from 'react-icons/ri'
 import type { Session } from '../../src/types'
 import { fmtDuration, fmtPace } from '../lib/format'
 import { toolColor, toolTickColor } from '../lib/colors'
@@ -530,7 +530,16 @@ export function SessionDetailView({ session, allSessions, scrollToTurnId }: { se
   const [highlightedTurnId, setHighlightedTurnId] = useState<string | null>(null)
   const [detailTab, setDetailTab] = useState<'conversation' | 'files'>('conversation')
   const [compareOpen, setCompareOpen] = useState(false)
+  const [linkCopied, setLinkCopied] = useState(false)
   const { notes, setNote } = useNotes()
+
+  const copyShareLink = async () => {
+    try {
+      await navigator.clipboard.writeText(window.location.href)
+      setLinkCopied(true)
+      setTimeout(() => setLinkCopied(false), 1500)
+    } catch { /* clipboard blocked — best-effort */ }
+  }
   const [noteDraft, setNoteDraft] = useState(notes[session.id] ?? '')
   useEffect(() => { setNoteDraft(notes[session.id] ?? '') }, [session.id, notes])
   const toggleTool = (id: string) => setExpandedTools(prev => {
@@ -575,6 +584,14 @@ export function SessionDetailView({ session, allSessions, scrollToTurnId }: { se
             />
           </div>
           <div className="flex gap-1.5 shrink-0 ml-4">
+            <Button
+              size="sm"
+              onClick={copyShareLink}
+              title="Copy a shareable link to this session (current URL)"
+              icon={linkCopied ? <RiCheckLine size={13} /> : <RiLinkM size={13} />}
+            >
+              {linkCopied ? 'Copied' : 'Copy link'}
+            </Button>
             <Button size="sm" onClick={() => setCompareOpen(true)}>⇆ Compare</Button>
             <Button size="sm" onClick={() => exportSessionAsMarkdown(session)}>↓ MD</Button>
             <Button size="sm" onClick={() => exportSessionAsMarkdown(session, { anonymize: true })}
