@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import { RiTimeLine, RiTerminalLine, RiChat3Line, RiFlashlightLine, RiGitBranchLine, RiLinkM, RiCheckLine, RiLightbulbFlashLine } from 'react-icons/ri'
 import type { Session } from '../../src/types'
-import { fmtDuration, fmtPace } from '../lib/format'
+import { fmtDuration, fmtPace, fmtUSD } from '../lib/format'
 import { toolColor, toolTickColor } from '../lib/colors'
 import { exportSessionAsMarkdown, exportSessionAsHTML } from '../lib/exports'
 import { useNotes, useDiffMode } from '../lib/prefs'
@@ -11,6 +11,7 @@ import { SessionCompareModal } from './SessionCompare'
 import { RecommendationsPanel } from './RecommendationsPanel'
 import { sessionRecommendations, type Recommendation } from '../../src/recommendations'
 import { RULE_TEXT_BY_REC_ID } from '../../src/claudeMd'
+import { classifySession, sessionCostUSD, goldStandardSessions, type SessionType } from '../../src/analyzer'
 
 // ── Inline turn coach ─────────────────────────────────────────────────────────
 // Surfaces the recommendations that flagged *this specific turn* so the user
@@ -580,6 +581,104 @@ function SessionFilesView({ session }: { session: Session }) {
   )
 }
 
+// ── Session Postmortem ───────────────────────────────────────────────────────
+// Two-second verdict at the top of the session view. Runs the same signals the
+// Recommendations panel and gold-standard card use, but boils the result down
+// to one headline + one colour tone so users can triage before scrolling.
+
+const TASK_TYPE_LABEL: Record<SessionType, string> = {
+  coding:       'Coding',
+  debugging:    'Debugging',
+  research:     'Research',
+  exploration:  'Exploration',
+  conversation: 'Conversation',
+}
+
+type VerdictTone = 'success' | 'warning' | 'danger' | 'neutral'
+
+function SessionPostmortem({ session, allSessions }: { session: Session; allSessions: Session[] }) {
+  const data = useMemo(() => {
+    const taskType = classifySession(session)
+    const cost = sessionCostUSD(session)
+
+    const others = allSessions.filter(s => s.id !== session.id && s.turns.length >= 5)
+    const otherCosts = others.map(s => sessionCostUSD(s)).filter(c => c > 0).sort((a, b) => a - b)
+    const median = otherCosts.length > 0 ? otherCosts[Math.floor(otherCosts.length / 2)]! : 0
+    const costRatio = median > 0.01 ? cost / median : null
+
+    const goldIds = new Set(goldStandardSessions(allSessions).map(g => g.sessionId))
+    const isGold = goldIds.has(session.id)
+
+    const { recommendations, totalSavingsUSD } = sessionRecommendations(session)
+    const highSev = recommendations.filter(r => r.severity === 'high')
+
+    let tc = 0, err = 0
+    for (const t of session.turns) for (const c of t.toolCalls) { tc++; if (c.isError) err++ }
+    const errorRate = tc === 0 ? 0 : err / tc
+
+    const peakPct = session.stats.contextLimit > 0
+      ? session.stats.peakContextTokens / session.stats.contextLimit
+      : 0
+
+    let verdict: { tone: VerdictTone; headline: string; detail?: string }
+    if (isGold) {
+      verdict = { tone: 'success', headline: 'Worth learning from — cache ran hot and tool calls ran clean', detail: 'Marked as a gold-standard session.' }
+    } else if (highSev.length > 0) {
+      verdict = { tone: 'danger', headline: `${highSev.length} high-severity issue${highSev.length === 1 ? '' : 's'} worth reviewing`, detail: 'Jump to Recommendations for details.' }
+    } else if (recommendations.length >= 3) {
+      verdict = { tone: 'warning', headline: `${recommendations.length} recommendations surfaced`, detail: 'Jump to Recommendations for details.' }
+    } else if (peakPct > 0.8) {
+      verdict = { tone: 'warning', headline: `Ran hot — peak context hit ${Math.round(peakPct * 100)}% of the ${Math.round(session.stats.contextLimit / 1000)}k limit`, detail: 'Close to the auto-compact threshold.' }
+    } else if (totalSavingsUSD >= 0.5) {
+      verdict = { tone: 'warning', headline: `Could have been ~${fmtUSD(totalSavingsUSD)} cheaper`, detail: 'See Recommendations for what to change.' }
+    } else if (errorRate > 0.1 && tc >= 5) {
+      verdict = { tone: 'warning', headline: `Tool-call friction — ${err}/${tc} calls errored`, detail: 'Check the failing calls for a pattern.' }
+    } else {
+      verdict = { tone: 'success', headline: 'No red flags — session ran clean' }
+    }
+
+    return { taskType, cost, costRatio, isGold, verdict, recCount: recommendations.length }
+  }, [session.id, allSessions])
+
+  const toneStyles: Record<VerdictTone, string> = {
+    success: 'border-emerald-200 bg-emerald-50 dark:border-emerald-500/30 dark:bg-emerald-500/10',
+    warning: 'border-amber-200 bg-amber-50 dark:border-amber-500/30 dark:bg-amber-500/10',
+    danger:  'border-rose-200 bg-rose-50 dark:border-rose-500/30 dark:bg-rose-500/10',
+    neutral: 'border-gray-200 bg-gray-50 dark:border-gray-800 dark:bg-gray-900',
+  }
+  const toneHeadline: Record<VerdictTone, string> = {
+    success: 'text-emerald-800 dark:text-emerald-200',
+    warning: 'text-amber-800 dark:text-amber-200',
+    danger:  'text-rose-800 dark:text-rose-200',
+    neutral: 'text-gray-800 dark:text-gray-200',
+  }
+
+  const costPill = data.costRatio != null
+    ? `${fmtUSD(data.cost)} · ${data.costRatio >= 10 ? '10×+' : data.costRatio >= 1.5 ? `${data.costRatio.toFixed(1)}×` : data.costRatio <= 0.5 ? `${data.costRatio.toFixed(2)}×` : '≈'} median`
+    : fmtUSD(data.cost)
+
+  return (
+    <div className={`rounded-2xl border px-4 py-3 flex flex-col gap-1.5 ${toneStyles[data.verdict.tone]}`}>
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-[10px] uppercase tracking-wide font-semibold text-gray-500 dark:text-gray-400">
+          Postmortem
+        </span>
+        <Badge tone="neutral" size="sm">{TASK_TYPE_LABEL[data.taskType]}</Badge>
+        <Badge tone="neutral" size="sm">{costPill}</Badge>
+        {data.isGold && <Badge tone="success" size="sm">Gold</Badge>}
+      </div>
+      <p className={`text-sm font-semibold ${toneHeadline[data.verdict.tone]}`}>
+        {data.verdict.headline}
+      </p>
+      {data.verdict.detail && (
+        <p className="text-xs text-gray-600 dark:text-gray-400 leading-snug">
+          {data.verdict.detail}
+        </p>
+      )}
+    </div>
+  )
+}
+
 // ── Session Detail View ───────────────────────────────────────────────────────
 
 export function SessionDetailView({ session, allSessions, scrollToTurnId }: { session: Session; allSessions: Session[]; scrollToTurnId: string | null }) {
@@ -689,6 +788,7 @@ export function SessionDetailView({ session, allSessions, scrollToTurnId }: { se
         </div>
       </Card>
 
+      <SessionPostmortem session={session} allSessions={allSessions} />
       <RecommendationsPanel session={session} />
       <SessionTimeline session={session} />
       <ContextGrowthChart session={session} />
