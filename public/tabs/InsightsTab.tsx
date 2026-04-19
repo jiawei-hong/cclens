@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { summarizeProjects, globalToolStats, activityByHour, sessionDepthStats, taskBreakdown, trendStats, bashAntiPatterns, bashCommandBreakdown, skillUsageStats, skillGaps, agentBreakdown, hotFiles, multiFileSessions, thrashingSessions, totalUsage, usageByModel, dailyCost, toolErrorRates, activityHeatmap, slowestToolCalls, mcpUsageStats, contextWindowHotspots, costByTaskType, thinkingStats, sessionCacheRanking, interruptStats, monthlyCostForecast, goldStandardSessions } from '../../src/analyzer'
 import type { SessionType, BashAntiPattern, BashCategory, SkillUsage, SkillGap, AgentTypeUsage, HotFile, MultiFileSession, ThrashSession, TotalUsage, ModelUsageRow, ToolErrorStats, HeatmapCell, SlowToolCall, McpServerUsage, ContextHotspotStats, CostByTaskRow, ThinkingStats, SessionCacheStats, InterruptStats, MonthlyForecast, GoldStandardSession } from '../../src/analyzer'
 import { aggregateRecommendations, recommendationTrend, projectHealth, recentRegressions, type RecAggregate, type RecCategory, type RecSeverity, type RecTrend, type RuleTrend, type RuleTrendDirection, type ProjectHealth, type RegressionReport, type Regression } from '../../src/recommendations'
-import { userHabitsTrend, type HabitReportWithTrend, type HabitWithTrend, type HabitStatus, type HabitTrendDirection } from '../../src/habits'
+import { userHabitsTrend, type HabitWithTrend, type HabitStatus, type HabitTrendDirection } from '../../src/habits'
 import { taskTypePlaybook, type PlaybookReport, type TaskTypePlaybook, type PlaybookTip } from '../../src/playbook'
 import { generateProjectClaudeMd, claudeMdRules, claudeMdDiff, claudeMdViolations, CLAUDE_MD_SECTION_ORDER, type ClaudeMdRule, type ClaudeMdViolationReport } from '../../src/claudeMd'
 import type { Session, ProjectSummary } from '../../src/types'
@@ -1798,22 +1798,62 @@ function HabitRow({ habit, windowDays }: { habit: HabitWithTrend; windowDays: nu
   )
 }
 
-function YourHabitsCard({ report }: { report: HabitReportWithTrend }) {
+function YourHabitsCard({ sessions }: { sessions: Session[] }) {
+  const [project, setProject] = React.useState<string>('all')
+
+  // Projects with ≥5 sessions — anything smaller can't meaningfully pass the
+  // MIN_TREND_SAMPLE threshold inside userHabitsTrend, so don't offer them.
+  const projectOptions = React.useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const s of sessions) counts.set(s.project, (counts.get(s.project) ?? 0) + 1)
+    return [...counts.entries()]
+      .filter(([, n]) => n >= 5)
+      .sort((a, b) => b[1] - a[1])
+      .map(([name, count]) => ({ name, count }))
+  }, [sessions])
+
+  const scoped = React.useMemo(
+    () => project === 'all' ? sessions : sessions.filter(s => s.project === project),
+    [sessions, project],
+  )
+  const report = React.useMemo(() => userHabitsTrend(scoped), [scoped])
+
+  // If the selected project dropped below threshold after a global filter
+  // change, snap back to "all" so the card doesn't silently empty out.
+  React.useEffect(() => {
+    if (project !== 'all' && !projectOptions.some(p => p.name === project)) {
+      setProject('all')
+    }
+  }, [project, projectOptions])
+
   if (report.totalSessions < 5) return null
   const bad = report.habits.filter(h => h.status === 'bad').length
   const ok  = report.habits.filter(h => h.status === 'ok').length
   const good = report.habits.filter(h => h.status === 'good').length
 
+  const scopeLabel = project === 'all' ? 'across' : `in ${project}, across`
+
   return (
     <Card>
       <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
             Your Habits
           </h3>
-          <span className="text-[10px] text-gray-400 dark:text-gray-600">what *you* do, across {report.totalSessions} sessions · trend = last {report.recentWindowDays}d vs prior {report.baselineWindowDays}d</span>
+          <span className="text-[10px] text-gray-400 dark:text-gray-600">what *you* do, {scopeLabel} {report.totalSessions} sessions · trend = last {report.recentWindowDays}d vs prior {report.baselineWindowDays}d</span>
         </div>
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {projectOptions.length >= 2 && (
+            <select
+              value={project}
+              onChange={e => setProject(e.target.value)}
+              className="bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 text-[11px] px-2 py-1 rounded-md border border-gray-200 dark:border-gray-700 focus:outline-none focus:border-indigo-400 dark:focus:border-indigo-500"
+              aria-label="Scope habits by project"
+            >
+              <option value="all">All projects ({sessions.length})</option>
+              {projectOptions.map(p => <option key={p.name} value={p.name}>{p.name} ({p.count})</option>)}
+            </select>
+          )}
           {good > 0 && <Badge tone="success" size="sm">{good} good</Badge>}
           {ok   > 0 && <Badge tone="warning" size="sm">{ok} watch</Badge>}
           {bad  > 0 && <Badge tone="danger"  size="sm">{bad} fix</Badge>}
@@ -2246,7 +2286,6 @@ export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; 
   const gold = React.useMemo(() => goldStandardSessions(filtered), [filtered])
   const health = React.useMemo(() => projectHealth(filtered), [filtered])
   const regressions = React.useMemo(() => recentRegressions(sessions), [sessions])  // full history — last 7d vs prior 7d
-  const habits = React.useMemo(() => userHabitsTrend(filtered), [filtered])
   const playbook = React.useMemo(() => taskTypePlaybook(filtered), [filtered])
   const hasUsageData = usage.totalTokens > 0
   const maxHour = Math.max(...hourActivity.map(h => h.count), 1)
@@ -2336,7 +2375,7 @@ export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; 
       {insightTab === 'overview' && (
         <div className="flex flex-col gap-5">
           <RegressionAlertCard report={regressions} />
-          <YourHabitsCard report={habits} />
+          <YourHabitsCard sessions={filtered} />
           <TaskPlaybookCard report={playbook} />
           <div className="grid grid-cols-2 gap-5">
             {/* Task Types */}
