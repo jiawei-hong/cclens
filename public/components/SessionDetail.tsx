@@ -12,6 +12,7 @@ import { RecommendationsPanel } from './RecommendationsPanel'
 import { sessionRecommendations, type Recommendation } from '../../src/recommendations'
 import { RULE_TEXT_BY_REC_ID } from '../../src/claudeMd'
 import { classifySession, sessionCostUSD, goldStandardSessions, type SessionType } from '../../src/analyzer'
+import { sessionQualityScore, GRADE_TONE } from '../../src/quality'
 
 // ── Inline turn coach ─────────────────────────────────────────────────────────
 // Surfaces the recommendations that flagged *this specific turn* so the user
@@ -620,6 +621,8 @@ function SessionPostmortem({ session, allSessions }: { session: Session; allSess
       ? session.stats.peakContextTokens / session.stats.contextLimit
       : 0
 
+    const quality = sessionQualityScore(session)
+
     let verdict: { tone: VerdictTone; headline: string; detail?: string }
     if (isGold) {
       verdict = { tone: 'success', headline: 'Worth learning from — cache ran hot and tool calls ran clean', detail: 'Marked as a gold-standard session.' }
@@ -633,11 +636,13 @@ function SessionPostmortem({ session, allSessions }: { session: Session; allSess
       verdict = { tone: 'warning', headline: `Could have been ~${fmtUSD(totalSavingsUSD)} cheaper`, detail: 'See Recommendations for what to change.' }
     } else if (errorRate > 0.1 && tc >= 5) {
       verdict = { tone: 'warning', headline: `Tool-call friction — ${err}/${tc} calls errored`, detail: 'Check the failing calls for a pattern.' }
+    } else if (quality.rated && quality.grade === 'D') {
+      verdict = { tone: 'warning', headline: `Grade D (${quality.score}/100) — weakest on ${quality.weakest?.label.toLowerCase() ?? 'multiple factors'}`, detail: 'Nothing urgent, but the quality score is on the low side.' }
     } else {
       verdict = { tone: 'success', headline: 'No red flags — session ran clean' }
     }
 
-    return { taskType, cost, costRatio, isGold, verdict, recCount: recommendations.length }
+    return { taskType, cost, costRatio, isGold, verdict, recCount: recommendations.length, quality }
   }, [session.id, allSessions])
 
   const toneStyles: Record<VerdictTone, string> = {
@@ -657,6 +662,13 @@ function SessionPostmortem({ session, allSessions }: { session: Session; allSess
     ? `${fmtUSD(data.cost)} · ${data.costRatio >= 10 ? '10×+' : data.costRatio >= 1.5 ? `${data.costRatio.toFixed(1)}×` : data.costRatio <= 0.5 ? `${data.costRatio.toFixed(2)}×` : '≈'} median`
     : fmtUSD(data.cost)
 
+  const quality = data.quality
+  const factorTone: Record<'good' | 'ok' | 'bad', string> = {
+    good: 'text-emerald-700 dark:text-emerald-300',
+    ok:   'text-amber-700 dark:text-amber-300',
+    bad:  'text-rose-700 dark:text-rose-300',
+  }
+
   return (
     <div className={`rounded-2xl border px-4 py-3 flex flex-col gap-1.5 ${toneStyles[data.verdict.tone]}`}>
       <div className="flex items-center gap-2 flex-wrap">
@@ -665,6 +677,13 @@ function SessionPostmortem({ session, allSessions }: { session: Session; allSess
         </span>
         <Badge tone="neutral" size="sm">{TASK_TYPE_LABEL[data.taskType]}</Badge>
         <Badge tone="neutral" size="sm">{costPill}</Badge>
+        {quality.rated && (
+          <span title={quality.factors.map(f => `${f.label}: ${Math.round(f.points)}/${f.maxPoints} (${f.displayValue})`).join('\n')}>
+            <Badge tone={GRADE_TONE[quality.grade]} size="sm">
+              Grade {quality.grade} · {quality.score}
+            </Badge>
+          </span>
+        )}
         {data.isGold && <Badge tone="success" size="sm">Gold</Badge>}
       </div>
       <p className={`text-sm font-semibold ${toneHeadline[data.verdict.tone]}`}>
@@ -674,6 +693,16 @@ function SessionPostmortem({ session, allSessions }: { session: Session; allSess
         <p className="text-xs text-gray-600 dark:text-gray-400 leading-snug">
           {data.verdict.detail}
         </p>
+      )}
+      {quality.rated && (
+        <div className="flex items-center gap-3 flex-wrap text-[11px] tabular-nums mt-0.5">
+          {quality.factors.map(f => (
+            <span key={f.id} className="flex items-center gap-1">
+              <span className="text-gray-500 dark:text-gray-500">{f.label}:</span>
+              <span className={factorTone[f.tone]}>{f.displayValue}</span>
+            </span>
+          ))}
+        </div>
       )}
     </div>
   )
