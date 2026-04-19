@@ -1,6 +1,7 @@
 import type { Session } from './types'
 import type { BashAntiPattern, SkillGap } from './analyzer'
 import { aggregateRecommendations, sessionRecommendations } from './recommendations'
+import { userHabits } from './habits'
 
 // ── Rule text library ────────────────────────────────────────────────────────
 // Maps each anti-pattern id to the rule text that should go into CLAUDE.md.
@@ -73,6 +74,7 @@ export type ClaudeMdRule = {
   evidence: string           // human-readable evidence, e.g. "4 sessions · $1.20 potential savings"
   count: number              // session count the rule is backed by
   savingsUSD: number         // 0 if no $ figure
+  userPattern?: string       // "Your data: Opus on 12/16 soft-task sessions" — optional
 }
 
 type RuleMap = Map<string, { count: number; savingsUSD: number }>
@@ -228,19 +230,42 @@ export const CLAUDE_MD_SECTION_ORDER: ClaudeMdRuleSection[] = [
   'Preferred Skills',
 ]
 
+// Maps a ClaudeMdRule.id to the habit whose headline should appear under the
+// rule as "Your data". Personalises each generated rule with the user's own
+// behaviour so the rule feels like their own finding, not a generic tip.
+const HABIT_ID_BY_RULE_ID: Record<string, string> = {
+  'wrong-model-for-task': 'model-discipline',
+  'skill-gap-commit':     'commit-hygiene',
+  'thrashing':            'retry-discipline',
+}
+
+function attachUserPatterns(rules: ClaudeMdRule[], sessions: Session[]): ClaudeMdRule[] {
+  const habits = userHabits(sessions).habits
+  const habitById = new Map<string, (typeof habits)[number]>(habits.map(h => [h.id, h]))
+  return rules.map(rule => {
+    const habitId = HABIT_ID_BY_RULE_ID[rule.id]
+    if (!habitId) return rule
+    const habit = habitById.get(habitId)
+    if (!habit || habit.status === 'good') return rule
+    return { ...rule, userPattern: habit.headline }
+  })
+}
+
 export function claudeMdRules(input: ClaudeMdInput): ClaudeMdRule[] {
   const { sessions, antiPatterns, skillGaps } = input
   const agg = aggregateRecommendations(sessions)
   const ruleById: RuleMap = new Map()
   for (const r of agg.byRule) ruleById.set(r.id, { count: r.count, savingsUSD: r.savingsUSD })
 
-  return [
+  const rules = [
     ...bashRules(antiPatterns),
     ...modelRules(ruleById),
     ...cacheRules(ruleById),
     ...workflowRules(ruleById),
     ...skillHints(skillGaps, ruleById),
   ]
+
+  return attachUserPatterns(rules, sessions)
 }
 
 // ── Diff mode: what's missing from an existing CLAUDE.md ────────────────────
@@ -398,11 +423,18 @@ export function generateProjectClaudeMd(input: ClaudeMdInput): string {
     bySection.set(r.section, list)
   }
 
+  const renderRule = (r: ClaudeMdRule): string => {
+    if (!r.userPattern) return r.text
+    // Render the "Your data" line as an indented blockquote so it sits
+    // visually under the rule in both raw markdown and rendered views.
+    return `${r.text}\n  > _Your data: ${r.userPattern}_`
+  }
+
   const body = CLAUDE_MD_SECTION_ORDER
     .map(section => {
       const list = bySection.get(section)
       if (!list || list.length === 0) return ''
-      return `## ${section}\n\n${list.map(r => r.text).join('\n')}\n\n`
+      return `## ${section}\n\n${list.map(renderRule).join('\n')}\n\n`
     })
     .join('')
 

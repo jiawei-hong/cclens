@@ -905,10 +905,16 @@ function ClaudeMdGeneratorCard({ sessions, antiPatterns, skillGaps, onOpenSessio
                           <div className="flex items-center gap-2 flex-wrap mb-0.5">
                             {status === 'covered' && <Badge tone="success" size="sm">already in CLAUDE.md</Badge>}
                             {status === 'missing' && <Badge tone="warning" size="sm">missing — add this</Badge>}
+                            {r.userPattern && <Badge tone="primary" size="sm">personalised</Badge>}
                           </div>
                           <p className={`text-xs leading-relaxed ${status === 'covered' ? 'text-gray-500 dark:text-gray-500' : 'text-gray-800 dark:text-gray-200'}`}>
                             {r.text.replace(/^- /, '')}
                           </p>
+                          {r.userPattern && (
+                            <p className="text-[11px] italic text-indigo-700 dark:text-indigo-300 mt-1 leading-snug">
+                              Your data: {r.userPattern}
+                            </p>
+                          )}
                           <p className="text-[10px] text-gray-400 dark:text-gray-600 mt-1 tabular-nums">{r.evidence}</p>
                         </div>
                         <RuleCopyButton text={r.text} />
