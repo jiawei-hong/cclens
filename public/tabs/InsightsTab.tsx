@@ -3,7 +3,7 @@ import { summarizeProjects, globalToolStats, activityByHour, sessionDepthStats, 
 import type { SessionType, BashAntiPattern, BashCategory, SkillUsage, SkillGap, AgentTypeUsage, HotFile, MultiFileSession, ThrashSession, TotalUsage, ModelUsageRow, ToolErrorStats, HeatmapCell, SlowToolCall, McpServerUsage, ContextHotspotStats, CostByTaskRow, ThinkingStats, SessionCacheStats, InterruptStats, MonthlyForecast, GoldStandardSession } from '../../src/analyzer'
 import { aggregateRecommendations, recommendationTrend, projectHealth, recentRegressions, type RecAggregate, type RecCategory, type RecSeverity, type RecTrend, type RuleTrend, type RuleTrendDirection, type ProjectHealth, type RegressionReport, type Regression } from '../../src/recommendations'
 import { userHabitsTrend, type HabitReportWithTrend, type HabitWithTrend, type HabitStatus, type HabitTrendDirection } from '../../src/habits'
-import { generateProjectClaudeMd, claudeMdRules, claudeMdDiff, CLAUDE_MD_SECTION_ORDER, type ClaudeMdRule } from '../../src/claudeMd'
+import { generateProjectClaudeMd, claudeMdRules, claudeMdDiff, claudeMdViolations, CLAUDE_MD_SECTION_ORDER, type ClaudeMdRule, type ClaudeMdViolationReport } from '../../src/claudeMd'
 import type { Session, ProjectSummary } from '../../src/types'
 import { fmt, fmtDuration, fmtPace, fmtToolDuration, fmtTokenCount, fmtUSD, fmtChars, fmtTokensFromChars } from '../lib/format'
 import { toolColor, toolTickColor, taskTypeColor, taskTypeBar, TASK_DESCRIPTIONS } from '../lib/colors'
@@ -800,10 +800,11 @@ function RuleCopyButton({ text }: { text: string }) {
   )
 }
 
-function ClaudeMdGeneratorCard({ sessions, antiPatterns, skillGaps }: {
+function ClaudeMdGeneratorCard({ sessions, antiPatterns, skillGaps, onOpenSession }: {
   sessions: Session[]
   antiPatterns: BashAntiPattern[]
   skillGaps: SkillGap[]
+  onOpenSession: (id: string, turnId?: string) => void
 }) {
   const [allCopied, setAllCopied] = useState(false)
   const [diffOpen, setDiffOpen] = useState(false)
@@ -831,6 +832,11 @@ function ClaudeMdGeneratorCard({ sessions, antiPatterns, skillGaps }: {
     if (!existingMd.trim()) return null
     return claudeMdDiff(existingMd, rules)
   }, [existingMd, rules])
+
+  const violations: ClaudeMdViolationReport | null = React.useMemo(() => {
+    if (!existingMd.trim()) return null
+    return claudeMdViolations(existingMd, rules, sessions)
+  }, [existingMd, rules, sessions])
 
   const download = () => {
     const blob = new Blob([content], { type: 'text/markdown' })
@@ -948,6 +954,58 @@ function ClaudeMdGeneratorCard({ sessions, antiPatterns, skillGaps }: {
                   ? `Your CLAUDE.md already covers all ${rules.length} suggested rule${rules.length === 1 ? '' : 's'}.`
                   : `${diff.missing.length} of ${rules.length} suggested rule${rules.length === 1 ? '' : 's'} are not yet in your CLAUDE.md.`}
               </p>
+            )}
+
+            {violations && violations.violations.length > 0 && (
+              <div className="mt-3 rounded-lg border border-rose-200 dark:border-rose-500/30 bg-rose-50/50 dark:bg-rose-500/5 px-3 py-3">
+                <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
+                  <h5 className="text-[11px] font-semibold text-rose-700 dark:text-rose-300 uppercase tracking-wide">
+                    Rules violated despite being in CLAUDE.md
+                  </h5>
+                  <span className="text-[10px] text-rose-600/70 dark:text-rose-400/70 tabular-nums">
+                    last {violations.windowDays}d · {violations.recentSessionCount} recent sessions
+                  </span>
+                </div>
+                <p className="text-[11px] text-gray-600 dark:text-gray-400 mb-2 leading-relaxed">
+                  These rules are already in your pasted CLAUDE.md but recent sessions still triggered them — worth a closer look.
+                </p>
+                <div className="flex flex-col gap-2">
+                  {violations.violations.map(v => (
+                    <div key={v.rule.id} className="flex flex-col gap-1 px-2 py-2 rounded-md bg-white dark:bg-gray-900 border border-rose-100 dark:border-rose-500/20">
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="text-xs text-gray-800 dark:text-gray-200 leading-snug flex-1">
+                          {v.rule.text.replace(/^- /, '')}
+                        </p>
+                        <Badge tone="danger" size="sm">{v.sessions.length} violation{v.sessions.length === 1 ? '' : 's'}</Badge>
+                      </div>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-gray-600">Jump to</span>
+                        {v.sessions.slice(0, 6).map((s, i) => (
+                          <button
+                            key={s.sessionId + i}
+                            onClick={() => onOpenSession(s.sessionId, s.turnUuid)}
+                            title={`${s.project} · ${fmt(s.startedAt)} — ${s.evidence}`}
+                            className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 hover:bg-indigo-100 dark:hover:bg-indigo-500/20 text-gray-600 dark:text-gray-300 hover:text-indigo-700 dark:hover:text-indigo-300 font-mono"
+                          >
+                            {s.project}/{fmt(s.startedAt)}
+                          </button>
+                        ))}
+                        {v.sessions.length > 6 && (
+                          <span className="text-[10px] text-gray-400 dark:text-gray-600">+{v.sessions.length - 6} more</span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {violations && violations.violations.length === 0 && diff && diff.covered.length > 0 && (
+              <div className="mt-3 rounded-lg border border-emerald-200 dark:border-emerald-500/30 bg-emerald-50/60 dark:bg-emerald-500/5 px-3 py-2">
+                <p className="text-xs text-emerald-800 dark:text-emerald-200 font-medium">
+                  No violations in the last {violations.windowDays} days — your CLAUDE.md is working.
+                </p>
+              </div>
             )}
           </div>
         )}
@@ -1083,7 +1141,7 @@ function OpportunitiesView({ agg, trend, totalSessions, sessions, antiPatterns, 
 
       <GoldStandardCard sessions={gold} onOpenSession={onOpenSession} />
 
-      <ClaudeMdGeneratorCard sessions={sessions} antiPatterns={antiPatterns} skillGaps={skillGaps} />
+      <ClaudeMdGeneratorCard sessions={sessions} antiPatterns={antiPatterns} skillGaps={skillGaps} onOpenSession={onOpenSession} />
     </div>
   )
 }

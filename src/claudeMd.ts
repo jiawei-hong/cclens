@@ -1,6 +1,6 @@
 import type { Session } from './types'
 import type { BashAntiPattern, SkillGap } from './analyzer'
-import { aggregateRecommendations } from './recommendations'
+import { aggregateRecommendations, sessionRecommendations } from './recommendations'
 
 // ── Rule text library ────────────────────────────────────────────────────────
 // Maps each anti-pattern id to the rule text that should go into CLAUDE.md.
@@ -298,6 +298,81 @@ export function claudeMdDiff(existing: string, rules: ClaudeMdRule[]): ClaudeMdD
   }
 
   return { covered, missing }
+}
+
+// ── Rule-violation detector ─────────────────────────────────────────────────
+// Once a user tells cclens which rules their CLAUDE.md already covers (via
+// claudeMdDiff), we can ask the inverse question: *are those rules actually
+// being followed?* A covered rule that still gets flagged in recent sessions
+// means either Claude didn't read the rule, or the user stopped enforcing it.
+// Either way it's the single most actionable signal for "does my CLAUDE.md
+// work?" and closes the loop with the diff view.
+
+export type ClaudeMdViolation = {
+  rule: ClaudeMdRule
+  sessions: {
+    sessionId: string
+    project: string
+    startedAt: string
+    evidence: string
+    turnUuid?: string
+  }[]
+}
+
+export type ClaudeMdViolationReport = {
+  violations: ClaudeMdViolation[]
+  windowDays: number
+  recentSessionCount: number
+}
+
+export function claudeMdViolations(
+  existing: string,
+  rules: ClaudeMdRule[],
+  sessions: Session[],
+  windowDays: number = 14,
+  now: Date = new Date(),
+): ClaudeMdViolationReport {
+  const { covered } = claudeMdDiff(existing, rules)
+  const coveredById = new Map(covered.map(r => [r.id, r]))
+  const firstCoveredBashRule = covered.find(r => r.id.startsWith('bash-')) ?? null
+
+  const cutoff = now.getTime() - windowDays * 24 * 60 * 60 * 1000
+  const recent = sessions.filter(s => new Date(s.startedAt).getTime() >= cutoff)
+
+  const byRuleId = new Map<string, ClaudeMdViolation>()
+
+  for (const s of recent) {
+    const { recommendations } = sessionRecommendations(s)
+    for (const rec of recommendations) {
+      // Map the rec to a covered rule, if any. Non-bash rec ids map 1:1.
+      // bash-antipatterns is a rolled-up rec covering all bash sub-rules, so
+      // we attribute it to the first covered bash rule (close enough — the
+      // user's intent was clearly "no bash anti-patterns").
+      let ruleMatch: ClaudeMdRule | null = null
+      if (rec.id === 'bash-antipatterns') {
+        ruleMatch = firstCoveredBashRule
+      } else {
+        ruleMatch = coveredById.get(rec.id) ?? null
+      }
+      if (!ruleMatch) continue
+
+      const entry = byRuleId.get(ruleMatch.id) ?? { rule: ruleMatch, sessions: [] }
+      entry.sessions.push({
+        sessionId: s.id,
+        project: s.project,
+        startedAt: s.startedAt,
+        evidence: rec.evidence,
+        turnUuid: rec.turnUuids?.[0],
+      })
+      byRuleId.set(ruleMatch.id, entry)
+    }
+  }
+
+  return {
+    violations: [...byRuleId.values()].sort((a, b) => b.sessions.length - a.sessions.length),
+    windowDays,
+    recentSessionCount: recent.length,
+  }
 }
 
 export function generateProjectClaudeMd(input: ClaudeMdInput): string {
