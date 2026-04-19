@@ -3,6 +3,7 @@ import { summarizeProjects, globalToolStats, activityByHour, sessionDepthStats, 
 import type { SessionType, BashAntiPattern, BashCategory, SkillUsage, SkillGap, AgentTypeUsage, HotFile, MultiFileSession, ThrashSession, TotalUsage, ModelUsageRow, ToolErrorStats, HeatmapCell, SlowToolCall, McpServerUsage, ContextHotspotStats, CostByTaskRow, ThinkingStats, SessionCacheStats, InterruptStats, MonthlyForecast, GoldStandardSession } from '../../src/analyzer'
 import { aggregateRecommendations, recommendationTrend, projectHealth, recentRegressions, type RecAggregate, type RecCategory, type RecSeverity, type RecTrend, type RuleTrend, type RuleTrendDirection, type ProjectHealth, type RegressionReport, type Regression } from '../../src/recommendations'
 import { userHabitsTrend, type HabitReportWithTrend, type HabitWithTrend, type HabitStatus, type HabitTrendDirection } from '../../src/habits'
+import { taskTypePlaybook, type PlaybookReport, type TaskTypePlaybook, type PlaybookTip } from '../../src/playbook'
 import { generateProjectClaudeMd, claudeMdRules, claudeMdDiff, claudeMdViolations, CLAUDE_MD_SECTION_ORDER, type ClaudeMdRule, type ClaudeMdViolationReport } from '../../src/claudeMd'
 import type { Session, ProjectSummary } from '../../src/types'
 import { fmt, fmtDuration, fmtPace, fmtToolDuration, fmtTokenCount, fmtUSD, fmtChars, fmtTokensFromChars } from '../lib/format'
@@ -1825,6 +1826,60 @@ function YourHabitsCard({ report }: { report: HabitReportWithTrend }) {
   )
 }
 
+// ── Task-type playbook ──────────────────────────────────────────────────────
+// For each task type with enough samples, compare the user's own top-20% vs
+// bottom-20% sessions on cost-efficiency signals. The biggest deltas surface
+// as "here is what separates your best X sessions from your worst" tips.
+
+function PlaybookTipRow({ tip }: { tip: PlaybookTip }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-[10px] text-gray-500 dark:text-gray-500 w-28 shrink-0 font-medium uppercase tracking-wide">{tip.label}</span>
+        <span className="tabular-nums text-xs font-medium text-emerald-700 dark:text-emerald-300">{tip.topDisplay}</span>
+        <span className="text-gray-300 dark:text-gray-600">vs</span>
+        <span className="tabular-nums text-xs text-rose-700 dark:text-rose-400">{tip.bottomDisplay}</span>
+      </div>
+      <p className="text-[11px] text-gray-600 dark:text-gray-400 leading-snug pl-[7.5rem]">{tip.action}</p>
+    </div>
+  )
+}
+
+function TaskPlaybookRow({ pb }: { pb: TaskTypePlaybook }) {
+  return (
+    <div className="rounded-xl border border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 px-4 py-3">
+      <div className="flex items-center gap-2 mb-2 flex-wrap">
+        <span className={`text-xs px-2 py-0.5 rounded-md font-medium ${taskTypeColor(pb.type)}`}>{pb.type}</span>
+        <span className="text-[10px] text-gray-500 dark:text-gray-500 tabular-nums">
+          top {pb.topSize} · bottom {pb.bottomSize} of {pb.sampleSize}
+        </span>
+      </div>
+      <div className="flex flex-col gap-2">
+        {pb.tips.map(tip => <PlaybookTipRow key={tip.metricId} tip={tip} />)}
+      </div>
+    </div>
+  )
+}
+
+function TaskPlaybookCard({ report }: { report: PlaybookReport }) {
+  if (report.playbooks.length === 0) return null
+  return (
+    <Card>
+      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <div className="flex items-center gap-2">
+          <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
+            Your Playbook
+          </h3>
+          <span className="text-[10px] text-gray-400 dark:text-gray-600">what separates your top-20% sessions from your bottom-20%, per task type</span>
+        </div>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+        {report.playbooks.map(pb => <TaskPlaybookRow key={pb.type} pb={pb} />)}
+      </div>
+    </Card>
+  )
+}
+
 function median(nums: number[]): number {
   if (nums.length === 0) return 0
   const sorted = [...nums].sort((a, b) => a - b)
@@ -2192,6 +2247,7 @@ export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; 
   const health = React.useMemo(() => projectHealth(filtered), [filtered])
   const regressions = React.useMemo(() => recentRegressions(sessions), [sessions])  // full history — last 7d vs prior 7d
   const habits = React.useMemo(() => userHabitsTrend(filtered), [filtered])
+  const playbook = React.useMemo(() => taskTypePlaybook(filtered), [filtered])
   const hasUsageData = usage.totalTokens > 0
   const maxHour = Math.max(...hourActivity.map(h => h.count), 1)
   const maxTool = Math.max(...topTools.map(t => t.count), 1)
@@ -2281,6 +2337,7 @@ export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; 
         <div className="flex flex-col gap-5">
           <RegressionAlertCard report={regressions} />
           <YourHabitsCard report={habits} />
+          <TaskPlaybookCard report={playbook} />
           <div className="grid grid-cols-2 gap-5">
             {/* Task Types */}
             <Card>
