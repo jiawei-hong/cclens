@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { createRoot } from 'react-dom/client'
 import { RiSunLine, RiMoonLine, RiComputerLine, RiArrowUpLine, RiSettings3Line, RiFolderHistoryLine } from 'react-icons/ri'
+import { Analytics } from '@vercel/analytics/react'
 import { parseSessionFiles, parseSessionFilesCached, parseMemoryFiles, parseMemoryFilesCached, type TrackedFile } from './lib/parser'
 import type { Session, MemoryEntry } from '../src/types'
 import { walkFolder } from './lib/walkDir'
@@ -489,6 +490,7 @@ function App() {
       <ScrollToTopButton />
       <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       <ShortcutsHelp open={helpOpen} onClose={() => setHelpOpen(false)} />
+      <Analytics />
     </div>
   )
 }
