@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
+import { Analytics } from '@vercel/analytics/react'
 import { createRoot } from 'react-dom/client'
 import { RiSunLine, RiMoonLine, RiComputerLine, RiArrowUpLine, RiSettings3Line, RiFolderHistoryLine } from 'react-icons/ri'
 import { parseSessionFiles, parseSessionFilesCached, parseMemoryFiles, parseMemoryFilesCached, type TrackedFile } from './lib/parser'
@@ -136,15 +137,15 @@ function UploadScreen({ onLoad, theme, setTheme }: { onLoad: (data: { sessions: 
   // auto-load. Otherwise surface a "Restore previous folder" button.
   useEffect(() => {
     let cancelled = false
-    ;(async () => {
-      const handle = await loadRootHandle()
-      if (!handle || cancelled) return
-      const perm = await queryHandlePermission(handle)
-      if (cancelled) return
-      setSavedHandle(handle)
-      setSavedPerm(perm)
-      if (perm === 'granted') restoreSaved(handle)
-    })()
+      ; (async () => {
+        const handle = await loadRootHandle()
+        if (!handle || cancelled) return
+        const perm = await queryHandlePermission(handle)
+        if (cancelled) return
+        setSavedHandle(handle)
+        setSavedPerm(perm)
+        if (perm === 'granted') restoreSaved(handle)
+      })()
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -493,4 +494,4 @@ function App() {
   )
 }
 
-createRoot(document.getElementById('root')!).render(<App />)
+createRoot(document.getElementById('root')!).render(<><App /><Analytics /></>)
