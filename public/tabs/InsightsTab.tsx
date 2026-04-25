@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { summarizeProjects, globalToolStats, activityByHour, sessionDepthStats, taskBreakdown, trendStats, bashAntiPatterns, bashCommandBreakdown, skillUsageStats, skillGaps, agentBreakdown, hotFiles, multiFileSessions, thrashingSessions, totalUsage, usageByModel, dailyCost, toolErrorRates, activityHeatmap, slowestToolCalls, mcpUsageStats, contextWindowHotspots, costByTaskType, thinkingStats, sessionCacheRanking, interruptStats, monthlyCostForecast, goldStandardSessions, costOfUsage } from '../../src/analyzer'
+import { summarizeProjects, globalToolStats, activityByHour, sessionDepthStats, taskBreakdown, trendStats, bashAntiPatterns, bashCommandBreakdown, skillUsageStats, skillGaps, agentBreakdown, hotFiles, multiFileSessions, thrashingSessions, totalUsage, usageByModel, dailyCost, toolErrorRates, activityHeatmap, slowestToolCalls, mcpUsageStats, contextWindowHotspots, costByTaskType, thinkingStats, sessionCacheRanking, interruptStats, monthlyCostForecast, goldStandardSessions, costOfUsage, classifySession } from '../../src/analyzer'
 import type { SessionType, BashAntiPattern, BashCategory, SkillUsage, SkillGap, AgentTypeUsage, HotFile, MultiFileSession, ThrashSession, TotalUsage, ModelUsageRow, ToolErrorStats, HeatmapCell, SlowToolCall, McpServerUsage, ContextHotspotStats, CostByTaskRow, ThinkingStats, SessionCacheStats, InterruptStats, MonthlyForecast, GoldStandardSession } from '../../src/analyzer'
 import { aggregateRecommendations, recommendationTrend, projectHealth, recentRegressions, type RecAggregate, type RecCategory, type RecSeverity, type RecTrend, type RuleTrend, type RuleTrendDirection, type ProjectHealth, type RegressionReport, type Regression } from '../../src/recommendations'
 import { userHabitsTrend, type HabitWithTrend, type HabitStatus, type HabitTrendDirection } from '../../src/habits'
@@ -1383,6 +1383,280 @@ const AGENT_COLORS: Record<string, string> = {
   'retro-agent':      'bg-amber-500',
   'statusline-setup': 'bg-sky-500',
   'claude-code-guide':'bg-orange-500',
+}
+
+// ── Progress Dashboard ────────────────────────────────────────────────────────
+
+const SOFT_TASKS = new Set(['conversation', 'exploration', 'research'])
+const BUILTIN_CMDS = new Set([
+  '/clear','/exit','/compact','/help','/init','/plugin','/reload-plugins',
+  '/status','/doctor','/model','/fast','/memory','/config','/resume',
+  '/bug','/login','/logout','/pr-comments','/vim','/terminal-setup',
+  '/cost','/diff','/review','/settings',
+])
+
+function sessionSkills(s: Session): number {
+  let n = 0
+  for (const t of s.turns) {
+    if (t.role !== 'user') continue
+    for (const m of t.text.matchAll(/<command-name>([^<]+)<\/command-name>/g)) {
+      const cmd = m[1]?.trim() ?? ''
+      if (cmd && !BUILTIN_CMDS.has(cmd)) n++
+    }
+  }
+  return n
+}
+
+function dominantModelFamily(s: Session): string {
+  let best = '', bestTokens = 0
+  for (const [model, u] of Object.entries(s.stats.modelUsage)) {
+    const total = u.inputTokens + u.outputTokens + u.cacheCreateTokens + u.cacheReadTokens
+    if (total > bestTokens) { bestTokens = total; best = model }
+  }
+  return modelFamily(best)
+}
+
+type ProgressPoint = { label: string; value: number }
+type ProgressLine  = { key: string; color: string; points: ProgressPoint[] }
+type ProgressMetric = {
+  id: string
+  title: string
+  points: ProgressPoint[]
+  lines?: ProgressLine[]   // multi-line override
+  currentLabel: string
+  trend: 'improving' | 'worsening' | 'stable' | 'insufficient'
+  trendLabel: string
+  higherIsBetter: boolean
+}
+
+function MiniSparkline({ points, trend, higherIsBetter }: { points: ProgressPoint[]; trend: ProgressMetric['trend']; higherIsBetter: boolean }) {
+  if (points.length < 2) return <div className="flex-1 h-8 bg-gray-50 dark:bg-gray-900 rounded" />
+  const vals = points.map(p => p.value)
+  const min = Math.min(...vals)
+  const max = Math.max(...vals)
+  const range = max - min || 1
+  const W = 120, H = 32, PAD = 4
+  const iw = W - PAD * 2, ih = H - PAD * 2
+  const x = (i: number) => PAD + (i / (points.length - 1)) * iw
+  const y = (v: number) => PAD + ih - ((v - min) / range) * ih
+  const pts = points.map((p, i) => `${x(i)},${y(p.value)}`).join(' ')
+  const area = `M${x(0)},${PAD + ih} L${points.map((p, i) => `${x(i)},${y(p.value)}`).join(' L')} L${x(points.length - 1)},${PAD + ih} Z`
+  const color = trend === 'insufficient' ? '#9ca3af'
+    : (trend === 'improving') === higherIsBetter ? '#10b981' : trend === 'stable' ? '#6366f1' : '#f43f5e'
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="flex-1 h-8" preserveAspectRatio="none">
+      <path d={area} fill={color} fillOpacity="0.12" />
+      <polyline points={pts} fill="none" stroke={color} strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function MultiMiniSparkline({ lines }: { lines: ProgressLine[] }) {
+  const allVals = lines.flatMap(l => l.points.map(p => p.value))
+  if (allVals.length === 0) return <div className="w-full h-8 bg-gray-50 dark:bg-gray-900 rounded" />
+  const maxLen = Math.max(...lines.map(l => l.points.length))
+  if (maxLen < 2) return <div className="w-full h-8 bg-gray-50 dark:bg-gray-900 rounded" />
+  const W = 120, H = 32, PAD = 4
+  const iw = W - PAD * 2, ih = H - PAD * 2
+  // Fixed 0–100 scale (cost share %)
+  const y = (v: number) => PAD + ih - (v / 100) * ih
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-8" preserveAspectRatio="none">
+      {lines.map(line => {
+        if (line.points.length < 2) return null
+        const n = line.points.length
+        const x = (i: number) => PAD + (i / (n - 1)) * iw
+        const pts = line.points.map((p, i) => `${x(i)},${y(p.value)}`).join(' ')
+        return <polyline key={line.key} points={pts} fill="none" stroke={line.color} strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" opacity="0.85" />
+      })}
+    </svg>
+  )
+}
+
+function ProgressDashboardCard({ sessions }: { sessions: Session[] }) {
+  const metrics = React.useMemo((): ProgressMetric[] => {
+    if (sessions.length === 0) return []
+
+    type Bucket = {
+      label: string
+      qualityTotal: number; qualityCount: number
+      cacheIn: number; cacheRead: number
+      modelCost: Record<string, number>   // family → cost
+      skillTotal: number; sessCount: number
+    }
+    const map = new Map<string, Bucket>()
+
+    for (const s of sessions) {
+      const date = new Date(s.startedAt)
+      const key = getWeekKey(date)
+      const b = map.get(key) ?? {
+        label: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+        qualityTotal: 0, qualityCount: 0,
+        cacheIn: 0, cacheRead: 0,
+        modelCost: { opus: 0, sonnet: 0, haiku: 0, other: 0 },
+        skillTotal: 0, sessCount: 0,
+      }
+
+      const q = sessionQualityScore(s)
+      if (q.rated) { b.qualityTotal += q.score; b.qualityCount++ }
+
+      const u = s.stats.usage
+      b.cacheIn += u.inputTokens + u.cacheCreateTokens + u.cacheReadTokens
+      b.cacheRead += u.cacheReadTokens
+
+      for (const [model, u] of Object.entries(s.stats.modelUsage)) {
+        const fam = modelFamily(model) as 'opus' | 'sonnet' | 'haiku' | 'other'
+        b.modelCost[fam] = (b.modelCost[fam] ?? 0) + costOfUsage(u, model)
+      }
+
+      b.skillTotal += sessionSkills(s)
+      b.sessCount++
+
+      map.set(key, b)
+    }
+
+    const weeks = [...map.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([, b]) => b)
+
+    if (weeks.length < 2) return []
+
+    function trendDir(pts: number[], higher: boolean): ProgressMetric['trend'] {
+      if (pts.length < 4) return 'insufficient'
+      const half = Math.floor(pts.length / 2)
+      const recent = pts.slice(-Math.min(3, half + 1))
+      const prior  = pts.slice(0, Math.min(3, half))
+      const rAvg = recent.reduce((s, v) => s + v, 0) / recent.length
+      const pAvg = prior.reduce((s, v) => s + v, 0) / prior.length
+      if (pAvg === 0) return 'insufficient'
+      const delta = (rAvg - pAvg) / pAvg
+      if (Math.abs(delta) < 0.03) return 'stable'
+      const improving = higher ? delta > 0 : delta < 0
+      return improving ? 'improving' : 'worsening'
+    }
+
+    function trendLabel(t: ProgressMetric['trend']): string {
+      return t === 'improving' ? '↑ improving' : t === 'worsening' ? '↓ worsening' : t === 'stable' ? '→ stable' : '···'
+    }
+
+    const qualityPts = weeks
+      .filter(b => b.qualityCount > 0)
+      .map(b => ({ label: b.label, value: b.qualityTotal / b.qualityCount }))
+    const cachePts = weeks
+      .filter(b => b.cacheIn > 0)
+      .map(b => ({ label: b.label, value: (b.cacheRead / b.cacheIn) * 100 }))
+    // Per-model cost share (%) per week
+    const modelLines: ProgressLine[] = (['opus', 'sonnet', 'haiku'] as const)
+      .filter(f => weeks.some(b => (b.modelCost[f] ?? 0) > 0))
+      .map(f => ({
+        key: f,
+        color: f === 'opus' ? '#a855f7' : f === 'sonnet' ? '#0ea5e9' : '#14b8a6',
+        points: weeks.map(b => {
+          const total = Object.values(b.modelCost).reduce((s, v) => s + v, 0)
+          return { label: b.label, value: total > 0 ? ((b.modelCost[f] ?? 0) / total) * 100 : 0 }
+        }),
+      }))
+
+    // For trend: is Opus share going down? (good)
+    const opusLine = modelLines.find(l => l.key === 'opus')
+    const modelPts = opusLine?.points ?? []
+    const skillPts = weeks
+      .map(b => ({ label: b.label, value: b.sessCount > 0 ? b.skillTotal / b.sessCount : 0 }))
+
+    const lastQ = qualityPts.at(-1)
+    const lastC = cachePts.at(-1)
+    const lastWeekCost = weeks.at(-1)?.modelCost ?? {}
+    const lastTotal = Object.values(lastWeekCost).reduce((s, v) => s + v, 0)
+    const lastM = modelLines.length > 0 && lastTotal > 0
+      ? modelLines
+          .map(l => ({ key: l.key, pct: Math.round(((lastWeekCost[l.key as keyof typeof lastWeekCost] ?? 0) / lastTotal) * 100) }))
+          .filter(x => x.pct > 0)
+          .sort((a, b) => b.pct - a.pct)
+          .slice(0, 3)
+          .map(x => `${x.key[0]!.toUpperCase()}${x.key.slice(1)} ${x.pct}%`)
+          .join(' · ')
+      : null
+
+    // Suppress Opus trend when it's negligible (<3% consistently)
+    const opusMaxPct = opusLine ? Math.max(...opusLine.points.map(p => p.value)) : 0
+    const lastS = skillPts.at(-1)
+
+    const qTrend = trendDir(qualityPts.map(p => p.value), true)
+    const cTrend = trendDir(cachePts.map(p => p.value), true)
+    const mTrend = trendDir(modelPts.map(p => p.value), false)
+    const sTrend = trendDir(skillPts.map(p => p.value), true)
+
+    return [
+      {
+        id: 'quality', title: 'Session quality', points: qualityPts, higherIsBetter: true,
+        currentLabel: lastQ ? `${scoreToGrade(lastQ.value)} avg (${Math.round(lastQ.value)}/100)` : '—',
+        trend: qTrend, trendLabel: trendLabel(qTrend),
+      },
+      {
+        id: 'cache', title: 'Cache hit rate', points: cachePts, higherIsBetter: true,
+        currentLabel: lastC ? `${Math.round(lastC.value)}%` : '—',
+        trend: cTrend, trendLabel: trendLabel(cTrend),
+      },
+      {
+        id: 'model', title: 'Model mix', points: modelPts, lines: modelLines, higherIsBetter: false,
+        currentLabel: lastM ?? '—',
+        trend: opusMaxPct < 3 ? 'insufficient' : mTrend,
+        trendLabel: opusMaxPct < 3 ? 'No Opus' : `Opus ${trendLabel(mTrend)}`,
+      },
+      {
+        id: 'skills', title: 'Skills / session', points: skillPts, higherIsBetter: true,
+        currentLabel: lastS ? `${lastS.value.toFixed(1)}` : '—',
+        trend: sTrend, trendLabel: trendLabel(sTrend),
+      },
+    ]
+  }, [sessions])
+
+  if (metrics.length === 0) return null
+
+  const trendColor = (t: ProgressMetric['trend'], higher: boolean) => {
+    if (t === 'insufficient' || t === 'stable') return 'text-gray-400 dark:text-gray-600'
+    return (t === 'improving') === higher
+      ? 'text-emerald-500 dark:text-emerald-400'
+      : 'text-rose-500 dark:text-rose-400'
+  }
+
+  return (
+    <Card>
+      <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-4">
+        Am I Improving?
+        <span className="font-normal normal-case ml-2 text-gray-400">weekly trend across key habits</span>
+      </h3>
+      <div className="grid grid-cols-2 gap-x-6 gap-y-4">
+        {metrics.map(m => (
+          <div key={m.id} className="flex flex-col gap-1">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] text-gray-500 dark:text-gray-400 flex items-center gap-2">
+                {m.title}
+                {m.lines && m.lines.map(l => (
+                  <span key={l.key} className="flex items-center gap-0.5 text-[9px] font-medium" style={{ color: l.color }}>
+                    <span className="w-1.5 h-1.5 rounded-full inline-block" style={{ background: l.color }} />{l.key}
+                  </span>
+                ))}
+              </span>
+              <span className={`text-[10px] font-medium ${trendColor(m.trend, m.higherIsBetter)}`}>{m.trendLabel}</span>
+            </div>
+            {m.lines ? (
+              <div className="flex flex-col gap-0.5">
+                <MultiMiniSparkline lines={m.lines} />
+                <span className="text-[10px] text-gray-500 dark:text-gray-400 tabular-nums">{m.currentLabel}</span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <MiniSparkline points={m.points} trend={m.trend} higherIsBetter={m.higherIsBetter} />
+                <span className="text-[11px] font-semibold text-gray-700 dark:text-gray-300 tabular-nums shrink-0 w-24 text-right">{m.currentLabel}</span>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+      <p className="mt-3 text-[10px] text-gray-400 dark:text-gray-600">Trend compares last 3 weeks vs. prior 3 weeks. Needs ≥4 weeks of data.</p>
+    </Card>
+  )
 }
 
 function SkillsCard({ skillUsage, agents }: { skillUsage: SkillUsage[]; agents: AgentTypeUsage[] }) {
@@ -2869,6 +3143,7 @@ export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; 
       {insightTab === 'overview' && (
         <div className="flex flex-col gap-5">
           <RegressionAlertCard report={regressions} />
+          <ProgressDashboardCard sessions={filtered} />
           <UsagePersonaCard sessions={filtered} tasks={tasks} skillUsage={skillUsage} modelRows={modelRows} />
           <YourHabitsCard sessions={filtered} />
           <TaskPlaybookCard report={playbook} />
