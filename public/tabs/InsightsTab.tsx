@@ -724,6 +724,152 @@ function ToolErrorsCard({ stats }: { stats: ToolErrorStats }) {
   )
 }
 
+function ToolLearningCurveCard({ sessions }: { sessions: Session[] }) {
+  const data = React.useMemo(() => {
+    if (sessions.length < 10) return null
+
+    const weekMap = new Map<string, { label: string; byTool: Map<string, { total: number; errors: number }> }>()
+    for (const s of sessions) {
+      const date = new Date(s.startedAt)
+      const key  = getWeekKey(date)
+      const entry = weekMap.get(key) ?? {
+        label: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+        byTool: new Map(),
+      }
+      for (const turn of s.turns) {
+        for (const tc of turn.toolCalls) {
+          const t = entry.byTool.get(tc.name) ?? { total: 0, errors: 0 }
+          t.total++
+          if (tc.isError) t.errors++
+          entry.byTool.set(tc.name, t)
+        }
+      }
+      weekMap.set(key, entry)
+    }
+
+    const weeks = [...weekMap.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([, v]) => v)
+    if (weeks.length < 4) return null
+
+    // Overall error rate per week
+    const overallRates = weeks.map(w => {
+      let total = 0, errors = 0
+      for (const v of w.byTool.values()) { total += v.total; errors += v.errors }
+      return { label: w.label, rate: total > 0 ? errors / total : 0 }
+    })
+
+    // Per-tool trends — need ≥4 weeks with ≥3 calls each
+    const allTools = new Set<string>()
+    for (const w of weeks) for (const t of w.byTool.keys()) allTools.add(t)
+
+    const toolTrends: { name: string; recentRate: number; priorRate: number; delta: number; totalCalls: number }[] = []
+    for (const name of allTools) {
+      const qualified = weeks.map(w => w.byTool.get(name)).filter((p): p is NonNullable<typeof p> => !!p && p.total >= 3)
+      if (qualified.length < 4) continue
+      const half = Math.floor(qualified.length / 2)
+      const recent = qualified.slice(-Math.min(3, half + 1))
+      const prior  = qualified.slice(0,  Math.min(3, half))
+      const recentRate = recent.reduce((s, p) => s + p.errors, 0) / Math.max(1, recent.reduce((s, p) => s + p.total, 0))
+      const priorRate  = prior.reduce((s, p) => s + p.errors, 0) / Math.max(1, prior.reduce((s, p) => s + p.total, 0))
+      const totalCalls = qualified.reduce((s, p) => s + p.total, 0)
+      // Only include tools where there's a meaningful error rate to track (skip perfectly clean tools)
+      if (priorRate === 0 && recentRate === 0) continue
+      toolTrends.push({ name, recentRate, priorRate, delta: recentRate - priorRate, totalCalls })
+    }
+
+    toolTrends.sort((a, b) => b.delta - a.delta)
+    return { overallRates, toolTrends }
+  }, [sessions])
+
+  if (!data) return null
+  if (data.toolTrends.length === 0 && data.overallRates.every(r => r.rate === 0)) return null
+
+  const improving = data.toolTrends.filter(t => t.delta < -0.005).slice(0, 4)
+  const worsening = data.toolTrends.filter(t => t.delta >  0.005).slice(0, 4)
+
+  // SVG sparkline for overall error rate
+  const maxRate = Math.max(...data.overallRates.map(r => r.rate), 0.01)
+  const W = 120, H = 32
+  const pts = data.overallRates
+  const toX = (i: number) => (i / (pts.length - 1)) * W
+  const toY = (r: number) => H - (r / maxRate) * H
+  const linePath = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${toX(i).toFixed(1)},${toY(p.rate).toFixed(1)}`).join(' ')
+  const areaPath = `${linePath} L${W},${H} L0,${H} Z`
+  const lastRate = data.overallRates.at(-1)?.rate ?? 0
+  const firstRate = data.overallRates[0]?.rate ?? 0
+  const overallDelta = lastRate - firstRate
+  const overallColor = overallDelta > 0.01 ? 'text-rose-500 dark:text-rose-400' : overallDelta < -0.01 ? 'text-emerald-500 dark:text-emerald-400' : 'text-gray-400 dark:text-gray-600'
+
+  return (
+    <Card>
+      <div className="flex items-start justify-between mb-4">
+        <div>
+          <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Tool Learning Curve</h3>
+          <p className="text-[11px] text-gray-400 dark:text-gray-600 mt-0.5">error rate by tool over time · prior 3 weeks vs recent 3 weeks</p>
+        </div>
+        <div className="flex items-center gap-3 shrink-0">
+          <div className="flex flex-col items-end gap-0.5">
+            <span className="text-[10px] text-gray-400 dark:text-gray-600">overall {data.overallRates.length}w trend</span>
+            <span className={`text-xs font-semibold tabular-nums ${overallColor}`}>
+              {(lastRate * 100).toFixed(1)}% err {overallDelta > 0.01 ? '↑' : overallDelta < -0.01 ? '↓' : '→'}
+            </span>
+          </div>
+          <svg width={W} height={H} className="shrink-0">
+            <defs>
+              <linearGradient id="lcgrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={overallDelta > 0.01 ? '#f43f5e' : '#10b981'} stopOpacity={0.25} />
+                <stop offset="100%" stopColor={overallDelta > 0.01 ? '#f43f5e' : '#10b981'} stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            <path d={areaPath} fill="url(#lcgrad)" />
+            <path d={linePath} fill="none" stroke={overallDelta > 0.01 ? '#f43f5e' : overallDelta < -0.01 ? '#10b981' : '#6b7280'} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </div>
+      </div>
+
+      {(improving.length > 0 || worsening.length > 0) ? (
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <p className="text-[10px] text-gray-400 dark:text-gray-600 uppercase tracking-wide mb-2">↓ Most improved</p>
+            {improving.length === 0
+              ? <p className="text-[11px] text-gray-400 dark:text-gray-600 italic">None this period</p>
+              : <div className="flex flex-col gap-1.5">
+                  {improving.map(t => (
+                    <div key={t.name} className="flex items-center gap-2">
+                      <span className={`text-[11px] px-1.5 py-0.5 rounded font-mono shrink-0 max-w-[96px] truncate ${toolColor(t.name)}`} title={t.name}>{t.name}</span>
+                      <span className="text-xs text-emerald-600 dark:text-emerald-400 tabular-nums">
+                        {(t.priorRate * 100).toFixed(1)}% → {(t.recentRate * 100).toFixed(1)}%
+                      </span>
+                    </div>
+                  ))}
+                </div>
+            }
+          </div>
+          <div>
+            <p className="text-[10px] text-gray-400 dark:text-gray-600 uppercase tracking-wide mb-2">↑ Watch out</p>
+            {worsening.length === 0
+              ? <p className="text-[11px] text-gray-400 dark:text-gray-600 italic">None this period</p>
+              : <div className="flex flex-col gap-1.5">
+                  {worsening.map(t => (
+                    <div key={t.name} className="flex items-center gap-2">
+                      <span className={`text-[11px] px-1.5 py-0.5 rounded font-mono shrink-0 max-w-[96px] truncate ${toolColor(t.name)}`} title={t.name}>{t.name}</span>
+                      <span className="text-xs text-rose-600 dark:text-rose-400 tabular-nums">
+                        {(t.priorRate * 100).toFixed(1)}% → {(t.recentRate * 100).toFixed(1)}%
+                      </span>
+                    </div>
+                  ))}
+                </div>
+            }
+          </div>
+        </div>
+      ) : (
+        <p className="text-[11px] text-emerald-600 dark:text-emerald-400">All tools stable — no significant error rate movement between periods.</p>
+      )}
+    </Card>
+  )
+}
+
 // ── Opportunities (aggregate recommendations) ───────────────────────────────
 
 const REC_SEVERITY_TONE: Record<RecSeverity, 'danger' | 'warning' | 'neutral'> = {
@@ -3383,12 +3529,13 @@ export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; 
           </AccordionSection>
 
           <AccordionSection id="workflow" title="Workflow" open={analyticsOpen.has('workflow')} onToggle={() => toggleAnalytics('workflow')}>
+            <ToolLearningCurveCard sessions={filtered} />
+            <ToolErrorsCard stats={errorStats} />
             <EfficiencyPanel breakdown={bashBreakdown} antiPatterns={antiPatterns} />
             <SlowestToolsCard calls={slowCalls} onOpenSession={onOpenSession} />
             <ThinkingDepthCard stats={thinking} onOpenSession={onOpenSession} />
             <InterruptCard stats={interrupts} onOpenSession={id => onOpenSession(id)} />
             <ThrashCard sessions={thrashSess} onOpenSession={id => onOpenSession(id)} />
-            <ToolErrorsCard stats={errorStats} />
           </AccordionSection>
 
           <AccordionSection id="patterns" title="Patterns" open={analyticsOpen.has('patterns')} onToggle={() => toggleAnalytics('patterns')}>
