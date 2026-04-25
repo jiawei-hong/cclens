@@ -870,6 +870,108 @@ function ToolLearningCurveCard({ sessions }: { sessions: Session[] }) {
   )
 }
 
+function SessionLifecycleCard({ sessions }: { sessions: Session[] }) {
+  const data = React.useMemo(() => {
+    if (sessions.length < 5) return null
+
+    const durations = sessions.map(s => s.durationMs / 60_000).sort((a, b) => a - b)
+    const costs     = sessions.map(s => sessionCostUSD(s)).sort((a, b) => a - b)
+    const turns     = sessions.map(s => s.turns.length).sort((a, b) => a - b)
+
+    const p = (arr: number[], pct: number) => arr[Math.floor(arr.length * pct)] ?? 0
+
+    const durationBuckets = [
+      { label: '<2m',    min: 0,   max: 2          },
+      { label: '2-5m',   min: 2,   max: 5          },
+      { label: '5-15m',  min: 5,   max: 15         },
+      { label: '15-30m', min: 15,  max: 30         },
+      { label: '30-60m', min: 30,  max: 60         },
+      { label: '>1h',    min: 60,  max: Infinity   },
+    ].map(b => ({ ...b, count: durations.filter(d => d >= b.min && d < b.max).length }))
+
+    const costBuckets = [
+      { label: '<1¢',    min: 0,    max: 0.01      },
+      { label: '1-5¢',   min: 0.01, max: 0.05      },
+      { label: '5-20¢',  min: 0.05, max: 0.20      },
+      { label: '20¢-$1', min: 0.20, max: 1.00      },
+      { label: '>$1',    min: 1.00, max: Infinity   },
+    ].map(b => ({ ...b, count: costs.filter(c => c >= b.min && c < b.max).length }))
+
+    return {
+      total: sessions.length,
+      medianDuration: p(durations, 0.5),
+      p75Duration: p(durations, 0.75),
+      medianCost: p(costs, 0.5),
+      p75Cost: p(costs, 0.75),
+      medianTurns: Math.round(p(turns, 0.5)),
+      durationBuckets,
+      costBuckets,
+    }
+  }, [sessions])
+
+  if (!data) return null
+
+  const maxDur  = Math.max(...data.durationBuckets.map(b => b.count), 1)
+  const maxCost = Math.max(...data.costBuckets.map(b => b.count), 1)
+  const fmtMin = (m: number) => m < 1 ? `${Math.round(m * 60)}s` : `${Math.round(m)}m`
+
+  const Histogram = ({ buckets, max, color }: { buckets: { label: string; count: number }[]; max: number; color: string }) => (
+    <div className="flex items-end gap-1 h-14">
+      {buckets.map(b => {
+        const h = Math.max(b.count > 0 ? 2 : 0, Math.round((b.count / max) * 56))
+        return (
+          <div key={b.label} className="group relative flex-1 flex flex-col items-center gap-0.5">
+            <div className="w-full flex flex-col justify-end" style={{ height: '56px' }}>
+              <div className={`w-full rounded-t-sm transition-colors cursor-default ${color}`} style={{ height: `${h}px` }} />
+            </div>
+            <span className="text-[9px] text-gray-400 dark:text-gray-600 truncate w-full text-center">{b.label}</span>
+            {b.count > 0 && (
+              <div className="absolute bottom-full mb-5 left-1/2 -translate-x-1/2 bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 shadow-sm text-xs text-gray-700 dark:text-gray-300 px-2 py-1 rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-10">
+                {b.count} sessions ({Math.round((b.count / data.total) * 100)}%)
+              </div>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+
+  return (
+    <Card>
+      <div className="flex items-start justify-between mb-4">
+        <div>
+          <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Session Lifecycle</h3>
+          <p className="text-[11px] text-gray-400 dark:text-gray-600 mt-0.5">{data.total} sessions — duration &amp; cost distribution</p>
+        </div>
+        <div className="flex items-center gap-5 shrink-0 text-xs">
+          {[
+            { label: 'median duration', val: fmtMin(data.medianDuration) },
+            { label: 'p75 duration',    val: fmtMin(data.p75Duration)    },
+            { label: 'median cost',     val: fmtUSD(data.medianCost)     },
+            { label: 'p75 cost',        val: fmtUSD(data.p75Cost)        },
+            { label: 'median turns',    val: String(data.medianTurns)    },
+          ].map(({ label, val }) => (
+            <div key={label} className="text-right">
+              <p className="text-[10px] text-gray-400 dark:text-gray-600 uppercase tracking-wide">{label}</p>
+              <p className="font-semibold text-gray-900 dark:text-gray-100 tabular-nums">{val}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-5">
+        <div>
+          <p className="text-[10px] text-gray-400 dark:text-gray-600 uppercase tracking-wide mb-2">By duration</p>
+          <Histogram buckets={data.durationBuckets} max={maxDur} color="bg-indigo-500/60 hover:bg-indigo-500/80" />
+        </div>
+        <div>
+          <p className="text-[10px] text-gray-400 dark:text-gray-600 uppercase tracking-wide mb-2">By cost</p>
+          <Histogram buckets={data.costBuckets} max={maxCost} color="bg-emerald-500/60 hover:bg-emerald-500/80" />
+        </div>
+      </div>
+    </Card>
+  )
+}
+
 // ── Opportunities (aggregate recommendations) ───────────────────────────────
 
 const REC_SEVERITY_TONE: Record<RecSeverity, 'danger' | 'warning' | 'neutral'> = {
@@ -3539,6 +3641,7 @@ export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; 
           </AccordionSection>
 
           <AccordionSection id="patterns" title="Patterns" open={analyticsOpen.has('patterns')} onToggle={() => toggleAnalytics('patterns')}>
+            <SessionLifecycleCard sessions={filtered} />
             <ActivityHeatmapCard cells={heatmap} qualityByDate={qualityByDate} />
             <div className="grid grid-cols-2 gap-5">
               <Card>
