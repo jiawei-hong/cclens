@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { summarizeProjects, globalToolStats, activityByHour, sessionDepthStats, taskBreakdown, trendStats, bashAntiPatterns, bashCommandBreakdown, skillUsageStats, skillGaps, agentBreakdown, hotFiles, multiFileSessions, thrashingSessions, totalUsage, usageByModel, dailyCost, toolErrorRates, activityHeatmap, slowestToolCalls, mcpUsageStats, contextWindowHotspots, costByTaskType, thinkingStats, sessionCacheRanking, interruptStats, monthlyCostForecast, goldStandardSessions, costOfUsage, classifySession } from '../../src/analyzer'
+import { summarizeProjects, globalToolStats, activityByHour, sessionDepthStats, taskBreakdown, trendStats, bashAntiPatterns, bashCommandBreakdown, skillUsageStats, skillGaps, agentBreakdown, hotFiles, multiFileSessions, thrashingSessions, totalUsage, usageByModel, dailyCost, toolErrorRates, activityHeatmap, slowestToolCalls, mcpUsageStats, contextWindowHotspots, costByTaskType, thinkingStats, sessionCacheRanking, interruptStats, monthlyCostForecast, goldStandardSessions, costOfUsage, classifySession, sessionCostUSD } from '../../src/analyzer'
 import type { SessionType, BashAntiPattern, BashCategory, SkillUsage, SkillGap, AgentTypeUsage, HotFile, MultiFileSession, ThrashSession, TotalUsage, ModelUsageRow, ToolErrorStats, HeatmapCell, SlowToolCall, McpServerUsage, ContextHotspotStats, CostByTaskRow, ThinkingStats, SessionCacheStats, InterruptStats, MonthlyForecast, GoldStandardSession } from '../../src/analyzer'
 import { aggregateRecommendations, recommendationTrend, projectHealth, recentRegressions, type RecAggregate, type RecCategory, type RecSeverity, type RecTrend, type RuleTrend, type RuleTrendDirection, type ProjectHealth, type RegressionReport, type Regression } from '../../src/recommendations'
 import { userHabitsTrend, type HabitWithTrend, type HabitStatus, type HabitTrendDirection } from '../../src/habits'
@@ -2626,7 +2626,7 @@ function median(nums: number[]): number {
     : sorted[mid]!
 }
 
-function ProjectHealthCard({ health, sessions }: { health: ProjectHealth[]; sessions?: Session[] }) {
+function ProjectHealthCard({ health, sessions, onSelect }: { health: ProjectHealth[]; sessions?: Session[]; onSelect?: (project: string) => void }) {
   const qualityByProject = React.useMemo(() => {
     if (!sessions) return new Map<string, { avg: number; grade: string }>()
     const acc = new Map<string, { total: number; count: number }>()
@@ -2645,6 +2645,12 @@ function ProjectHealthCard({ health, sessions }: { health: ProjectHealth[]; sess
       result.set(project, { avg, grade })
     }
     return result
+  }, [sessions])
+
+  const costByProject = React.useMemo(() => {
+    const acc = new Map<string, number>()
+    for (const s of sessions ?? []) acc.set(s.project, (acc.get(s.project) ?? 0) + sessionCostUSD(s))
+    return acc
   }, [sessions])
 
   if (health.length === 0) {
@@ -2706,10 +2712,12 @@ function ProjectHealthCard({ health, sessions }: { health: ProjectHealth[]; sess
         <span className="w-10 text-right shrink-0">score</span>
         <span className="flex-1">project</span>
         <span className="w-16 text-right shrink-0">sessions</span>
+        <span className="w-20 text-right shrink-0">cost</span>
         <span className="w-16 text-right shrink-0">cache</span>
         <span className="w-16 text-right shrink-0">errors</span>
         <span className="w-14 text-right shrink-0">gold</span>
         <span className="w-16 text-right shrink-0">recs/sess</span>
+        {onSelect && <span className="w-4 shrink-0" />}
       </div>
 
       {showBaseline && (
@@ -2720,10 +2728,12 @@ function ProjectHealthCard({ health, sessions }: { health: ProjectHealth[]; sess
           <span className="tabular-nums w-10 text-right shrink-0 font-medium">{medianScore.toFixed(0)}</span>
           <span className="flex-1 italic">your median{confident.length === 0 && ' (low-conf)'}</span>
           <span className="tabular-nums w-16 text-right shrink-0">—</span>
+          <span className="tabular-nums w-20 text-right shrink-0">—</span>
           <span className="tabular-nums w-16 text-right shrink-0">{(medianCache * 100).toFixed(0)}%</span>
           <span className="tabular-nums w-16 text-right shrink-0">{(medianError * 100).toFixed(1)}%</span>
           <span className="tabular-nums w-14 text-right shrink-0">{medianGold.toFixed(medianGold < 1 ? 1 : 0)}</span>
           <span className="tabular-nums w-16 text-right shrink-0">{medianRecs.toFixed(1)}</span>
+          {onSelect && <span className="w-4 shrink-0" />}
         </div>
       )}
 
@@ -2733,8 +2743,13 @@ function ProjectHealthCard({ health, sessions }: { health: ProjectHealth[]; sess
           const mError = marker(h.errorRate,    medianError, false)
           const mGold  = marker(h.goldCount,    medianGold,  true)
           const mRecs  = marker(h.recsPerSession, medianRecs, false)
+          const cost = costByProject.get(h.project) ?? 0
           return (
-          <div key={h.project} className="flex items-center gap-3 px-2 py-1.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-900/50 transition-colors">
+          <div
+            key={h.project}
+            className={`flex items-center gap-3 px-2 py-1.5 rounded-lg transition-colors group ${onSelect ? 'hover:bg-indigo-50 dark:hover:bg-indigo-900/20 cursor-pointer' : 'hover:bg-gray-50 dark:hover:bg-gray-900/50'}`}
+            onClick={() => onSelect?.(h.project)}
+          >
             <span className={`text-sm font-semibold tabular-nums w-10 text-right shrink-0 ${scoreTone(h.score)}`}>{h.score}</span>
             <div className="flex-1 min-w-0 flex items-center gap-2">
               <div className="flex-1 min-w-0">
@@ -2756,6 +2771,7 @@ function ProjectHealthCard({ health, sessions }: { health: ProjectHealth[]; sess
               )}
             </div>
             <span className="text-xs text-gray-500 dark:text-gray-500 tabular-nums w-16 text-right shrink-0">{h.sessionCount}</span>
+            <span className="text-xs text-gray-500 dark:text-gray-500 tabular-nums w-20 text-right shrink-0">{cost > 0 ? fmtUSD(cost) : '—'}</span>
             <span className="text-xs text-gray-500 dark:text-gray-500 tabular-nums w-16 text-right shrink-0">
               {mCache.glyph && <span className={`mr-1 ${mCache.tone}`}>{mCache.glyph}</span>}
               {(h.cacheHitRate * 100).toFixed(0)}%
@@ -2772,6 +2788,7 @@ function ProjectHealthCard({ health, sessions }: { health: ProjectHealth[]; sess
               {mRecs.glyph && <span className={`mr-1 ${mRecs.tone}`}>{mRecs.glyph}</span>}
               {h.recsPerSession.toFixed(1)}
             </span>
+            {onSelect && <span className="text-xs text-gray-300 dark:text-gray-700 group-hover:text-indigo-400 transition-colors w-4 text-right shrink-0">→</span>}
           </div>
           )
         })}
@@ -2813,6 +2830,102 @@ function HotFilesCard({ files }: { files: HotFile[] }) {
         ))}
       </div>
     </Card>
+  )
+}
+
+// ── Project Detail ────────────────────────────────────────────────────────────
+
+function ProjectDetailView({ project, sessions, onBack, onOpenSession }: {
+  project: string
+  sessions: Session[]
+  onBack: () => void
+  onOpenSession: (id: string) => void
+}) {
+  const projectSessions = React.useMemo(
+    () => sessions.filter(s => s.project === project).sort((a, b) => b.startedAt.localeCompare(a.startedAt)),
+    [sessions, project]
+  )
+  const sessionMetrics = React.useMemo(() => projectSessions.map(s => ({
+    session: s,
+    cost: sessionCostUSD(s),
+    quality: sessionQualityScore(s),
+    cls: classifySession(s),
+  })), [projectSessions])
+  const projectFiles = React.useMemo(() => hotFiles(projectSessions), [projectSessions])
+  const projectTools = React.useMemo(() => globalToolStats(projectSessions).slice(0, 6), [projectSessions])
+  const totalCost = sessionMetrics.reduce((sum, m) => sum + m.cost, 0)
+  const rated = sessionMetrics.filter(m => m.quality.rated)
+  const avgQuality = rated.length === 0 ? 0 : rated.reduce((sum, m) => sum + m.quality.score, 0) / rated.length
+  const maxTool = Math.max(...projectTools.map(t => t.count), 1)
+  const gradeColor: Record<string, string> = {
+    A: 'text-green-600 dark:text-green-400',
+    B: 'text-blue-500 dark:text-blue-400',
+    C: 'text-amber-500 dark:text-amber-400',
+    D: 'text-orange-500 dark:text-orange-400',
+    F: 'text-red-500 dark:text-red-400',
+  }
+
+  return (
+    <div className="flex flex-col gap-5">
+      <div className="flex items-center gap-3">
+        <button onClick={onBack} className="text-sm text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200 transition-colors shrink-0">← All Projects</button>
+        <span className="text-gray-300 dark:text-gray-700">/</span>
+        <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100 truncate">{project}</h2>
+        <div className="ml-auto flex items-center gap-5 text-sm shrink-0">
+          <span className="text-gray-500 dark:text-gray-400"><span className="font-semibold text-gray-900 dark:text-gray-100">{projectSessions.length}</span> sessions</span>
+          <span className="text-gray-500 dark:text-gray-400"><span className="font-semibold text-gray-900 dark:text-gray-100 tabular-nums">{fmtUSD(totalCost)}</span> total</span>
+          {rated.length > 0 && (
+            <span className="text-gray-500 dark:text-gray-400">avg grade <span className={`font-semibold ${gradeColor[scoreToGrade(avgQuality)] ?? ''}`}>{scoreToGrade(avgQuality)}</span></span>
+          )}
+        </div>
+      </div>
+
+      <Card>
+        <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">Sessions</h3>
+        {sessionMetrics.length === 0 ? (
+          <p className="text-sm text-gray-400 dark:text-gray-600">No sessions in current range.</p>
+        ) : (
+          <div className="flex flex-col gap-0.5">
+            {sessionMetrics.map(({ session: s, cost, quality: q, cls }) => (
+              <button key={s.id} onClick={() => onOpenSession(s.id)}
+                className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors text-left group">
+                <span className="text-xs text-gray-500 dark:text-gray-500 w-24 shrink-0 tabular-nums">{fmt(s.startedAt)}</span>
+                <span className={`text-xs px-1.5 py-0.5 rounded-md w-20 text-center shrink-0 font-medium ${taskTypeColor(cls)}`}>{cls}</span>
+                <span className="text-xs text-gray-400 dark:text-gray-600 w-14 shrink-0 tabular-nums">{fmtDuration(s.durationMs)}</span>
+                <span className="text-xs text-gray-400 dark:text-gray-600 w-14 shrink-0 tabular-nums">{s.stats.toolCallCount} tools</span>
+                <span className="text-xs font-semibold text-gray-700 dark:text-gray-300 tabular-nums">{fmtUSD(cost)}</span>
+                {q.rated ? (
+                  <span className={`text-xs font-bold shrink-0 w-5 ${gradeColor[q.grade] ?? ''}`}>{q.grade}</span>
+                ) : <span className="w-5 shrink-0" />}
+                <span className="ml-auto text-xs text-gray-400 dark:text-gray-600 group-hover:text-indigo-400 transition-colors shrink-0">→</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </Card>
+
+      {(projectTools.length > 0 || projectFiles.length > 0) && (
+        <div className="grid grid-cols-2 gap-5">
+          {projectTools.length > 0 && (
+            <Card>
+              <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">Top Tools</h3>
+              <div className="flex flex-col gap-2">
+                {projectTools.map(tool => (
+                  <div key={tool.name} className="flex items-center gap-3">
+                    <span className={`text-xs px-2 py-0.5 rounded font-mono w-24 text-center shrink-0 truncate ${toolColor(tool.name)}`}>{tool.name}</span>
+                    <div className="flex-1 bg-gray-100 dark:bg-gray-800 rounded-full h-1.5">
+                      <div className="bg-indigo-500 h-1.5 rounded-full" style={{ width: `${(tool.count / maxTool) * 100}%` }} />
+                    </div>
+                    <span className="text-xs text-gray-500 w-10 text-right tabular-nums">{tool.count}</span>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
+          {projectFiles.length > 0 && <HotFilesCard files={projectFiles} />}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -2909,17 +3022,24 @@ function ProjectTree({ projects, sessions, onOpenSession }: {
                           {projectSessions.length === 0 && (
                             <p className="px-3 py-2 text-xs text-gray-400 dark:text-gray-700">No sessions found</p>
                           )}
-                          {projectSessions.map(s => (
-                            <button key={s.id} onClick={() => onOpenSession(s.id)}
-                              className="flex items-center gap-3 px-3 py-1.5 rounded-lg hover:bg-indigo-600/10 transition-colors text-left group">
-                              <span className="text-xs text-gray-500 group-hover:text-indigo-400">{fmt(s.startedAt)}</span>
-                              <span className="text-xs text-gray-500 dark:text-gray-600">·</span>
-                              <span className="text-xs text-gray-500">{s.stats.toolCallCount} calls</span>
-                              <span className="text-xs text-gray-500 dark:text-gray-600">·</span>
-                              <span className="text-xs text-gray-500">{fmtDuration(s.durationMs)}</span>
-                              <span className="ml-auto text-xs text-gray-400 dark:text-gray-700 group-hover:text-indigo-500">→</span>
-                            </button>
-                          ))}
+                          {projectSessions.map(s => {
+                            const cost = sessionCostUSD(s)
+                            const q = sessionQualityScore(s)
+                            const qGradeColor: Record<string, string> = { A: 'text-green-600 dark:text-green-400', B: 'text-blue-500 dark:text-blue-400', C: 'text-amber-500 dark:text-amber-400', D: 'text-orange-500 dark:text-orange-400', F: 'text-red-500 dark:text-red-400' }
+                            return (
+                              <button key={s.id} onClick={() => onOpenSession(s.id)}
+                                className="flex items-center gap-3 px-3 py-1.5 rounded-lg hover:bg-indigo-600/10 transition-colors text-left group">
+                                <span className="text-xs text-gray-500 group-hover:text-indigo-400 shrink-0">{fmt(s.startedAt)}</span>
+                                <span className="text-xs text-gray-500 dark:text-gray-600">·</span>
+                                <span className="text-xs text-gray-500 shrink-0">{s.stats.toolCallCount} calls</span>
+                                <span className="text-xs text-gray-500 dark:text-gray-600">·</span>
+                                <span className="text-xs text-gray-500 shrink-0">{fmtDuration(s.durationMs)}</span>
+                                <span className="text-xs tabular-nums text-gray-600 dark:text-gray-400 shrink-0">{fmtUSD(cost)}</span>
+                                {q.rated && <span className={`text-xs font-bold shrink-0 ${qGradeColor[q.grade] ?? ''}`}>{q.grade}</span>}
+                                <span className="ml-auto text-xs text-gray-400 dark:text-gray-700 group-hover:text-indigo-500">→</span>
+                              </button>
+                            )
+                          })}
                         </div>
                       )}
                     </div>
@@ -2969,6 +3089,108 @@ function RangePicker({ range, setRange }: { range: DateRange; setRange: (r: Date
           {o.label}
         </button>
       ))}
+    </div>
+  )
+}
+
+// ── Accordion Section ─────────────────────────────────────────────────────────
+
+function LastSessionPill({ session, onOpen }: { session: Session | null; onOpen: (id: string) => void }) {
+  if (!session) return null
+  const cost = sessionCostUSD(session)
+  const q = sessionQualityScore(session)
+  const d = new Date(session.startedAt)
+  const now = new Date()
+  const todayStr = now.toDateString()
+  const yesterdayStr = new Date(now.getTime() - 86_400_000).toDateString()
+  const dateLabel = d.toDateString() === todayStr ? 'Today' : d.toDateString() === yesterdayStr ? 'Yesterday' : d.toLocaleDateString('en', { month: 'short', day: 'numeric' })
+  const timeLabel = d.toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit' })
+  const projectName = session.projectPath.split('/').filter(Boolean).slice(-2).join('/')
+  const gradeColor: Record<string, string> = {
+    A: 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400',
+    B: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400',
+    C: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400',
+    D: 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-400',
+    F: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400',
+  }
+  return (
+    <Card>
+      <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">Last Session</h3>
+      <button
+        onClick={() => onOpen(session.id)}
+        className="w-full flex items-center gap-4 p-3 rounded-lg bg-gray-50 dark:bg-gray-900/50 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors text-left group"
+      >
+        <div className="flex flex-col items-center min-w-[44px]">
+          <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">{dateLabel}</span>
+          <span className="text-[10px] text-gray-400 dark:text-gray-600">{timeLabel}</span>
+        </div>
+        <div className="w-px h-8 bg-gray-200 dark:bg-gray-800 shrink-0" />
+        <span className="text-xs font-mono text-gray-500 dark:text-gray-400 truncate flex-1">{projectName || session.project}</span>
+        <div className="flex items-center gap-3 shrink-0">
+          <span className="text-xs text-gray-400 dark:text-gray-600">{session.turns.length} turns</span>
+          <span className="text-xs text-gray-400 dark:text-gray-600">{fmtDuration(session.durationMs)}</span>
+          <span className="text-sm font-semibold text-gray-900 dark:text-gray-100 tabular-nums">{fmtUSD(cost)}</span>
+          {q.rated && (
+            <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${gradeColor[q.grade]}`}>{q.grade}</span>
+          )}
+          <span className="text-gray-400 dark:text-gray-600 text-xs group-hover:text-indigo-400 transition-colors">→</span>
+        </div>
+      </button>
+    </Card>
+  )
+}
+
+function HomeRecommendationsCard({ agg, onViewAll }: { agg: RecAggregate; onViewAll: () => void }) {
+  if (agg.byRule.length === 0) return null
+  const top3 = agg.byRule.slice(0, 3)
+  const severityTone: Record<string, 'danger' | 'warning' | 'neutral'> = { high: 'danger', medium: 'warning', low: 'neutral' }
+  return (
+    <Card>
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Top Opportunities</h3>
+        {agg.byRule.length > 3 && (
+          <button onClick={onViewAll} className="text-xs text-indigo-500 hover:text-indigo-400 transition-colors">
+            +{agg.byRule.length - 3} more in Analytics →
+          </button>
+        )}
+      </div>
+      <div className="flex flex-col gap-2">
+        {top3.map(r => (
+          <div key={r.id} className="flex items-center gap-3 p-2.5 rounded-lg bg-gray-50 dark:bg-gray-900/50">
+            <Badge tone={severityTone[r.severity] ?? 'neutral'} size="sm">{r.count}×</Badge>
+            <span className="text-sm text-gray-700 dark:text-gray-300 flex-1 truncate">{r.title}</span>
+            {r.savingsUSD > 0.01 && (
+              <span className="text-xs text-emerald-600 dark:text-emerald-400 tabular-nums shrink-0">save {fmtUSD(r.savingsUSD)}</span>
+            )}
+          </div>
+        ))}
+      </div>
+    </Card>
+  )
+}
+
+function AccordionSection({ id, title, badge, open, onToggle, children }: {
+  id: string; title: string; badge?: number; open: boolean; onToggle: () => void; children: React.ReactNode
+}) {
+  return (
+    <div className="border border-gray-200 dark:border-gray-800 rounded-xl overflow-hidden">
+      <button
+        onClick={onToggle}
+        className="w-full flex items-center justify-between px-5 py-3.5 bg-gray-50 dark:bg-gray-900/50 hover:bg-gray-100 dark:hover:bg-gray-800/60 transition-colors text-left"
+      >
+        <span className="flex items-center gap-2">
+          <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{title}</span>
+          {badge !== undefined && badge > 0 && (
+            <span className="text-[10px] font-semibold bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 px-1.5 py-0.5 rounded-full">{badge}</span>
+          )}
+        </span>
+        <span className={`text-gray-400 dark:text-gray-600 text-xs transition-transform ${open ? 'rotate-180' : ''}`}>▾</span>
+      </button>
+      {open && (
+        <div className="flex flex-col gap-5 p-5">
+          {children}
+        </div>
+      )}
     </div>
   )
 }
@@ -3059,11 +3281,17 @@ export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; 
   const hasHourQuality = qualityByHour.some(h => h.avg !== null)
   const hasDowQuality  = qualityByDow.some(d => d.avg !== null)
 
-  const [insightTab, setInsightTab] = useState<'opportunities' | 'overview' | 'cost' | 'efficiency' | 'skills' | 'projects'>('opportunities')
+  const [insightTab, setInsightTab] = useState<'home' | 'analytics' | 'projects'>('home')
+  const [analyticsOpen, setAnalyticsOpen] = useState(() => new Set(['cost', 'quality']))
+  const [selectedProject, setSelectedProject] = useState<string | null>(null)
   const [hourMode, setHourMode] = useState<'count' | 'quality'>('count')
   const totalToolCalls = topTools.reduce((s, t) => s + t.count, 0)
 
-  // Sub-tabs render via <TabGroup variant="subtle"> below.
+  const toggleAnalytics = (id: string) => setAnalyticsOpen(prev => {
+    const next = new Set(prev)
+    if (next.has(id)) next.delete(id); else next.add(id)
+    return next
+  })
 
   return (
     <div className="flex flex-col gap-5">
@@ -3084,11 +3312,8 @@ export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; 
       {/* ── Sub-tab nav + range picker + export ── */}
       <div className="flex items-center justify-between gap-2">
         <TabGroup value={insightTab} onChange={setInsightTab} variant="subtle">
-          <Tab value="opportunities" badge={recAgg.sessionCount}>Opportunities</Tab>
-          <Tab value="overview">Overview</Tab>
-          <Tab value="cost">Cost</Tab>
-          <Tab value="efficiency">Efficiency</Tab>
-          <Tab value="skills" badge={gaps.length}>Skills</Tab>
+          <Tab value="home">Home</Tab>
+          <Tab value="analytics" badge={recAgg.sessionCount > 0 ? recAgg.sessionCount : undefined}>Analytics</Tab>
           <Tab value="projects">Projects</Tab>
         </TabGroup>
         <div className="flex items-center gap-2">
@@ -3125,54 +3350,50 @@ export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; 
         </div>
       </div>
 
-      {/* ── Opportunities ── */}
-      {insightTab === 'opportunities' && (
-        <OpportunitiesView
-          agg={recAgg}
-          trend={recTrend}
-          totalSessions={filtered.length}
-          sessions={filtered}
-          antiPatterns={antiPatterns}
-          skillGaps={gaps}
-          gold={gold}
-          onOpenSession={onOpenSession}
-        />
-      )}
-
-      {/* ── Overview ── */}
-      {insightTab === 'overview' && (
+      {/* ── Home ── */}
+      {insightTab === 'home' && (
         <div className="flex flex-col gap-5">
           <RegressionAlertCard report={regressions} />
           <ProgressDashboardCard sessions={filtered} />
+          <LastSessionPill session={sessions[0] ?? null} onOpen={onOpenSession} />
+          <HomeRecommendationsCard agg={recAgg} onViewAll={() => setInsightTab('analytics')} />
           <UsagePersonaCard sessions={filtered} tasks={tasks} skillUsage={skillUsage} modelRows={modelRows} />
           <YourHabitsCard sessions={filtered} />
-          <TaskPlaybookCard report={playbook} />
-          <div className="grid grid-cols-2 gap-5">
-            {/* Task Types */}
-            <Card>
-              <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-4">Task Types</h3>
-              <div className="flex flex-col gap-3">
-                {tasks.map(({ type, count }) => {
-                  const pct = Math.round((count / sessions.length) * 100)
-                  return (
-                    <div key={type} className="flex items-center gap-3">
-                      <Tooltip content={<span className="text-[11px] text-gray-600 dark:text-gray-400">{TASK_DESCRIPTIONS[type]}</span>}>
-                        <span className={`text-xs px-2 py-0.5 rounded-md w-24 text-center shrink-0 font-medium cursor-default ${taskTypeColor(type)}`}>{type}</span>
-                      </Tooltip>
-                      <div className="flex-1 bg-gray-100 dark:bg-gray-800 rounded-full h-1.5">
-                        <div className={`h-1.5 rounded-full ${taskTypeBar(type)}`} style={{ width: `${pct}%` }} />
-                      </div>
-                      <span className="text-xs text-gray-500 dark:text-gray-400 w-14 text-right tabular-nums">{count} ({pct}%)</span>
-                    </div>
-                  )
-                })}
-              </div>
-            </Card>
+        </div>
+      )}
 
-            {/* Activity charts stacked */}
-            <div className="flex flex-col gap-3">
-              <ActivityHeatmapCard cells={heatmap} qualityByDate={qualityByDate} />
+      {/* ── Analytics ── */}
+      {insightTab === 'analytics' && (
+        <div className="flex flex-col gap-3">
 
+          <AccordionSection id="opportunities" title="Opportunities" badge={recAgg.sessionCount} open={analyticsOpen.has('opportunities')} onToggle={() => toggleAnalytics('opportunities')}>
+            <OpportunitiesView agg={recAgg} trend={recTrend} totalSessions={filtered.length} sessions={filtered} antiPatterns={antiPatterns} skillGaps={gaps} gold={gold} onOpenSession={onOpenSession} />
+          </AccordionSection>
+
+          <AccordionSection id="cost" title="Cost" open={analyticsOpen.has('cost')} onToggle={() => toggleAnalytics('cost')}>
+            <CostPanel usage={usage} modelRows={modelRows} dailySeries={dailyCostSeries} maxDailyCost={maxDailyCost} hasData={hasUsageData} dailySeriesDays={costSeriesDays} costByTask={costByTask} thinking={thinking} sessions={filtered} forecast={forecast} />
+            <ModelMixTrendCard sessions={filtered} />
+            <CacheEfficiencyCard rows={cacheRanking} onOpenSession={id => onOpenSession(id)} />
+          </AccordionSection>
+
+          <AccordionSection id="quality" title="Quality" open={analyticsOpen.has('quality')} onToggle={() => toggleAnalytics('quality')}>
+            <QualityDistributionCard sessions={filtered} />
+            <QualityTrendCard sessions={filtered} />
+            <ContextHotspotsCard stats={contextHotspots} onOpenSession={onOpenSession} />
+          </AccordionSection>
+
+          <AccordionSection id="workflow" title="Workflow" open={analyticsOpen.has('workflow')} onToggle={() => toggleAnalytics('workflow')}>
+            <EfficiencyPanel breakdown={bashBreakdown} antiPatterns={antiPatterns} />
+            <SlowestToolsCard calls={slowCalls} onOpenSession={onOpenSession} />
+            <ThinkingDepthCard stats={thinking} onOpenSession={onOpenSession} />
+            <InterruptCard stats={interrupts} onOpenSession={id => onOpenSession(id)} />
+            <ThrashCard sessions={thrashSess} onOpenSession={id => onOpenSession(id)} />
+            <ToolErrorsCard stats={errorStats} />
+          </AccordionSection>
+
+          <AccordionSection id="patterns" title="Patterns" open={analyticsOpen.has('patterns')} onToggle={() => toggleAnalytics('patterns')}>
+            <ActivityHeatmapCard cells={heatmap} qualityByDate={qualityByDate} />
+            <div className="grid grid-cols-2 gap-5">
               <Card>
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">By Hour of Day</h3>
@@ -3241,120 +3462,122 @@ export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; 
                 </div>
               </Card>
             </div>
-          </div>
 
-          {/* Top Tools + Trend */}
-          <div className={range === 'all' ? 'grid grid-cols-2 gap-5' : 'grid grid-cols-1 gap-5'}>
-            <Card>
-              <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-4">Top Tools</h3>
-              <div className="flex flex-col gap-2">
-                {topTools.slice(0, 8).map(tool => (
-                  <div key={tool.name} className="flex items-center gap-3">
-                    <Tooltip content={<span className="text-[11px] font-mono text-gray-700 dark:text-gray-300">{tool.name} — click to see every call</span>}>
-                      <button
-                        onClick={() => setDeepDiveTool(tool.name)}
-                        className={`text-xs px-2 py-0.5 rounded font-mono w-24 text-center shrink-0 truncate cursor-pointer hover:ring-2 hover:ring-indigo-400/50 ${toolColor(tool.name)}`}
-                      >
-                        {tool.name}
-                      </button>
-                    </Tooltip>
-                    <div className="flex-1 bg-gray-100 dark:bg-gray-800 rounded-full h-1.5">
-                      <div className="bg-indigo-500 h-1.5 rounded-full" style={{ width: `${(tool.count / maxTool) * 100}%` }} />
+            <div className="grid grid-cols-2 gap-5">
+              <Card>
+                <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-4">Task Types</h3>
+                <div className="flex flex-col gap-3">
+                  {tasks.map(({ type, count }) => {
+                    const pct = Math.round((count / sessions.length) * 100)
+                    return (
+                      <div key={type} className="flex items-center gap-3">
+                        <Tooltip content={<span className="text-[11px] text-gray-600 dark:text-gray-400">{TASK_DESCRIPTIONS[type]}</span>}>
+                          <span className={`text-xs px-2 py-0.5 rounded-md w-24 text-center shrink-0 font-medium cursor-default ${taskTypeColor(type)}`}>{type}</span>
+                        </Tooltip>
+                        <div className="flex-1 bg-gray-100 dark:bg-gray-800 rounded-full h-1.5">
+                          <div className={`h-1.5 rounded-full ${taskTypeBar(type)}`} style={{ width: `${pct}%` }} />
+                        </div>
+                        <span className="text-xs text-gray-500 dark:text-gray-400 w-14 text-right tabular-nums">{count} ({pct}%)</span>
+                      </div>
+                    )
+                  })}
+                </div>
+              </Card>
+
+              <Card>
+                <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-4">Top Tools</h3>
+                <div className="flex flex-col gap-2">
+                  {topTools.slice(0, 8).map(tool => (
+                    <div key={tool.name} className="flex items-center gap-3">
+                      <Tooltip content={<span className="text-[11px] font-mono text-gray-700 dark:text-gray-300">{tool.name} — click to see every call</span>}>
+                        <button
+                          onClick={() => setDeepDiveTool(tool.name)}
+                          className={`text-xs px-2 py-0.5 rounded font-mono w-24 text-center shrink-0 truncate cursor-pointer hover:ring-2 hover:ring-indigo-400/50 ${toolColor(tool.name)}`}
+                        >
+                          {tool.name}
+                        </button>
+                      </Tooltip>
+                      <div className="flex-1 bg-gray-100 dark:bg-gray-800 rounded-full h-1.5">
+                        <div className="bg-indigo-500 h-1.5 rounded-full" style={{ width: `${(tool.count / maxTool) * 100}%` }} />
+                      </div>
+                      <span className="text-xs text-gray-500 w-10 text-right tabular-nums">{tool.count}</span>
                     </div>
-                    <span className="text-xs text-gray-500 w-10 text-right tabular-nums">{tool.count}</span>
-                  </div>
-                ))}
-              </div>
-            </Card>
+                  ))}
+                </div>
+              </Card>
+            </div>
 
             {range === 'all' && (
-            <Card>
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Monthly Trend</h3>
-                <span className="text-xs text-gray-400 dark:text-gray-600">{trend.label}</span>
-              </div>
-              <div className="grid grid-cols-3 gap-x-4 gap-y-5">
-                {([
-                  { label: 'Sessions',      thisVal: trend.thisMonth.sessions           ?? 0, lastVal: trend.lastMonth.sessions           ?? 0, fmt: (n: number) => n.toLocaleString(),  lowerIsBetter: false },
-                  { label: 'Tool Calls',    thisVal: trend.thisMonth.toolCalls           ?? 0, lastVal: trend.lastMonth.toolCalls           ?? 0, fmt: (n: number) => n.toLocaleString(),  lowerIsBetter: false },
-                  { label: 'Active Days',   thisVal: trend.thisMonth.activeDays          ?? 0, lastVal: trend.lastMonth.activeDays          ?? 0, fmt: (n: number) => n.toLocaleString(),  lowerIsBetter: false },
-                  { label: 'Avg Duration',  thisVal: trend.thisMonth.avgDurationMs       ?? 0, lastVal: trend.lastMonth.avgDurationMs       ?? 0, fmt: (n: number) => fmtDuration(n),      lowerIsBetter: false },
-                  { label: 'Est. Cost',     thisVal: trend.thisMonth.costUSD              ?? 0, lastVal: trend.lastMonth.costUSD              ?? 0, fmt: (n: number) => fmtUSD(n),           lowerIsBetter: true  },
-                  { label: 'Context Waste', thisVal: trend.thisMonth.contextWasteChars   ?? 0, lastVal: trend.lastMonth.contextWasteChars   ?? 0, fmt: (n: number) => fmtChars(n) + ' chars', lowerIsBetter: true  },
-                  { label: 'Skills Used',   thisVal: trend.thisMonth.skillInvocations    ?? 0, lastVal: trend.lastMonth.skillInvocations    ?? 0, fmt: (n: number) => n.toLocaleString(),  lowerIsBetter: false },
-                ]).map(row => {
-                  const delta = row.lastVal === 0 ? null : Math.round(((row.thisVal - row.lastVal) / row.lastVal) * 100)
-                  const positive = delta !== null && delta > 0
-                  const negative = delta !== null && delta < 0
-                  const good = row.lowerIsBetter ? negative : positive
-                  const bad  = row.lowerIsBetter ? positive : negative
-                  return (
-                    <div key={row.label} className="flex flex-col gap-0.5">
-                      <p className="text-[10px] text-gray-400 dark:text-gray-600 uppercase tracking-wide">{row.label}</p>
-                      <p className="text-lg font-bold text-gray-900 dark:text-gray-100 tabular-nums leading-tight">{row.fmt(row.thisVal)}</p>
-                      {delta !== null && (
-                        <span className={`text-xs font-medium ${good ? 'text-emerald-500' : bad ? 'text-rose-400' : 'text-gray-400'}`}>
-                          {positive ? '↑' : negative ? '↓' : '—'} {Math.abs(delta)}%
-                        </span>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-            </Card>
+              <Card>
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Monthly Trend</h3>
+                  <span className="text-xs text-gray-400 dark:text-gray-600">{trend.label}</span>
+                </div>
+                <div className="grid grid-cols-3 gap-x-4 gap-y-5">
+                  {([
+                    { label: 'Sessions',      thisVal: trend.thisMonth.sessions           ?? 0, lastVal: trend.lastMonth.sessions           ?? 0, fmt: (n: number) => n.toLocaleString(),  lowerIsBetter: false },
+                    { label: 'Tool Calls',    thisVal: trend.thisMonth.toolCalls           ?? 0, lastVal: trend.lastMonth.toolCalls           ?? 0, fmt: (n: number) => n.toLocaleString(),  lowerIsBetter: false },
+                    { label: 'Active Days',   thisVal: trend.thisMonth.activeDays          ?? 0, lastVal: trend.lastMonth.activeDays          ?? 0, fmt: (n: number) => n.toLocaleString(),  lowerIsBetter: false },
+                    { label: 'Avg Duration',  thisVal: trend.thisMonth.avgDurationMs       ?? 0, lastVal: trend.lastMonth.avgDurationMs       ?? 0, fmt: (n: number) => fmtDuration(n),      lowerIsBetter: false },
+                    { label: 'Est. Cost',     thisVal: trend.thisMonth.costUSD              ?? 0, lastVal: trend.lastMonth.costUSD              ?? 0, fmt: (n: number) => fmtUSD(n),           lowerIsBetter: true  },
+                    { label: 'Context Waste', thisVal: trend.thisMonth.contextWasteChars   ?? 0, lastVal: trend.lastMonth.contextWasteChars   ?? 0, fmt: (n: number) => fmtChars(n) + ' chars', lowerIsBetter: true  },
+                    { label: 'Skills Used',   thisVal: trend.thisMonth.skillInvocations    ?? 0, lastVal: trend.lastMonth.skillInvocations    ?? 0, fmt: (n: number) => n.toLocaleString(),  lowerIsBetter: false },
+                  ]).map(row => {
+                    const delta = row.lastVal === 0 ? null : Math.round(((row.thisVal - row.lastVal) / row.lastVal) * 100)
+                    const positive = delta !== null && delta > 0
+                    const negative = delta !== null && delta < 0
+                    const good = row.lowerIsBetter ? negative : positive
+                    const bad  = row.lowerIsBetter ? positive : negative
+                    return (
+                      <div key={row.label} className="flex flex-col gap-0.5">
+                        <p className="text-[10px] text-gray-400 dark:text-gray-600 uppercase tracking-wide">{row.label}</p>
+                        <p className="text-lg font-bold text-gray-900 dark:text-gray-100 tabular-nums leading-tight">{row.fmt(row.thisVal)}</p>
+                        {delta !== null && (
+                          <span className={`text-xs font-medium ${good ? 'text-emerald-500' : bad ? 'text-rose-400' : 'text-gray-400'}`}>
+                            {positive ? '↑' : negative ? '↓' : '—'} {Math.abs(delta)}%
+                          </span>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </Card>
             )}
-          </div>
+            <TaskPlaybookCard report={playbook} />
+          </AccordionSection>
 
-        </div>
-      )}
+          <AccordionSection id="skills" title="Skills" open={analyticsOpen.has('skills')} onToggle={() => toggleAnalytics('skills')}>
+            <div className="grid grid-cols-2 gap-5">
+              <SkillsCard skillUsage={skillUsage} agents={agents} />
+              <SkillGapsCard gaps={gaps} />
+            </div>
+            <McpServersCard servers={mcpServers} />
+          </AccordionSection>
 
-      {/* ── Cost ── */}
-      {insightTab === 'cost' && (
-        <div className="flex flex-col gap-5">
-          <CostPanel usage={usage} modelRows={modelRows} dailySeries={dailyCostSeries} maxDailyCost={maxDailyCost} hasData={hasUsageData} dailySeriesDays={costSeriesDays} costByTask={costByTask} thinking={thinking} sessions={filtered} forecast={forecast} />
-          <ModelMixTrendCard sessions={filtered} />
-          <CacheEfficiencyCard rows={cacheRanking} onOpenSession={id => onOpenSession(id)} />
-        </div>
-      )}
-
-      {/* ── Efficiency ── */}
-      {insightTab === 'efficiency' && (
-        <div className="flex flex-col gap-5">
-          <QualityDistributionCard sessions={filtered} />
-          <QualityTrendCard sessions={filtered} />
-          <ContextHotspotsCard stats={contextHotspots} onOpenSession={onOpenSession} />
-          <ThinkingDepthCard stats={thinking} onOpenSession={onOpenSession} />
-          <EfficiencyPanel breakdown={bashBreakdown} antiPatterns={antiPatterns} />
-          <SlowestToolsCard calls={slowCalls} onOpenSession={onOpenSession} />
-          <InterruptCard stats={interrupts} onOpenSession={id => onOpenSession(id)} />
-          <ThrashCard sessions={thrashSess} onOpenSession={id => onOpenSession(id)} />
-          <ToolErrorsCard stats={errorStats} />
-        </div>
-      )}
-
-      {/* ── Skills ── */}
-      {insightTab === 'skills' && (
-        <div className="flex flex-col gap-5">
-          <div className="grid grid-cols-2 gap-5">
-            <SkillsCard skillUsage={skillUsage} agents={agents} />
-            <SkillGapsCard gaps={gaps} />
-          </div>
-          <McpServersCard servers={mcpServers} />
         </div>
       )}
 
       {/* ── Projects ── */}
       {insightTab === 'projects' && (
-        <div className="flex flex-col gap-5">
-          <ProjectHealthCard health={health} sessions={filtered} />
-          <div className="grid grid-cols-2 gap-5">
-            <MultiFileSessionsCard sessions={multiFileSess} onOpenSession={id => onOpenSession(id)} />
-            <HotFilesCard files={files} />
+        selectedProject ? (
+          <ProjectDetailView
+            project={selectedProject}
+            sessions={filtered}
+            onBack={() => setSelectedProject(null)}
+            onOpenSession={onOpenSession}
+          />
+        ) : (
+          <div className="flex flex-col gap-5">
+            <ProjectHealthCard health={health} sessions={filtered} onSelect={setSelectedProject} />
+            <div className="grid grid-cols-2 gap-5">
+              <MultiFileSessionsCard sessions={multiFileSess} onOpenSession={id => onOpenSession(id)} />
+              <HotFilesCard files={files} />
+            </div>
+            <Card>
+              <ProjectTree projects={projects} sessions={sessions} onOpenSession={onOpenSession} />
+            </Card>
           </div>
-          <Card>
-            <ProjectTree projects={projects} sessions={sessions} onOpenSession={onOpenSession} />
-          </Card>
-        </div>
+        )
       )}
 
       {deepDiveTool && (
