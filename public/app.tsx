@@ -494,6 +494,6 @@ function App() {
   )
 }
 
-inject({ mode: import.meta.env.DEV ? 'development' : 'production' })
+inject()
 
 createRoot(document.getElementById('root')!).render(<App />)
