@@ -3,6 +3,7 @@ import { RiGitBranchLine, RiStarFill, RiStarLine, RiStickyNoteLine } from 'react
 import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso'
 import type { Session } from '../../src/types'
 import { sessionCostUSD, goldStandardSessions } from '../../src/analyzer'
+import { sessionQualityScore } from '../../src/quality'
 import { sessionRecommendations } from '../../src/recommendations'
 import { fmt, fmtDuration, fmtPace, fmtUSD } from '../lib/format'
 import { useBookmarks, useNotes } from '../lib/prefs'
@@ -77,7 +78,7 @@ function SessionRowBadges({ id, badges, selected }: { id: string; badges: Sessio
   )
 }
 
-type SortKey = 'recent' | 'oldest' | 'cost' | 'turns' | 'duration' | 'calls'
+type SortKey = 'recent' | 'oldest' | 'cost' | 'turns' | 'duration' | 'calls' | 'quality'
 
 const SORT_LABELS: Record<SortKey, string> = {
   recent:   'Recent',
@@ -86,6 +87,7 @@ const SORT_LABELS: Record<SortKey, string> = {
   turns:    'Turns',
   duration: 'Duration',
   calls:    'Tool calls',
+  quality:  'Quality',
 }
 
 function sortValue(s: Session, key: SortKey): number {
@@ -96,6 +98,7 @@ function sortValue(s: Session, key: SortKey): number {
     case 'turns':    return s.turns.length
     case 'duration': return s.durationMs
     case 'calls':    return s.stats.toolCallCount
+    case 'quality':  { const q = sessionQualityScore(s); return q.rated ? q.score : -1 }
   }
 }
 
@@ -384,6 +387,24 @@ export function SessionsTab({ sessions, initialSessionId, scrollToTurnId, onSess
                       <span className={`text-xs tabular-nums ${selected?.id === s.id ? 'text-indigo-200' : 'text-gray-500 dark:text-gray-600'}`}>
                         {sortKey === 'cost' ? fmtUSD(sessionCostUSD(s)) : fmtPace(s.durationMs, s.stats.toolCallCount)}
                       </span>
+                      {(() => {
+                        const q = sessionQualityScore(s)
+                        if (!q.rated) return null
+                        const isSelected = selected?.id === s.id
+                        const gradeColor: Record<string, string> = {
+                          A: isSelected ? 'text-green-300' : 'text-green-600 dark:text-green-400',
+                          B: isSelected ? 'text-blue-300' : 'text-blue-500 dark:text-blue-400',
+                          C: isSelected ? 'text-amber-300' : 'text-amber-500 dark:text-amber-400',
+                          D: isSelected ? 'text-amber-300' : 'text-amber-500 dark:text-amber-400',
+                          F: isSelected ? 'text-red-300' : 'text-red-500 dark:text-red-400',
+                        }
+                        return <>
+                          <span className={`text-xs ${isSelected ? 'text-indigo-300' : 'text-gray-400 dark:text-gray-700'}`}>·</span>
+                          <span className={`text-xs font-semibold ${gradeColor[q.grade]}`} title={`Quality grade: ${q.grade} (${q.score}/100)`}>
+                            {q.grade}
+                          </span>
+                        </>
+                      })()}
                     </div>
                     {s.gitBranch && (
                       <div className={`flex items-center gap-1 mt-0.5 text-xs truncate ${selected?.id === s.id ? 'text-indigo-200' : 'text-gray-500 dark:text-gray-600'}`}>

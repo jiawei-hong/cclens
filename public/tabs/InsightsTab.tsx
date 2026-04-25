@@ -1,9 +1,10 @@
 import React, { useState } from 'react'
-import { summarizeProjects, globalToolStats, activityByHour, sessionDepthStats, taskBreakdown, trendStats, bashAntiPatterns, bashCommandBreakdown, skillUsageStats, skillGaps, agentBreakdown, hotFiles, multiFileSessions, thrashingSessions, totalUsage, usageByModel, dailyCost, toolErrorRates, activityHeatmap, slowestToolCalls, mcpUsageStats, contextWindowHotspots, costByTaskType, thinkingStats, sessionCacheRanking, interruptStats, monthlyCostForecast, goldStandardSessions } from '../../src/analyzer'
+import { summarizeProjects, globalToolStats, activityByHour, sessionDepthStats, taskBreakdown, trendStats, bashAntiPatterns, bashCommandBreakdown, skillUsageStats, skillGaps, agentBreakdown, hotFiles, multiFileSessions, thrashingSessions, totalUsage, usageByModel, dailyCost, toolErrorRates, activityHeatmap, slowestToolCalls, mcpUsageStats, contextWindowHotspots, costByTaskType, thinkingStats, sessionCacheRanking, interruptStats, monthlyCostForecast, goldStandardSessions, costOfUsage } from '../../src/analyzer'
 import type { SessionType, BashAntiPattern, BashCategory, SkillUsage, SkillGap, AgentTypeUsage, HotFile, MultiFileSession, ThrashSession, TotalUsage, ModelUsageRow, ToolErrorStats, HeatmapCell, SlowToolCall, McpServerUsage, ContextHotspotStats, CostByTaskRow, ThinkingStats, SessionCacheStats, InterruptStats, MonthlyForecast, GoldStandardSession } from '../../src/analyzer'
 import { aggregateRecommendations, recommendationTrend, projectHealth, recentRegressions, type RecAggregate, type RecCategory, type RecSeverity, type RecTrend, type RuleTrend, type RuleTrendDirection, type ProjectHealth, type RegressionReport, type Regression } from '../../src/recommendations'
 import { userHabitsTrend, type HabitWithTrend, type HabitStatus, type HabitTrendDirection } from '../../src/habits'
 import { taskTypePlaybook, type PlaybookReport, type TaskTypePlaybook, type PlaybookTip } from '../../src/playbook'
+import { sessionQualityScore } from '../../src/quality'
 import { generateProjectClaudeMd, claudeMdRules, claudeMdDiff, claudeMdViolations, CLAUDE_MD_SECTION_ORDER, type ClaudeMdRule, type ClaudeMdViolationReport } from '../../src/claudeMd'
 import type { Session, ProjectSummary } from '../../src/types'
 import { fmt, fmtDuration, fmtPace, fmtToolDuration, fmtTokenCount, fmtUSD, fmtChars, fmtTokensFromChars } from '../lib/format'
@@ -340,6 +341,102 @@ function CostProjectionCard({ dailySeries, dailySeriesDays }: { dailySeries: { d
       <p className="text-[10px] text-gray-400 dark:text-gray-600 mt-3 leading-relaxed">
         Linear extrapolation from the calendar-day average. Does not account for thinking-mode underreporting or fast-mode pricing.
       </p>
+    </Card>
+  )
+}
+
+// ── Model Mix Trend Card ──────────────────────────────────────────────────────
+
+const MODEL_BAR_COLOR: Record<string, string> = {
+  opus:   'bg-purple-500',
+  sonnet: 'bg-sky-500',
+  haiku:  'bg-teal-500',
+  other:  'bg-gray-400',
+}
+const MODEL_TEXT_COLOR: Record<string, string> = {
+  opus:   'text-purple-600 dark:text-purple-400',
+  sonnet: 'text-sky-600 dark:text-sky-400',
+  haiku:  'text-teal-600 dark:text-teal-400',
+  other:  'text-gray-500 dark:text-gray-400',
+}
+const FAMILY_ORDER = ['opus', 'sonnet', 'haiku', 'other'] as const
+
+function modelFamily(model: string): string {
+  const m = model.toLowerCase()
+  if (m.includes('opus'))   return 'opus'
+  if (m.includes('haiku'))  return 'haiku'
+  if (m.includes('sonnet')) return 'sonnet'
+  return 'other'
+}
+
+function ModelMixTrendCard({ sessions }: { sessions: Session[] }) {
+  const weeks = React.useMemo(() => {
+    type Bucket = { key: string; label: string; opus: number; sonnet: number; haiku: number; other: number }
+    const map = new Map<string, Bucket>()
+    for (const s of sessions) {
+      const date = new Date(s.startedAt)
+      const key = getWeekKey(date)
+      const b = map.get(key) ?? { key, label: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), opus: 0, sonnet: 0, haiku: 0, other: 0 }
+      for (const [model, usage] of Object.entries(s.stats.modelUsage)) {
+        const cost = costOfUsage(usage, model)
+        const fam = modelFamily(model) as 'opus' | 'sonnet' | 'haiku' | 'other'
+        b[fam] += cost
+      }
+      map.set(key, b)
+    }
+    return [...map.values()]
+      .sort((a, b) => a.key.localeCompare(b.key))
+      .slice(-16) // last 16 weeks max
+  }, [sessions])
+
+  if (weeks.length < 2) return null
+
+  // Only interesting if >1 family appears
+  const families = FAMILY_ORDER.filter(f => weeks.some(w => w[f] > 0))
+  if (families.length < 2) return null
+
+  const maxTotal = Math.max(...weeks.map(w => families.reduce((s, f) => s + w[f], 0)), 0.0001)
+
+  return (
+    <Card>
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Model Mix Over Time</h3>
+        <div className="flex items-center gap-3">
+          {families.map(f => (
+            <span key={f} className={`flex items-center gap-1 text-[10px] font-medium ${MODEL_TEXT_COLOR[f]}`}>
+              <span className={`w-2 h-2 rounded-sm inline-block ${MODEL_BAR_COLOR[f]}`} />
+              {f}
+            </span>
+          ))}
+        </div>
+      </div>
+      <div className="flex items-end gap-[3px] h-20">
+        {weeks.map(w => {
+          const total = families.reduce((s, f) => s + w[f], 0)
+          const heightPct = total / maxTotal
+          return (
+            <div key={w.key} className="group relative flex-1 flex flex-col justify-end" style={{ height: '100%' }}>
+              <div className="flex flex-col-reverse rounded-sm overflow-hidden w-full" style={{ height: `${heightPct * 100}%` }}>
+                {families.map(f => {
+                  const frac = total > 0 ? w[f] / total : 0
+                  if (frac === 0) return null
+                  return <div key={f} className={`${MODEL_BAR_COLOR[f]} w-full flex-shrink-0`} style={{ height: `${frac * 100}%` }} />
+                })}
+              </div>
+              <div className="absolute bottom-full mb-1.5 left-1/2 -translate-x-1/2 bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 shadow-sm text-[10px] text-gray-700 dark:text-gray-300 px-2 py-1 rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-10">
+                <div className="font-medium mb-0.5">{w.label}</div>
+                {families.filter(f => w[f] > 0).map(f => (
+                  <div key={f} className={MODEL_TEXT_COLOR[f]}>{f}: {fmtUSD(w[f])}</div>
+                ))}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+      <div className="flex justify-between mt-1">
+        <span className="text-[10px] text-gray-400 dark:text-gray-700">{weeks[0]!.label}</span>
+        <span className="text-[10px] text-gray-400 dark:text-gray-700">{weeks[weeks.length - 1]!.label}</span>
+      </div>
     </Card>
   )
 }
@@ -1384,6 +1481,269 @@ function SkillGapsCard({ gaps }: { gaps: SkillGap[] }) {
   )
 }
 
+// ── Usage Persona Card ────────────────────────────────────────────────────────
+
+function UsagePersonaCard({
+  sessions,
+  tasks,
+  skillUsage,
+  modelRows,
+}: {
+  sessions: Session[]
+  tasks: { type: SessionType; count: number }[]
+  skillUsage: SkillUsage[]
+  modelRows: ModelUsageRow[]
+}) {
+  const stats = React.useMemo(() => {
+    if (sessions.length === 0) return null
+
+    // Sessions/week intensity
+    const dates = sessions.map(s => new Date(s.startedAt).getTime())
+    const oldest = Math.min(...dates)
+    const newest = Math.max(...dates)
+    const rangeWeeks = Math.max(1, (newest - oldest) / (7 * 24 * 60 * 60 * 1000))
+    const perWeek = sessions.length / rangeWeeks
+    const intensity = perWeek >= 7 ? 'Power user' : perWeek >= 3 ? 'Active' : perWeek >= 1 ? 'Regular' : 'Occasional'
+
+    // Avg quality
+    const scored = sessions.map(s => sessionQualityScore(s)).filter(q => q.rated)
+    const avgScore = scored.length > 0 ? scored.reduce((s, q) => s + q.score, 0) / scored.length : null
+    const avgGrade = avgScore === null ? null : avgScore >= 85 ? 'A' : avgScore >= 70 ? 'B' : avgScore >= 55 ? 'C' : avgScore >= 40 ? 'D' : 'F'
+
+    // Skills per session
+    const totalSkills = skillUsage.reduce((s, u) => s + u.count, 0)
+    const skillsPerSession = sessions.length > 0 ? totalSkills / sessions.length : 0
+
+    // Primary task
+    const top = tasks[0]
+    const primaryType = top ? top.type : null
+    const primaryPct = top ? Math.round((top.count / sessions.length) * 100) : 0
+
+    // Dominant model (by cost)
+    const topModel = modelRows.length > 0 ? modelRows[0]! : null
+
+    return { perWeek, intensity, avgScore, avgGrade, scored: scored.length, skillsPerSession, primaryType, primaryPct, topModel }
+  }, [sessions, tasks, skillUsage, modelRows])
+
+  if (!stats) return null
+
+  const gradeColor: Record<string, string> = {
+    A: 'text-emerald-600 dark:text-emerald-400',
+    B: 'text-blue-600 dark:text-blue-400',
+    C: 'text-amber-500 dark:text-amber-400',
+    D: 'text-orange-500 dark:text-orange-400',
+    F: 'text-rose-500 dark:text-rose-400',
+  }
+
+  const rows: { label: string; value: React.ReactNode }[] = [
+    {
+      label: 'Primary use',
+      value: stats.primaryType
+        ? <span><span className={`font-semibold capitalize ${taskTypeColor(stats.primaryType)}`}>{stats.primaryType}</span> <span className="text-gray-400 dark:text-gray-600">· {stats.primaryPct}% of sessions</span></span>
+        : <span className="text-gray-400">—</span>,
+    },
+    {
+      label: 'Intensity',
+      value: <span><span className="font-semibold text-gray-800 dark:text-gray-200">{stats.intensity}</span> <span className="text-gray-400 dark:text-gray-600">· {stats.perWeek.toFixed(1)} sessions/week</span></span>,
+    },
+    {
+      label: 'Quality',
+      value: stats.avgGrade
+        ? <span><span className={`font-semibold ${gradeColor[stats.avgGrade]}`}>Grade {stats.avgGrade}</span> <span className="text-gray-400 dark:text-gray-600">· avg {Math.round(stats.avgScore!)}/100 across {stats.scored} rated sessions</span></span>
+        : <span className="text-gray-400">Not enough data</span>,
+    },
+    {
+      label: 'Skills',
+      value: <span><span className="font-semibold text-gray-800 dark:text-gray-200">{stats.skillsPerSession.toFixed(1)}</span> <span className="text-gray-400 dark:text-gray-600">/session</span></span>,
+    },
+    {
+      label: 'Top model',
+      value: stats.topModel
+        ? <span className="font-semibold text-gray-800 dark:text-gray-200 font-mono text-[11px]">{stats.topModel.versionLabel}</span>
+        : <span className="text-gray-400">—</span>,
+    },
+  ]
+
+  return (
+    <Card>
+      <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-4">Your Profile</h3>
+      <div className="grid grid-cols-1 gap-2.5">
+        {rows.map(({ label, value }) => (
+          <div key={label} className="flex items-baseline gap-3">
+            <span className="text-[11px] text-gray-400 dark:text-gray-600 w-20 shrink-0">{label}</span>
+            <span className="text-xs">{value}</span>
+          </div>
+        ))}
+      </div>
+    </Card>
+  )
+}
+
+// ── Quality Distribution Card ─────────────────────────────────────────────────
+
+function QualityDistributionCard({ sessions }: { sessions: Session[] }) {
+  const dist = React.useMemo(() => {
+    const counts: Record<string, number> = { A: 0, B: 0, C: 0, D: 0, F: 0 }
+    let rated = 0
+    for (const s of sessions) {
+      const q = sessionQualityScore(s)
+      if (!q.rated) continue
+      counts[q.grade] = (counts[q.grade] ?? 0) + 1
+      rated++
+    }
+    return { counts, rated, total: sessions.length }
+  }, [sessions])
+
+  if (dist.rated === 0) return null
+
+  const grades = ['A', 'B', 'C', 'D', 'F'] as const
+  const gradeColors: Record<string, { bar: string; text: string; bg: string }> = {
+    A: { bar: 'bg-emerald-500', text: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-900/20' },
+    B: { bar: 'bg-blue-500',    text: 'text-blue-600 dark:text-blue-400',       bg: 'bg-blue-50 dark:bg-blue-900/20' },
+    C: { bar: 'bg-amber-400',   text: 'text-amber-600 dark:text-amber-400',     bg: 'bg-amber-50 dark:bg-amber-900/20' },
+    D: { bar: 'bg-orange-400',  text: 'text-orange-600 dark:text-orange-400',   bg: 'bg-orange-50 dark:bg-orange-900/20' },
+    F: { bar: 'bg-rose-500',    text: 'text-rose-600 dark:text-rose-400',       bg: 'bg-rose-50 dark:bg-rose-900/20' },
+  }
+
+  // Top grade by count for summary
+  const topGrade = grades.reduce((a, b) => ((dist.counts[a] ?? 0) >= (dist.counts[b] ?? 0) ? a : b))
+
+  return (
+    <Card>
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Quality Distribution</h3>
+        <span className="text-[10px] text-gray-400 dark:text-gray-600 tabular-nums">
+          {dist.rated} of {dist.total} sessions rated
+        </span>
+      </div>
+      <div className="flex flex-col gap-2">
+        {grades.map(g => {
+          const count = dist.counts[g] ?? 0
+          const pct = dist.rated > 0 ? (count / dist.rated) * 100 : 0
+          const colors = gradeColors[g]!
+          return (
+            <div key={g} className="flex items-center gap-3">
+              <span className={`text-xs font-bold w-4 shrink-0 ${colors.text}`}>{g}</span>
+              <div className="flex-1 bg-gray-100 dark:bg-gray-800 rounded-full h-2">
+                <div className={`h-2 rounded-full ${colors.bar} transition-all`} style={{ width: `${pct}%` }} />
+              </div>
+              <span className="text-xs text-gray-500 dark:text-gray-400 w-20 text-right tabular-nums">
+                {count} ({Math.round(pct)}%)
+              </span>
+            </div>
+          )
+        })}
+      </div>
+      <p className="mt-3 text-[11px] text-gray-400 dark:text-gray-600">
+        Most sessions grade <span className={`font-semibold ${gradeColors[topGrade]!.text}`}>{topGrade}</span>
+        {' '}· A = ≥85, B = ≥70, C = ≥55, D = ≥40, F &lt; 40
+      </p>
+    </Card>
+  )
+}
+
+// ── Quality Trend Card ────────────────────────────────────────────────────────
+
+function getWeekKey(date: Date): string {
+  const d = new Date(date)
+  d.setHours(0, 0, 0, 0)
+  d.setDate(d.getDate() + 4 - (d.getDay() || 7))
+  const yearStart = new Date(d.getFullYear(), 0, 1)
+  const weekNo = Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7)
+  return `${d.getFullYear()}-W${String(weekNo).padStart(2, '0')}`
+}
+
+function QualityTrendCard({ sessions }: { sessions: Session[] }) {
+  const weeks = React.useMemo(() => {
+    const map = new Map<string, { total: number; count: number; label: string }>()
+    for (const s of sessions) {
+      const q = sessionQualityScore(s)
+      if (!q.rated) continue
+      const date = new Date(s.startedAt)
+      const key = getWeekKey(date)
+      const e = map.get(key) ?? { total: 0, count: 0, label: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) }
+      e.total += q.score
+      e.count++
+      map.set(key, e)
+    }
+    return [...map.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([, { total, count, label }]) => ({ avg: total / count, count, label }))
+  }, [sessions])
+
+  if (weeks.length < 2) return null
+
+  const W = 600
+  const H = 80
+  const PAD = { top: 8, right: 12, bottom: 8, left: 12 }
+  const iw = W - PAD.left - PAD.right
+  const ih = H - PAD.top - PAD.bottom
+
+  const yScale = (v: number) => PAD.top + ih - (v / 100) * ih
+  const xScale = (i: number) => PAD.left + (i / (weeks.length - 1)) * iw
+
+  const points = weeks.map((w, i) => `${xScale(i)},${yScale(w.avg)}`).join(' ')
+  const areaBottom = PAD.top + ih
+  const areaPath = `M${xScale(0)},${areaBottom} L${weeks.map((w, i) => `${xScale(i)},${yScale(w.avg)}`).join(' L')} L${xScale(weeks.length - 1)},${areaBottom} Z`
+
+  // Trend: last 3 weeks vs prior 3 weeks
+  const half = Math.floor(weeks.length / 2)
+  const recent = weeks.slice(-Math.min(3, half + 1))
+  const prior  = weeks.slice(0, Math.min(3, half))
+  const recentAvg = recent.reduce((s, w) => s + w.avg, 0) / recent.length
+  const priorAvg  = prior.length > 0 ? prior.reduce((s, w) => s + w.avg, 0) / prior.length : recentAvg
+  const delta = recentAvg - priorAvg
+  const trendColor = delta > 3 ? '#10b981' : delta < -3 ? '#f43f5e' : '#6366f1'
+  const trendLabel = delta > 3 ? `↑ ${delta.toFixed(0)}pt improving` : delta < -3 ? `↓ ${Math.abs(delta).toFixed(0)}pt worsening` : '→ stable'
+  const trendTextColor = delta > 3 ? 'text-emerald-500' : delta < -3 ? 'text-rose-400' : 'text-gray-400 dark:text-gray-600'
+
+  const THRESHOLDS = [
+    { score: 85, label: 'A', color: '#10b981' },
+    { score: 70, label: 'B', color: '#3b82f6' },
+    { score: 55, label: 'C', color: '#f59e0b' },
+    { score: 40, label: 'D', color: '#f97316' },
+  ]
+
+  return (
+    <Card>
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Quality Trend</h3>
+        <span className={`text-[10px] font-medium tabular-nums ${trendTextColor}`}>{trendLabel}</span>
+      </div>
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-20" preserveAspectRatio="none">
+        <defs>
+          <linearGradient id="qt-fill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={trendColor} stopOpacity="0.2" />
+            <stop offset="100%" stopColor={trendColor} stopOpacity="0.02" />
+          </linearGradient>
+        </defs>
+        {THRESHOLDS.map(t => {
+          const y = yScale(t.score)
+          if (y < PAD.top || y > PAD.top + ih) return null
+          return (
+            <g key={t.label}>
+              <line x1={PAD.left} y1={y} x2={PAD.left + iw} y2={y}
+                stroke={t.color} strokeWidth="0.75" strokeDasharray="3 4" opacity="0.4" />
+              <text x={PAD.left - 2} y={y + 3} fontSize="7" fill={t.color} opacity="0.6" textAnchor="end">{t.label}</text>
+            </g>
+          )
+        })}
+        <path d={areaPath} fill="url(#qt-fill)" />
+        <polyline points={points} fill="none" stroke={trendColor} strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
+        {weeks.map((w, i) => (
+          <circle key={i} cx={xScale(i)} cy={yScale(w.avg)} r="2.5" fill={trendColor} opacity="0.8">
+            <title>{w.label} · avg {Math.round(w.avg)}/100 ({w.count} session{w.count === 1 ? '' : 's'})</title>
+          </circle>
+        ))}
+      </svg>
+      <div className="flex justify-between mt-1">
+        <span className="text-[10px] text-gray-400 dark:text-gray-700">{weeks[0]!.label}</span>
+        <span className="text-[10px] text-gray-400 dark:text-gray-700">{weeks[weeks.length - 1]!.label}</span>
+      </div>
+    </Card>
+  )
+}
+
 // ── Activity & Performance Cards ──────────────────────────────────────────────
 
 function heatmapCellColor(count: number, max: number): string {
@@ -1395,10 +1755,29 @@ function heatmapCellColor(count: number, max: number): string {
   return 'bg-indigo-200 dark:bg-indigo-900'
 }
 
-function ActivityHeatmapCard({ cells }: { cells: HeatmapCell[] }) {
+function qualityCellColor(score: number | undefined): string {
+  if (score === undefined) return 'bg-gray-100 dark:bg-gray-800'
+  if (score >= 85) return 'bg-emerald-500 dark:bg-emerald-400'
+  if (score >= 70) return 'bg-blue-500 dark:bg-blue-400'
+  if (score >= 55) return 'bg-amber-400 dark:bg-amber-400'
+  if (score >= 40) return 'bg-orange-400 dark:bg-orange-400'
+  return 'bg-rose-500 dark:bg-rose-400'
+}
+
+function scoreToGrade(score: number): string {
+  if (score >= 85) return 'A'
+  if (score >= 70) return 'B'
+  if (score >= 55) return 'C'
+  if (score >= 40) return 'D'
+  return 'F'
+}
+
+function ActivityHeatmapCard({ cells, qualityByDate }: { cells: HeatmapCell[]; qualityByDate?: Map<string, number> }) {
+  const [mode, setMode] = React.useState<'count' | 'quality'>('count')
   const max = Math.max(...cells.map(c => c.count), 1)
   const totalSessions = cells.reduce((s, c) => s + c.count, 0)
   const activeDays = cells.filter(c => c.count > 0).length
+  const hasQuality = qualityByDate && qualityByDate.size > 0
 
   const weeks: HeatmapCell[][] = []
   for (const c of cells) {
@@ -1427,9 +1806,27 @@ function ActivityHeatmapCard({ cells }: { cells: HeatmapCell[] }) {
         <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
           Activity <span className="font-normal text-gray-400">— last {weeks.length} weeks</span>
         </h3>
-        <span className="text-[10px] text-gray-400 dark:text-gray-600 tabular-nums">
-          {totalSessions} sessions · {activeDays} active days
-        </span>
+        <div className="flex items-center gap-3">
+          {hasQuality && (
+            <div className="flex items-center gap-1 text-[10px]">
+              <button
+                onClick={() => setMode('count')}
+                className={`px-1.5 py-0.5 rounded ${mode === 'count' ? 'bg-indigo-100 dark:bg-indigo-900 text-indigo-600 dark:text-indigo-300 font-semibold' : 'text-gray-400 dark:text-gray-600 hover:text-gray-600 dark:hover:text-gray-400'}`}
+              >
+                Frequency
+              </button>
+              <button
+                onClick={() => setMode('quality')}
+                className={`px-1.5 py-0.5 rounded ${mode === 'quality' ? 'bg-indigo-100 dark:bg-indigo-900 text-indigo-600 dark:text-indigo-300 font-semibold' : 'text-gray-400 dark:text-gray-600 hover:text-gray-600 dark:hover:text-gray-400'}`}
+              >
+                Quality
+              </button>
+            </div>
+          )}
+          <span className="text-[10px] text-gray-400 dark:text-gray-600 tabular-nums">
+            {totalSessions} sessions · {activeDays} active days
+          </span>
+        </div>
       </div>
       <div className="flex gap-2">
         <div className="flex flex-col gap-[3px] pt-4 text-[9px] text-gray-400 dark:text-gray-600 font-medium">
@@ -1448,26 +1845,52 @@ function ActivityHeatmapCard({ cells }: { cells: HeatmapCell[] }) {
           <div className="flex gap-[3px]">
             {weeks.map((week, wi) => (
               <div key={wi} className="flex flex-col gap-[3px]">
-                {week.map(c => (
-                  <div key={c.date} className="group relative">
-                    <div
-                      className={`w-[11px] h-[11px] rounded-[2px] ${heatmapCellColor(c.count, max)} hover:ring-2 hover:ring-indigo-400 hover:ring-offset-0 transition-shadow cursor-default`}
-                    />
-                    <div className="absolute bottom-full mb-1.5 left-1/2 -translate-x-1/2 bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 shadow-sm text-[11px] text-gray-700 dark:text-gray-300 px-2 py-1 rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-10">
-                      {c.count === 0 ? 'No sessions' : `${c.count} session${c.count === 1 ? '' : 's'}`} · {c.date}
+                {week.map(c => {
+                  const qs = mode === 'quality' ? qualityByDate?.get(c.date) : undefined
+                  const cellColor = mode === 'quality'
+                    ? qualityCellColor(c.count > 0 ? qs : undefined)
+                    : heatmapCellColor(c.count, max)
+                  const tooltip = c.count === 0
+                    ? `No sessions · ${c.date}`
+                    : mode === 'quality' && qs !== undefined
+                      ? `${c.count} session${c.count === 1 ? '' : 's'} · avg grade ${scoreToGrade(qs)} (${Math.round(qs)}) · ${c.date}`
+                      : `${c.count} session${c.count === 1 ? '' : 's'} · ${c.date}`
+                  return (
+                    <div key={c.date} className="group relative">
+                      <div
+                        className={`w-[11px] h-[11px] rounded-[2px] ${cellColor} hover:ring-2 hover:ring-indigo-400 hover:ring-offset-0 transition-shadow cursor-default`}
+                      />
+                      <div className="absolute bottom-full mb-1.5 left-1/2 -translate-x-1/2 bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 shadow-sm text-[11px] text-gray-700 dark:text-gray-300 px-2 py-1 rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-10">
+                        {tooltip}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             ))}
           </div>
-          <div className="flex items-center justify-end gap-1.5 mt-2 text-[9px] text-gray-400 dark:text-gray-600">
-            <span>Less</span>
-            {[0, 0.2, 0.4, 0.7, 1].map(r => (
-              <div key={r} className={`w-[11px] h-[11px] rounded-[2px] ${heatmapCellColor(Math.ceil(r * max), max)}`} />
-            ))}
-            <span>More</span>
-          </div>
+          {mode === 'count' ? (
+            <div className="flex items-center justify-end gap-1.5 mt-2 text-[9px] text-gray-400 dark:text-gray-600">
+              <span>Less</span>
+              {[0, 0.2, 0.4, 0.7, 1].map(r => (
+                <div key={r} className={`w-[11px] h-[11px] rounded-[2px] ${heatmapCellColor(Math.ceil(r * max), max)}`} />
+              ))}
+              <span>More</span>
+            </div>
+          ) : (
+            <div className="flex items-center justify-end gap-1.5 mt-2 text-[9px] text-gray-400 dark:text-gray-600">
+              {(['A', 'B', 'C', 'D', 'F'] as const).map((g, i) => {
+                const scores = { A: 90, B: 75, C: 62, D: 42, F: 20 }
+                return (
+                  <React.Fragment key={g}>
+                    <div className={`w-[11px] h-[11px] rounded-[2px] ${qualityCellColor(scores[g])}`} />
+                    <span>{g}</span>
+                  </React.Fragment>
+                )
+              })}
+              <span className="ml-1 text-gray-300 dark:text-gray-700">avg grade</span>
+            </div>
+          )}
         </div>
       </div>
     </Card>
@@ -1929,7 +2352,27 @@ function median(nums: number[]): number {
     : sorted[mid]!
 }
 
-function ProjectHealthCard({ health }: { health: ProjectHealth[] }) {
+function ProjectHealthCard({ health, sessions }: { health: ProjectHealth[]; sessions?: Session[] }) {
+  const qualityByProject = React.useMemo(() => {
+    if (!sessions) return new Map<string, { avg: number; grade: string }>()
+    const acc = new Map<string, { total: number; count: number }>()
+    for (const s of sessions) {
+      const q = sessionQualityScore(s)
+      if (!q.rated) continue
+      const e = acc.get(s.project) ?? { total: 0, count: 0 }
+      e.total += q.score
+      e.count++
+      acc.set(s.project, e)
+    }
+    const result = new Map<string, { avg: number; grade: string }>()
+    for (const [project, { total, count }] of acc) {
+      const avg = total / count
+      const grade = avg >= 85 ? 'A' : avg >= 70 ? 'B' : avg >= 55 ? 'C' : avg >= 40 ? 'D' : 'F'
+      result.set(project, { avg, grade })
+    }
+    return result
+  }, [sessions])
+
   if (health.length === 0) {
     return (
       <Card>
@@ -2021,7 +2464,15 @@ function ProjectHealthCard({ health }: { health: ProjectHealth[] }) {
             <span className={`text-sm font-semibold tabular-nums w-10 text-right shrink-0 ${scoreTone(h.score)}`}>{h.score}</span>
             <div className="flex-1 min-w-0 flex items-center gap-2">
               <div className="flex-1 min-w-0">
-                <span className="text-sm text-gray-800 dark:text-gray-200 truncate block">{h.project}</span>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-sm text-gray-800 dark:text-gray-200 truncate">{h.project}</span>
+                  {(() => {
+                    const qp = qualityByProject.get(h.project)
+                    if (!qp) return null
+                    const gc: Record<string, string> = { A: 'text-emerald-600 dark:text-emerald-400', B: 'text-blue-500 dark:text-blue-400', C: 'text-amber-500 dark:text-amber-400', D: 'text-orange-500 dark:text-orange-400', F: 'text-rose-500 dark:text-rose-400' }
+                    return <span className={`text-[10px] font-bold shrink-0 ${gc[qp.grade] ?? ''}`} title={`Avg session quality: ${Math.round(qp.avg)}/100`}>{qp.grade}</span>
+                  })()}
+                </div>
                 <div className="h-1 mt-1 rounded-full bg-gray-100 dark:bg-gray-800 overflow-hidden">
                   <div className={`h-1 rounded-full ${barFill(h.score)}`} style={{ width: `${h.score}%` }} />
                 </div>
@@ -2280,6 +2731,19 @@ export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; 
   const thinking = React.useMemo(() => thinkingStats(filtered, 10), [filtered])
   const cacheRanking = React.useMemo(() => sessionCacheRanking(filtered), [filtered])
   const heatmap = React.useMemo(() => activityHeatmap(sessions, 14), [sessions])  // fixed 14-week view
+  const qualityByDate = React.useMemo(() => {
+    const acc = new Map<string, { total: number; count: number }>()
+    for (const s of sessions) {
+      const q = sessionQualityScore(s)
+      if (!q.rated) continue
+      const date = s.startedAt.slice(0, 10)
+      const e = acc.get(date) ?? { total: 0, count: 0 }
+      e.total += q.score
+      e.count += 1
+      acc.set(date, e)
+    }
+    return new Map([...acc.entries()].map(([d, { total, count }]) => [d, total / count]))
+  }, [sessions])
   const forecast = React.useMemo(() => monthlyCostForecast(sessions), [sessions])  // full history — month-over-month
   const recAgg = React.useMemo(() => aggregateRecommendations(filtered), [filtered])
   const recTrend = React.useMemo(() => recommendationTrend(sessions), [sessions])  // full history — month-over-month
@@ -2292,7 +2756,37 @@ export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; 
   const maxTool = Math.max(...topTools.map(t => t.count), 1)
   const maxDailyCost = Math.max(...dailyCostSeries.map(d => d.costUSD), 0.0001)
 
+  const qualityByHour = React.useMemo(() => {
+    const acc = Array.from({ length: 24 }, () => ({ total: 0, count: 0 }))
+    for (const s of filtered) {
+      const q = sessionQualityScore(s)
+      if (!q.rated) continue
+      const hour = new Date(s.startedAt).getHours()
+      acc[hour]!.total += q.score
+      acc[hour]!.count++
+    }
+    return acc.map((e, hour) => ({ hour, avg: e.count > 0 ? e.total / e.count : null, ratedCount: e.count }))
+  }, [filtered])
+
+  const qualityByDow = React.useMemo(() => {
+    const dow = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+    const acc = Array.from({ length: 7 }, () => ({ total: 0, rated: 0, sessions: 0 }))
+    for (const s of filtered) {
+      const d = new Date(s.startedAt).getDay()
+      acc[d]!.sessions++
+      const q = sessionQualityScore(s)
+      if (!q.rated) continue
+      acc[d]!.total += q.score
+      acc[d]!.rated++
+    }
+    return acc.map((e, d) => ({ label: dow[d]!, sessions: e.sessions, avg: e.rated > 0 ? e.total / e.rated : null, ratedCount: e.rated }))
+  }, [filtered])
+
+  const hasHourQuality = qualityByHour.some(h => h.avg !== null)
+  const hasDowQuality  = qualityByDow.some(d => d.avg !== null)
+
   const [insightTab, setInsightTab] = useState<'opportunities' | 'overview' | 'cost' | 'efficiency' | 'skills' | 'projects'>('opportunities')
+  const [hourMode, setHourMode] = useState<'count' | 'quality'>('count')
   const totalToolCalls = topTools.reduce((s, t) => s + t.count, 0)
 
   // Sub-tabs render via <TabGroup variant="subtle"> below.
@@ -2375,6 +2869,7 @@ export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; 
       {insightTab === 'overview' && (
         <div className="flex flex-col gap-5">
           <RegressionAlertCard report={regressions} />
+          <UsagePersonaCard sessions={filtered} tasks={tasks} skillUsage={skillUsage} modelRows={modelRows} />
           <YourHabitsCard sessions={filtered} />
           <TaskPlaybookCard report={playbook} />
           <div className="grid grid-cols-2 gap-5">
@@ -2401,19 +2896,36 @@ export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; 
 
             {/* Activity charts stacked */}
             <div className="flex flex-col gap-3">
-              <ActivityHeatmapCard cells={heatmap} />
+              <ActivityHeatmapCard cells={heatmap} qualityByDate={qualityByDate} />
 
               <Card>
-                <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">By Hour of Day</h3>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">By Hour of Day</h3>
+                  {hasHourQuality && (
+                    <div className="flex items-center gap-1 text-[10px]">
+                      <button onClick={() => setHourMode('count')} className={`px-1.5 py-0.5 rounded ${hourMode === 'count' ? 'bg-indigo-100 dark:bg-indigo-900 text-indigo-600 dark:text-indigo-300 font-semibold' : 'text-gray-400 dark:text-gray-600 hover:text-gray-600 dark:hover:text-gray-400'}`}>Count</button>
+                      <button onClick={() => setHourMode('quality')} className={`px-1.5 py-0.5 rounded ${hourMode === 'quality' ? 'bg-indigo-100 dark:bg-indigo-900 text-indigo-600 dark:text-indigo-300 font-semibold' : 'text-gray-400 dark:text-gray-600 hover:text-gray-600 dark:hover:text-gray-400'}`}>Quality</button>
+                    </div>
+                  )}
+                </div>
                 <div className="relative h-16 flex items-end gap-px">
-                  {hourActivity.map(h => {
-                    const heightPx = Math.max(2, Math.round((h.count / maxHour) * 64))
+                  {hourActivity.map((h, i) => {
+                    const qh = qualityByHour[i]!
+                    const heightPx = Math.max(h.count > 0 ? 3 : 0, Math.round((h.count / maxHour) * 64))
+                    const barColor = hourMode === 'quality' && qh.avg !== null
+                      ? qualityCellColor(qh.avg).replace('bg-', 'bg-').replace(' dark:bg-', ' dark:bg-')
+                      : 'bg-violet-500/60 hover:bg-violet-400'
+                    const tooltip = hourMode === 'quality' && qh.avg !== null
+                      ? `${String(h.hour).padStart(2, '0')}:00 · avg ${scoreToGrade(qh.avg)} (${Math.round(qh.avg)}) · ${h.count} sessions`
+                      : `${String(h.hour).padStart(2, '0')}:00 · ${h.count} sessions`
                     return (
                       <div key={h.hour} className="group relative flex-1">
-                        <div className="w-full bg-violet-500/60 rounded-sm hover:bg-violet-400 transition-colors cursor-default" style={{ height: `${heightPx}px` }} />
-                        <div className="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 shadow-sm text-xs text-gray-700 dark:text-gray-300 px-2 py-1 rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-10">
-                          {String(h.hour).padStart(2, '0')}:00 · {h.count}
-                        </div>
+                        <div className={`w-full rounded-sm transition-colors cursor-default ${barColor}`} style={{ height: `${heightPx}px` }} />
+                        {h.count > 0 && (
+                          <div className="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 shadow-sm text-xs text-gray-700 dark:text-gray-300 px-2 py-1 rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-10">
+                            {tooltip}
+                          </div>
+                        )}
                       </div>
                     )
                   })}
@@ -2422,6 +2934,35 @@ export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; 
                   <span className="text-[10px] text-gray-400 dark:text-gray-700">0h</span>
                   <span className="text-[10px] text-gray-400 dark:text-gray-700">12h</span>
                   <span className="text-[10px] text-gray-400 dark:text-gray-700">23h</span>
+                </div>
+              </Card>
+
+              <Card>
+                <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">By Day of Week</h3>
+                <div className="flex items-end gap-1 h-14">
+                  {qualityByDow.map((d, i) => {
+                    const maxSess = Math.max(...qualityByDow.map(x => x.sessions), 1)
+                    const heightPx = Math.max(d.sessions > 0 ? 3 : 0, Math.round((d.sessions / maxSess) * 56))
+                    const barColor = hasDowQuality && d.avg !== null
+                      ? qualityCellColor(d.avg)
+                      : 'bg-violet-500/60'
+                    const tooltip = d.avg !== null
+                      ? `${d.label} · avg ${scoreToGrade(d.avg)} (${Math.round(d.avg)}) · ${d.sessions} sessions`
+                      : `${d.label} · ${d.sessions} sessions`
+                    return (
+                      <div key={i} className="group relative flex-1 flex flex-col items-center gap-1">
+                        <div className="w-full flex flex-col justify-end" style={{ height: '56px' }}>
+                          <div className={`w-full rounded-sm cursor-default ${barColor}`} style={{ height: `${heightPx}px` }} />
+                        </div>
+                        <span className="text-[9px] text-gray-400 dark:text-gray-600">{d.label.slice(0, 2)}</span>
+                        {d.sessions > 0 && (
+                          <div className="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 shadow-sm text-xs text-gray-700 dark:text-gray-300 px-2 py-1 rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-10">
+                            {tooltip}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
                 </div>
               </Card>
             </div>
@@ -2496,6 +3037,7 @@ export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; 
       {insightTab === 'cost' && (
         <div className="flex flex-col gap-5">
           <CostPanel usage={usage} modelRows={modelRows} dailySeries={dailyCostSeries} maxDailyCost={maxDailyCost} hasData={hasUsageData} dailySeriesDays={costSeriesDays} costByTask={costByTask} thinking={thinking} sessions={filtered} forecast={forecast} />
+          <ModelMixTrendCard sessions={filtered} />
           <CacheEfficiencyCard rows={cacheRanking} onOpenSession={id => onOpenSession(id)} />
         </div>
       )}
@@ -2503,6 +3045,8 @@ export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; 
       {/* ── Efficiency ── */}
       {insightTab === 'efficiency' && (
         <div className="flex flex-col gap-5">
+          <QualityDistributionCard sessions={filtered} />
+          <QualityTrendCard sessions={filtered} />
           <ContextHotspotsCard stats={contextHotspots} onOpenSession={onOpenSession} />
           <ThinkingDepthCard stats={thinking} onOpenSession={onOpenSession} />
           <EfficiencyPanel breakdown={bashBreakdown} antiPatterns={antiPatterns} />
@@ -2527,7 +3071,7 @@ export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; 
       {/* ── Projects ── */}
       {insightTab === 'projects' && (
         <div className="flex flex-col gap-5">
-          <ProjectHealthCard health={health} />
+          <ProjectHealthCard health={health} sessions={filtered} />
           <div className="grid grid-cols-2 gap-5">
             <MultiFileSessionsCard sessions={multiFileSess} onOpenSession={id => onOpenSession(id)} />
             <HotFilesCard files={files} />

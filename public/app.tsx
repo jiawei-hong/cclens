@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { Analytics } from '@vercel/analytics/react'
+import { inject } from '@vercel/analytics'
 import { createRoot } from 'react-dom/client'
 import { RiSunLine, RiMoonLine, RiComputerLine, RiArrowUpLine, RiSettings3Line, RiFolderHistoryLine } from 'react-icons/ri'
 import { parseSessionFiles, parseSessionFilesCached, parseMemoryFiles, parseMemoryFilesCached, type TrackedFile } from './lib/parser'
@@ -494,4 +494,6 @@ function App() {
   )
 }
 
-createRoot(document.getElementById('root')!).render(<><App /><Analytics /></>)
+inject({ mode: import.meta.env.DEV ? 'development' : 'production' })
+
+createRoot(document.getElementById('root')!).render(<App />)
