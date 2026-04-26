@@ -3443,6 +3443,82 @@ function HomeRecommendationsCard({ agg, onViewAll }: { agg: RecAggregate; onView
   )
 }
 
+function StreakCard({ sessions }: { sessions: Session[] }) {
+  const streakData = React.useMemo(() => {
+    const days = new Set(sessions.map(s => s.startedAt.slice(0, 10)))
+    if (days.size === 0) return null
+
+    const todayStr = new Date().toISOString().slice(0, 10)
+    const sortedDays = [...days].sort()
+
+    // current streak: count back from today (or yesterday if today empty)
+    let current = 0
+    let cursor = new Date()
+    cursor.setHours(0, 0, 0, 0)
+    if (!days.has(todayStr)) cursor.setDate(cursor.getDate() - 1)
+    while (days.has(cursor.toISOString().slice(0, 10))) {
+      current++
+      cursor.setDate(cursor.getDate() - 1)
+    }
+
+    // longest streak: scan sorted day list
+    let longest = 0
+    let runLen = 1
+    for (let i = 1; i < sortedDays.length; i++) {
+      const prev = new Date(sortedDays[i - 1]!)
+      const curr = new Date(sortedDays[i]!)
+      const diffDays = Math.round((curr.getTime() - prev.getTime()) / 86_400_000)
+      if (diffDays === 1) { runLen++ } else { longest = Math.max(longest, runLen); runLen = 1 }
+    }
+    longest = Math.max(longest, runLen)
+
+    const totalDays = days.size
+    const firstDay = sortedDays[0]!
+    const lastDay = sortedDays[sortedDays.length - 1]!
+    const spanDays = Math.round((new Date(lastDay).getTime() - new Date(firstDay).getTime()) / 86_400_000) + 1
+    const consistency = spanDays > 0 ? Math.round((totalDays / spanDays) * 100) : 0
+
+    return { current, longest, totalDays, consistency }
+  }, [sessions])
+
+  if (!streakData || streakData.totalDays === 0) return null
+
+  const { current, longest, totalDays, consistency } = streakData
+
+  const flameColor = current >= 7 ? 'text-amber-500' : current >= 3 ? 'text-orange-400' : 'text-gray-400 dark:text-gray-600'
+
+  return (
+    <Card>
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Coding Streak</h3>
+        <span className={`text-lg leading-none ${flameColor}`}>🔥</span>
+      </div>
+      <div className="grid grid-cols-4 gap-4">
+        <div className="flex flex-col gap-0.5">
+          <p className="text-[10px] text-gray-400 dark:text-gray-600 uppercase tracking-wide">Current</p>
+          <p className="text-xl font-bold text-gray-900 dark:text-gray-100 tabular-nums leading-tight">{current}</p>
+          <p className="text-[10px] text-gray-400 dark:text-gray-600">day{current !== 1 ? 's' : ''}</p>
+        </div>
+        <div className="flex flex-col gap-0.5">
+          <p className="text-[10px] text-gray-400 dark:text-gray-600 uppercase tracking-wide">Longest</p>
+          <p className="text-xl font-bold text-gray-900 dark:text-gray-100 tabular-nums leading-tight">{longest}</p>
+          <p className="text-[10px] text-gray-400 dark:text-gray-600">day{longest !== 1 ? 's' : ''}</p>
+        </div>
+        <div className="flex flex-col gap-0.5">
+          <p className="text-[10px] text-gray-400 dark:text-gray-600 uppercase tracking-wide">Total Days</p>
+          <p className="text-xl font-bold text-gray-900 dark:text-gray-100 tabular-nums leading-tight">{totalDays}</p>
+          <p className="text-[10px] text-gray-400 dark:text-gray-600">with sessions</p>
+        </div>
+        <div className="flex flex-col gap-0.5">
+          <p className="text-[10px] text-gray-400 dark:text-gray-600 uppercase tracking-wide">Consistency</p>
+          <p className="text-xl font-bold text-gray-900 dark:text-gray-100 tabular-nums leading-tight">{consistency}%</p>
+          <p className="text-[10px] text-gray-400 dark:text-gray-600">active days / span</p>
+        </div>
+      </div>
+    </Card>
+  )
+}
+
 function ThisWeekCard({ sessions, onViewProject }: { sessions: Session[]; onViewProject?: (p: string) => void }) {
   const now = Date.now()
   const DAY = 86_400_000
@@ -3856,7 +3932,10 @@ export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; 
       {/* ── Home ── */}
       {insightTab === 'home' && (
         <div className="flex flex-col gap-5">
-          <ThisWeekCard sessions={sessions} onViewProject={p => { setSelectedProject(p); setInsightTab('projects') }} />
+          <div className="grid grid-cols-2 gap-5">
+            <ThisWeekCard sessions={sessions} onViewProject={p => { setSelectedProject(p); setInsightTab('projects') }} />
+            <StreakCard sessions={sessions} />
+          </div>
           <RegressionAlertCard report={regressions} />
           <ProgressDashboardCard sessions={filtered} />
           <LastSessionPill session={sessions[0] ?? null} onOpen={onOpenSession} />
