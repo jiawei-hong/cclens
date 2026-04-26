@@ -3226,18 +3226,20 @@ function ProjectDetailView({ project, sessions, onBack, onOpenSession }: {
         ) : (
           <div className="flex flex-col gap-0.5">
             {sessionMetrics.map(({ session: s, cost, quality: q, cls }) => (
-              <button key={s.id} onClick={() => onOpenSession(s.id)}
-                className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors text-left group">
-                <span className="text-xs text-gray-500 dark:text-gray-500 w-24 shrink-0 tabular-nums">{fmt(s.startedAt)}</span>
-                <span className={`text-xs px-1.5 py-0.5 rounded-md w-20 text-center shrink-0 font-medium ${taskTypeColor(cls)}`}>{cls}</span>
-                <span className="text-xs text-gray-400 dark:text-gray-600 w-14 shrink-0 tabular-nums">{fmtDuration(s.durationMs)}</span>
-                <span className="text-xs text-gray-400 dark:text-gray-600 w-14 shrink-0 tabular-nums">{s.stats.toolCallCount} tools</span>
-                <span className="text-xs font-semibold text-gray-700 dark:text-gray-300 tabular-nums">{fmtUSD(cost)}</span>
-                {q.rated ? (
-                  <span className={`text-xs font-bold shrink-0 w-5 ${gradeColor[q.grade] ?? ''}`}>{q.grade}</span>
-                ) : <span className="w-5 shrink-0" />}
-                <span className="ml-auto text-xs text-gray-400 dark:text-gray-600 group-hover:text-indigo-400 transition-colors shrink-0">→</span>
-              </button>
+              <div key={s.id} className="px-3 py-1.5 rounded-lg hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors group">
+                <button onClick={() => onOpenSession(s.id)} className="flex items-center gap-3 w-full text-left">
+                  <span className="text-xs text-gray-500 dark:text-gray-500 w-24 shrink-0 tabular-nums">{fmt(s.startedAt)}</span>
+                  <span className={`text-xs px-1.5 py-0.5 rounded-md w-20 text-center shrink-0 font-medium ${taskTypeColor(cls)}`}>{cls}</span>
+                  <span className="text-xs text-gray-400 dark:text-gray-600 w-14 shrink-0 tabular-nums">{fmtDuration(s.durationMs)}</span>
+                  <span className="text-xs text-gray-400 dark:text-gray-600 w-14 shrink-0 tabular-nums">{s.stats.toolCallCount} tools</span>
+                  <span className="text-xs font-semibold text-gray-700 dark:text-gray-300 tabular-nums">{fmtUSD(cost)}</span>
+                  {q.rated ? (
+                    <span className={`text-xs font-bold shrink-0 w-5 ${gradeColor[q.grade] ?? ''}`}>{q.grade}</span>
+                  ) : <span className="w-5 shrink-0" />}
+                  <span className="ml-auto text-xs text-gray-400 dark:text-gray-600 group-hover:text-indigo-400 transition-colors shrink-0">→</span>
+                </button>
+                <SessionNoteInline sessionId={s.id} />
+              </div>
             ))}
           </div>
         )}
@@ -3675,6 +3677,55 @@ function WeeklyDigestCard({ sessions, topTools, recAgg, regressions }: {
         )}
       </div>
     </Card>
+  )
+}
+
+const NOTE_PREFIX = 'cclens_note_'
+
+function useSessionNote(sessionId: string): [string, (v: string) => void] {
+  const [note, setNoteState] = useState(() => localStorage.getItem(NOTE_PREFIX + sessionId) ?? '')
+  const setNote = (v: string) => {
+    if (v) localStorage.setItem(NOTE_PREFIX + sessionId, v)
+    else localStorage.removeItem(NOTE_PREFIX + sessionId)
+    setNoteState(v)
+  }
+  return [note, setNote]
+}
+
+function SessionNoteInline({ sessionId }: { sessionId: string }) {
+  const [note, setNote] = useSessionNote(sessionId)
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(note)
+
+  function commit() { setNote(draft.trim()); setEditing(false) }
+
+  if (editing) {
+    return (
+      <div className="flex items-center gap-1.5 mt-1" onClick={e => e.stopPropagation()}>
+        <input
+          autoFocus
+          value={draft}
+          onChange={e => setDraft(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { setDraft(note); setEditing(false) } }}
+          placeholder="Add note…"
+          className="flex-1 text-xs bg-white dark:bg-gray-800 border border-indigo-300 dark:border-indigo-600 rounded px-2 py-0.5 text-gray-900 dark:text-gray-100 outline-none"
+        />
+        <button onClick={commit} className="text-[10px] text-indigo-500 font-medium">Save</button>
+        <button onClick={() => { setDraft(note); setEditing(false) }} className="text-[10px] text-gray-400">Cancel</button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex items-center gap-1.5 mt-0.5" onClick={e => e.stopPropagation()}>
+      {note
+        ? <span className="text-[10px] text-amber-600 dark:text-amber-400 italic flex-1 truncate">"{note}"</span>
+        : <span className="text-[10px] text-gray-300 dark:text-gray-700 flex-1">no note</span>
+      }
+      <button onClick={() => { setDraft(note); setEditing(true) }} className="text-[10px] text-gray-400 dark:text-gray-600 hover:text-indigo-500 shrink-0">
+        {note ? 'edit' : '+ note'}
+      </button>
+    </div>
   )
 }
 
