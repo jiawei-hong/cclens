@@ -3443,6 +3443,91 @@ function HomeRecommendationsCard({ agg, onViewAll }: { agg: RecAggregate; onView
   )
 }
 
+const BUDGET_KEY = 'cclens_monthly_budget'
+
+function BudgetAlertCard({ forecast }: { forecast: MonthlyForecast }) {
+  const [budget, setBudget] = useState<number | null>(() => {
+    const v = typeof localStorage !== 'undefined' ? localStorage.getItem(BUDGET_KEY) : null
+    return v ? parseFloat(v) : null
+  })
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState('')
+
+  function saveBudget() {
+    const n = parseFloat(draft)
+    if (isNaN(n) || n <= 0) return
+    localStorage.setItem(BUDGET_KEY, String(n))
+    setBudget(n)
+    setEditing(false)
+  }
+
+  function clearBudget() {
+    localStorage.removeItem(BUDGET_KEY)
+    setBudget(null)
+    setEditing(false)
+  }
+
+  if (!forecast.hasData && budget === null) return null
+
+  const projected = forecast.projectedThisMonth
+  const overshoot = budget !== null ? projected - budget : 0
+  const overPct   = budget !== null && budget > 0 ? Math.round((projected / budget) * 100) : 0
+  const isOver    = budget !== null && overshoot > 0
+  const isWarning = budget !== null && overPct >= 80 && !isOver
+
+  if (budget === null) {
+    return (
+      <div className="flex items-center justify-between px-4 py-2.5 rounded-xl bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800">
+        <span className="text-xs text-gray-500 dark:text-gray-400">No monthly budget set</span>
+        <button onClick={() => { setDraft(''); setEditing(true) }} className="text-xs text-indigo-500 hover:text-indigo-400 transition-colors">Set budget →</button>
+      </div>
+    )
+  }
+
+  return (
+    <div className={`flex items-center gap-4 px-4 py-2.5 rounded-xl border ${
+      isOver    ? 'bg-rose-50 dark:bg-rose-500/10 border-rose-200 dark:border-rose-500/30' :
+      isWarning ? 'bg-amber-50 dark:bg-amber-500/10 border-amber-200 dark:border-amber-500/30' :
+                  'bg-emerald-50 dark:bg-emerald-500/10 border-emerald-200 dark:border-emerald-500/30'
+    }`}>
+      <span className="text-lg leading-none shrink-0">
+        {isOver ? '🚨' : isWarning ? '⚠️' : '✅'}
+      </span>
+      <div className="flex-1 min-w-0">
+        <p className={`text-xs font-medium ${
+          isOver ? 'text-rose-700 dark:text-rose-300' : isWarning ? 'text-amber-700 dark:text-amber-300' : 'text-emerald-700 dark:text-emerald-300'
+        }`}>
+          {isOver
+            ? `Over budget by ${fmtUSD(overshoot)} — projected ${fmtUSD(projected)} vs ${fmtUSD(budget)} budget (${overPct}%)`
+            : isWarning
+              ? `Approaching budget — projected ${fmtUSD(projected)} of ${fmtUSD(budget)} (${overPct}%)`
+              : `On track — projected ${fmtUSD(projected)} of ${fmtUSD(budget)} budget (${overPct}%)`
+          }
+        </p>
+      </div>
+      {editing ? (
+        <div className="flex items-center gap-1.5 shrink-0">
+          <span className="text-xs text-gray-500">$</span>
+          <input
+            type="number" min="0" step="1"
+            value={draft} onChange={e => setDraft(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') saveBudget(); if (e.key === 'Escape') setEditing(false) }}
+            className="w-20 text-xs bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-gray-900 dark:text-gray-100 outline-none focus:ring-1 focus:ring-indigo-500"
+            autoFocus
+          />
+          <button onClick={saveBudget} className="text-xs text-indigo-500 hover:text-indigo-400 font-medium">Save</button>
+          <button onClick={() => setEditing(false)} className="text-xs text-gray-400 hover:text-gray-600">Cancel</button>
+        </div>
+      ) : (
+        <div className="flex items-center gap-2 shrink-0">
+          <button onClick={() => { setDraft(String(budget)); setEditing(true) }} className="text-xs text-gray-400 dark:text-gray-600 hover:text-gray-600 dark:hover:text-gray-400">Edit</button>
+          <button onClick={clearBudget} className="text-xs text-gray-400 dark:text-gray-600 hover:text-rose-500">Remove</button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function StreakCard({ sessions }: { sessions: Session[] }) {
   const streakData = React.useMemo(() => {
     const days = new Set(sessions.map(s => s.startedAt.slice(0, 10)))
@@ -3932,6 +4017,7 @@ export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; 
       {/* ── Home ── */}
       {insightTab === 'home' && (
         <div className="flex flex-col gap-5">
+          <BudgetAlertCard forecast={forecast} />
           <div className="grid grid-cols-2 gap-5">
             <ThisWeekCard sessions={sessions} onViewProject={p => { setSelectedProject(p); setInsightTab('projects') }} />
             <StreakCard sessions={sessions} />
