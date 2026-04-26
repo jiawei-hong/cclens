@@ -3103,6 +3103,7 @@ function ProjectDetailView({ project, sessions, onBack, onOpenSession }: {
   })), [projectSessions])
   const projectFiles = React.useMemo(() => hotFiles(projectSessions), [projectSessions])
   const projectTools = React.useMemo(() => globalToolStats(projectSessions).slice(0, 6), [projectSessions])
+  const projectRecs = React.useMemo(() => aggregateRecommendations(projectSessions), [projectSessions])
   const totalCost = sessionMetrics.reduce((sum, m) => sum + m.cost, 0)
   const rated = sessionMetrics.filter(m => m.quality.rated)
   const avgQuality = rated.length === 0 ? 0 : rated.reduce((sum, m) => sum + m.quality.score, 0) / rated.length
@@ -3153,6 +3154,29 @@ function ProjectDetailView({ project, sessions, onBack, onOpenSession }: {
           </div>
         )}
       </Card>
+
+      {projectRecs.byRule.length > 0 && (
+        <Card>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Opportunities</h3>
+            <span className="text-[10px] text-gray-400 dark:text-gray-600">{projectRecs.sessionCount} of {projectSessions.length} sessions affected</span>
+          </div>
+          <div className="flex flex-col gap-2">
+            {projectRecs.byRule.slice(0, 5).map(r => {
+              const tone: Record<string, 'danger' | 'warning' | 'neutral'> = { high: 'danger', medium: 'warning', low: 'neutral' }
+              return (
+                <div key={r.id} className="flex items-center gap-3 p-2.5 rounded-lg bg-gray-50 dark:bg-gray-900/50">
+                  <Badge tone={tone[r.severity] ?? 'neutral'} size="sm">{r.count}×</Badge>
+                  <span className="text-sm text-gray-700 dark:text-gray-300 flex-1 truncate">{r.title}</span>
+                  {r.savingsUSD > 0.01 && (
+                    <span className="text-xs text-emerald-600 dark:text-emerald-400 tabular-nums shrink-0">save {fmtUSD(r.savingsUSD)}</span>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </Card>
+      )}
 
       {(projectTools.length > 0 || projectFiles.length > 0) && (
         <div className="grid grid-cols-2 gap-5">
