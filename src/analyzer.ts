@@ -1299,3 +1299,111 @@ export function mcpUsageStats(sessions: Session[]): McpServerUsage[] {
     .sort((a, b) => b.count - a.count)
 }
 
+// ── Quality trend by week ─────────────────────────────────────────────────────
+
+import { sessionQualityScore } from './quality'
+
+function isoWeekKey(date: Date): string {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()))
+  const day = d.getUTCDay() || 7
+  d.setUTCDate(d.getUTCDate() + 4 - day)
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1))
+  const week = Math.ceil(((d.getTime() - yearStart.getTime()) / 86_400_000 + 1) / 7)
+  return `${d.getUTCFullYear()}-W${String(week).padStart(2, '0')}`
+}
+
+export type QualityWeek = {
+  week: string
+  avgScore: number
+  sessionCount: number
+  isAnomaly: boolean
+}
+
+export function qualityTrendByWeek(sessions: Session[]): QualityWeek[] {
+  const byWeek = new Map<string, number[]>()
+  for (const s of sessions) {
+    const q = sessionQualityScore(s)
+    if (!q.rated) continue
+    const key = isoWeekKey(new Date(s.startedAt))
+    const arr = byWeek.get(key) ?? []
+    arr.push(q.score)
+    byWeek.set(key, arr)
+  }
+  const weeks = [...byWeek.entries()]
+    .map(([week, scores]) => ({ week, avgScore: scores.reduce((a, b) => a + b, 0) / scores.length, sessionCount: scores.length }))
+    .sort((a, b) => a.week.localeCompare(b.week))
+
+  const scores = weeks.map(w => w.avgScore)
+  const mean = scores.reduce((a, b) => a + b, 0) / Math.max(1, scores.length)
+  const std = Math.sqrt(scores.reduce((s, x) => s + (x - mean) ** 2, 0) / Math.max(1, scores.length))
+  return weeks.map(w => ({ ...w, isAnomaly: w.avgScore < mean - std && std > 0 }))
+}
+
+// ── Cache miss cost breakdown ─────────────────────────────────────────────────
+
+export type SessionCacheProfile = {
+  sessionId: string
+  project: string
+  startedAt: string
+  costUSD: number
+  cacheHitRate: number
+  coldStartCostUSD: number
+  isExpensiveColdStart: boolean
+}
+
+export function cacheMissProfiles(sessions: Session[]): SessionCacheProfile[] {
+  const profiles = sessions.map(s => {
+    const u = s.stats.usage
+    const denom = u.inputTokens + u.cacheCreateTokens + u.cacheReadTokens
+    const cacheHitRate = denom === 0 ? 0 : u.cacheReadTokens / denom
+    const cost = sessionCostUSD(s)
+    const model = Object.keys(s.stats.modelUsage)[0] ?? 'claude-sonnet'
+    const coldStartCostUSD = costOfUsage(
+      { inputTokens: 0, outputTokens: 0, cacheCreateTokens: u.cacheCreateTokens, cacheCreate1hTokens: u.cacheCreateTokens, cacheReadTokens: 0 },
+      model
+    )
+    return { sessionId: s.id, project: s.project, startedAt: s.startedAt, costUSD: cost, cacheHitRate, coldStartCostUSD, isExpensiveColdStart: false }
+  })
+
+  const sorted = [...profiles].map(p => p.coldStartCostUSD).sort((a, b) => a - b)
+  const median = sorted[Math.floor(sorted.length / 2)] ?? 0
+  for (const p of profiles) p.isExpensiveColdStart = median > 0 && p.coldStartCostUSD > 2 * median
+
+  return profiles.sort((a, b) => b.coldStartCostUSD - a.coldStartCostUSD)
+}
+
+// ── Compaction frequency ──────────────────────────────────────────────────────
+
+export type CompactionSummary = {
+  sessionsWithAutoCompact: number
+  sessionsWithManualCompact: number
+  totalCompactions: number
+  avgPreTokens: number
+  topSessions: { sessionId: string; project: string; startedAt: string; count: number; avgPreTokens: number }[]
+}
+
+export function compactionFrequency(sessions: Session[]): CompactionSummary {
+  let autoCount = 0, manualCount = 0, totalPreTokens = 0, totalEvents = 0
+  const perSession: { sessionId: string; project: string; startedAt: string; count: number; avgPreTokens: number }[] = []
+
+  for (const s of sessions) {
+    const events = s.stats.compactionEvents
+    if (events.length === 0) continue
+    const hasAuto = events.some(e => e.trigger === 'auto')
+    const hasManual = events.some(e => e.trigger === 'manual')
+    if (hasAuto) autoCount++
+    if (hasManual) manualCount++
+    const sessionPreTokens = events.reduce((sum, e) => sum + e.preTokens, 0)
+    totalPreTokens += sessionPreTokens
+    totalEvents += events.length
+    perSession.push({ sessionId: s.id, project: s.project, startedAt: s.startedAt, count: events.length, avgPreTokens: sessionPreTokens / events.length })
+  }
+
+  return {
+    sessionsWithAutoCompact: autoCount,
+    sessionsWithManualCompact: manualCount,
+    totalCompactions: totalEvents,
+    avgPreTokens: totalEvents === 0 ? 0 : totalPreTokens / totalEvents,
+    topSessions: perSession.sort((a, b) => b.count - a.count).slice(0, 5),
+  }
+}

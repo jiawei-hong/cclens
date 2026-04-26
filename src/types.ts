@@ -1,4 +1,4 @@
-export type EntryType = 'user' | 'assistant' | 'permission-mode' | 'file-history-snapshot' | 'attachment'
+export type EntryType = 'user' | 'assistant' | 'system' | 'permission-mode' | 'file-history-snapshot' | 'attachment'
 
 export type ContentBlock =
   | { type: 'text'; text: string }
@@ -21,16 +21,19 @@ export type RawEntry = {
   uuid: string
   parentUuid: string | null
   type: EntryType
+  subtype?: string
   timestamp: string
   sessionId: string
   cwd?: string
   gitBranch?: string
   version?: string
+  compactMetadata?: { trigger: 'auto' | 'manual'; preTokens: number }
   message?: {
     role: 'user' | 'assistant'
     model?: string
     content: string | ContentBlock[]
     usage?: TokenUsage
+    isCompactSummary?: boolean
   }
 }
 
@@ -74,6 +77,18 @@ export type AggregatedUsage = {
   cacheReadTokens: number
 }
 
+export type CompactionEvent = {
+  timestamp: string
+  trigger: 'auto' | 'manual'
+  preTokens: number
+}
+
+export type OverEditingStats = {
+  editWithoutReadCount: number  // edits to files not read in same/prior assistant turn
+  rapidIterationFiles: number   // files edited 3+ times within 5 min window
+  editToReadRatio: number       // (Edit+Write) / max(1, Read+Grep+Glob)
+}
+
 export type SessionStats = {
   userTurns: number
   assistantTurns: number
@@ -86,6 +101,8 @@ export type SessionStats = {
   contextLimit: number        // 1_000_000 if any turn used a [1m] model, else 200_000
   contextSeries: { ts: string; tokens: number }[]  // per-assistant-turn context size
   totalThinkingBlocks: number // sum of thinkingBlocks across all assistant turns
+  compactionEvents: CompactionEvent[]
+  overEditing: OverEditingStats
 }
 
 export type ProjectSummary = {

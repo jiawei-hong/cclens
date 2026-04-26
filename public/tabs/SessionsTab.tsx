@@ -149,6 +149,7 @@ export function SessionsTab({ sessions, initialSessionId, scrollToTurnId, onSess
   const [sortKey, setSortKey] = useState<SortKey>('recent')
   const [onlyBookmarked, setOnlyBookmarked] = useState(false)
   const [onlyNoted, setOnlyNoted] = useState(false)
+  const [badgeFilter, setBadgeFilter] = useState<'gold' | 'expensive' | 'errored' | 'hasIssues' | null>(null)
   const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(new Set())
   const { bookmarks, toggle: toggleBookmark } = useBookmarks()
   const { notes } = useNotes()
@@ -190,9 +191,10 @@ export function SessionsTab({ sessions, initialSessionId, scrollToTurnId, onSess
       if (q && !s.project.toLowerCase().includes(q)) return false
       if (onlyBookmarked && !bookmarks.has(s.id)) return false
       if (onlyNoted && !noteIds.has(s.id)) return false
+      if (badgeFilter && !badges[badgeFilter].has(s.id)) return false
       return true
     })
-  }, [sessions, filter, onlyBookmarked, onlyNoted, bookmarks, noteIds])
+  }, [sessions, filter, onlyBookmarked, onlyNoted, badgeFilter, bookmarks, noteIds, badges])
 
   const groups = React.useMemo(() => groupSessionsByProject(filtered, sortKey), [filtered, sortKey])
 
@@ -312,15 +314,40 @@ export function SessionsTab({ sessions, initialSessionId, scrollToTurnId, onSess
             <RiStickyNoteLine size={11} />
           </button>
 
-          {(onlyBookmarked || onlyNoted || sortKey !== 'recent') && (
+          {(onlyBookmarked || onlyNoted || badgeFilter || sortKey !== 'recent') && (
             <button
-              onClick={() => { setOnlyBookmarked(false); setOnlyNoted(false); setSortKey('recent') }}
+              onClick={() => { setOnlyBookmarked(false); setOnlyNoted(false); setBadgeFilter(null); setSortKey('recent') }}
               title="Reset sort & filters"
               className="ml-auto text-[10px] text-gray-400 dark:text-gray-600 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
             >
               reset
             </button>
           )}
+        </div>
+
+        <div className="flex items-center gap-1 flex-wrap">
+          {([
+            { key: 'gold',      label: 'gold',   cls: 'bg-emerald-100 border-emerald-400 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300' },
+            { key: 'expensive', label: '$$',     cls: 'bg-rose-100 border-rose-400 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300' },
+            { key: 'errored',   label: 'err',    cls: 'bg-red-100 border-red-400 text-red-700 dark:bg-red-500/15 dark:text-red-300' },
+            { key: 'hasIssues', label: 'issues', cls: 'bg-amber-100 border-amber-400 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300' },
+          ] as { key: 'gold' | 'expensive' | 'errored' | 'hasIssues'; label: string; cls: string }[]).map(({ key, label, cls }) => {
+            const count = badges[key].size
+            if (count === 0) return null
+            const active = badgeFilter === key
+            return (
+              <button
+                key={key}
+                onClick={() => setBadgeFilter(active ? null : key)}
+                title={`Filter to ${label} sessions (${count})`}
+                className={`text-[9px] leading-none px-1.5 py-[3px] rounded font-semibold uppercase tracking-wider border transition-colors ${focusRing} ${
+                  active ? cls + ' border-current' : 'border-gray-200 dark:border-gray-700 text-gray-400 dark:text-gray-600 hover:text-gray-600 dark:hover:text-gray-400'
+                }`}
+              >
+                {label} <span className="opacity-70">{count}</span>
+              </button>
+            )
+          })}
         </div>
 
         <div className="flex-1 min-h-0 pr-1">

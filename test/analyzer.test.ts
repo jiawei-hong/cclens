@@ -32,6 +32,8 @@ function makeSession(overrides: Partial<Session> & { id: string; project?: strin
       contextLimit: 200_000,
       contextSeries: [],
       totalThinkingBlocks: 0,
+      compactionEvents: [],
+      overEditing: { editWithoutReadCount: 0, rapidIterationFiles: 0, editToReadRatio: 0 },
       ...(overrides.stats ?? {}),
     },
   }
@@ -107,6 +109,7 @@ describe('classifySession', () => {
       contextLimit: 200_000,
       contextSeries: [],
       totalThinkingBlocks: 0,
+      ...DEFAULT_EXTRA(),
     },
   })
 
@@ -184,7 +187,7 @@ describe('costByTaskType', () => {
         totalTextLength: 0,
         usage: { inputTokens: 1_000_000, outputTokens: 1_000_000, cacheCreateTokens: 0, cacheCreate1hTokens: 0, cacheReadTokens: 0 },
         modelUsage: { 'claude-opus-4-7': { inputTokens: 1_000_000, outputTokens: 1_000_000, cacheCreateTokens: 0, cacheCreate1hTokens: 0, cacheReadTokens: 0 } },
-        peakContextTokens: 0, contextLimit: 200_000, contextSeries: [], totalThinkingBlocks: 0,
+        peakContextTokens: 0, contextLimit: 200_000, contextSeries: [], totalThinkingBlocks: 0, ...DEFAULT_EXTRA(),
       },
     })
     // Research session on Sonnet 4.6: 1M input + 1M output ≈ $3 + $15 = $18
@@ -196,7 +199,7 @@ describe('costByTaskType', () => {
         totalTextLength: 0,
         usage: { inputTokens: 1_000_000, outputTokens: 1_000_000, cacheCreateTokens: 0, cacheCreate1hTokens: 0, cacheReadTokens: 0 },
         modelUsage: { 'claude-sonnet-4-6': { inputTokens: 1_000_000, outputTokens: 1_000_000, cacheCreateTokens: 0, cacheCreate1hTokens: 0, cacheReadTokens: 0 } },
-        peakContextTokens: 0, contextLimit: 200_000, contextSeries: [], totalThinkingBlocks: 0,
+        peakContextTokens: 0, contextLimit: 200_000, contextSeries: [], totalThinkingBlocks: 0, ...DEFAULT_EXTRA(),
       },
     })
     const rows = costByTaskType([coding, research])
@@ -218,7 +221,7 @@ describe('costByTaskType', () => {
         totalTextLength: 0,
         usage: { inputTokens: 100, outputTokens: 50, cacheCreateTokens: 0, cacheCreate1hTokens: 0, cacheReadTokens: 0 },
         modelUsage: { 'claude-sonnet-4-6': { inputTokens: 100, outputTokens: 50, cacheCreateTokens: 0, cacheCreate1hTokens: 0, cacheReadTokens: 0 } },
-        peakContextTokens: 0, contextLimit: 200_000, contextSeries: [], totalThinkingBlocks: 0,
+        peakContextTokens: 0, contextLimit: 200_000, contextSeries: [], totalThinkingBlocks: 0, ...DEFAULT_EXTRA(),
       },
     })
     const rows = costByTaskType([s])
@@ -227,6 +230,8 @@ describe('costByTaskType', () => {
     expect(rows[0]!.share).toBe(1)
   })
 })
+
+const DEFAULT_EXTRA = () => ({ compactionEvents: [] as import('../src/types').CompactionEvent[], overEditing: { editWithoutReadCount: 0, rapidIterationFiles: 0, editToReadRatio: 0 } })
 
 function statsWithPeak(peak: number, limit: number) {
   return {
@@ -238,6 +243,7 @@ function statsWithPeak(peak: number, limit: number) {
     contextLimit: limit,
     contextSeries: [],
     totalThinkingBlocks: 0,
+    ...DEFAULT_EXTRA(),
   }
 }
 
@@ -250,7 +256,7 @@ describe('thinkingStats', () => {
         toolCallCount: 0, toolBreakdown: {}, totalTextLength: 0,
         usage: { inputTokens: 0, outputTokens: 0, cacheCreateTokens: 0, cacheCreate1hTokens: 0, cacheReadTokens: 0 },
         modelUsage: {}, peakContextTokens: 0, contextLimit: 200_000, contextSeries: [],
-        totalThinkingBlocks: blocks,
+        totalThinkingBlocks: blocks, ...DEFAULT_EXTRA(),
       },
     })
     const sessions = [mk('a', 5, 10), mk('b', 20, 30), mk('c', 0, 5)]

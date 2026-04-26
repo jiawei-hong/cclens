@@ -1,4 +1,4 @@
-import type { RawEntry, Session, Turn, ToolCall, ContentBlock, AggregatedUsage } from './types'
+import type { RawEntry, Session, Turn, ToolCall, ContentBlock, AggregatedUsage, CompactionEvent, OverEditingStats } from './types'
 
 // ── Content helpers ───────────────────────────────────────────────────────────
 
@@ -41,6 +41,57 @@ export function activeDurationMs(sortedTimestamps: string[]): number {
   return total
 }
 
+// ── Over-editing detection ────────────────────────────────────────────────
+
+const READ_TOOLS = new Set(['Read', 'Grep', 'Glob', 'WebSearch', 'LS'])
+const EDIT_TOOLS = new Set(['Edit', 'Write', 'NotebookEdit'])
+
+function computeOverEditing(turns: Turn[]): OverEditingStats {
+  let editWithoutReadCount = 0
+  let totalEdits = 0
+  let totalReads = 0
+
+  // Track file edits per 5-min window for rapid iteration
+  const fileEditTimes: Record<string, number[]> = {}
+  let rapidIterationFiles = 0
+
+  for (const turn of turns) {
+    if (turn.role !== 'assistant') continue
+    const recentlyReadFiles = new Set<string>()
+
+    for (const tc of turn.toolCalls) {
+      const filePath = typeof tc.input['file_path'] === 'string' ? tc.input['file_path'] : null
+
+      if (READ_TOOLS.has(tc.name)) {
+        totalReads++
+        if (filePath) recentlyReadFiles.add(filePath)
+      } else if (EDIT_TOOLS.has(tc.name)) {
+        totalEdits++
+        if (filePath && !recentlyReadFiles.has(filePath)) editWithoutReadCount++
+        if (filePath) {
+          const ts = new Date(turn.timestamp).getTime()
+          const times = fileEditTimes[filePath] ?? (fileEditTimes[filePath] = [])
+          times.push(ts)
+        }
+      }
+    }
+  }
+
+  // Count files with 3+ edits within any 5-min rolling window
+  for (const times of Object.values(fileEditTimes)) {
+    times.sort((a, b) => a - b)
+    for (let i = 0; i + 2 < times.length; i++) {
+      if (times[i + 2]! - times[i]! <= 5 * 60_000) { rapidIterationFiles++; break }
+    }
+  }
+
+  return {
+    editWithoutReadCount,
+    rapidIterationFiles,
+    editToReadRatio: totalEdits / Math.max(1, totalReads),
+  }
+}
+
 // ── Core parser ───────────────────────────────────────────────────────────────
 
 export function parseRawJsonl(rawText: string, sessionId: string, projectPath: string): Session | null {
@@ -48,6 +99,18 @@ export function parseRawJsonl(rawText: string, sessionId: string, projectPath: s
   for (const line of rawText.trim().split('\n')) {
     if (!line.trim()) continue
     try { entries.push(JSON.parse(line)) } catch { /* skip malformed */ }
+  }
+
+  // Capture compaction boundary events before filtering to message-only entries
+  const compactionEvents: CompactionEvent[] = []
+  for (const e of entries) {
+    if (e.type === 'system' && e.subtype === 'compact_boundary' && e.compactMetadata) {
+      compactionEvents.push({
+        timestamp: e.timestamp,
+        trigger: e.compactMetadata.trigger,
+        preTokens: e.compactMetadata.preTokens,
+      })
+    }
   }
 
   const messageEntries = entries.filter(e => e.type === 'user' || e.type === 'assistant')
@@ -113,6 +176,9 @@ export function parseRawJsonl(rawText: string, sessionId: string, projectPath: s
     }
   }
 
+  // Over-editing metrics
+  const overEditing = computeOverEditing(turns)
+
   // Usage + context series
   const usage: AggregatedUsage = { inputTokens: 0, outputTokens: 0, cacheCreateTokens: 0, cacheCreate1hTokens: 0, cacheReadTokens: 0 }
   const modelUsage: Record<string, AggregatedUsage> = {}
@@ -168,6 +234,8 @@ export function parseRawJsonl(rawText: string, sessionId: string, projectPath: s
       contextLimit: has1MContext ? 1_000_000 : 200_000,
       contextSeries,
       totalThinkingBlocks: turns.reduce((sum, t) => sum + t.thinkingBlocks, 0),
+      compactionEvents,
+      overEditing,
     },
   }
 }

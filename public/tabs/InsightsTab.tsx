@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
-import { summarizeProjects, globalToolStats, activityByHour, sessionDepthStats, taskBreakdown, trendStats, bashAntiPatterns, bashCommandBreakdown, skillUsageStats, skillGaps, agentBreakdown, hotFiles, multiFileSessions, thrashingSessions, totalUsage, usageByModel, dailyCost, toolErrorRates, activityHeatmap, slowestToolCalls, mcpUsageStats, contextWindowHotspots, costByTaskType, thinkingStats, sessionCacheRanking, interruptStats, monthlyCostForecast, goldStandardSessions, costOfUsage, classifySession, sessionCostUSD } from '../../src/analyzer'
-import type { SessionType, BashAntiPattern, BashCategory, SkillUsage, SkillGap, AgentTypeUsage, HotFile, MultiFileSession, ThrashSession, TotalUsage, ModelUsageRow, ToolErrorStats, HeatmapCell, SlowToolCall, McpServerUsage, ContextHotspotStats, CostByTaskRow, ThinkingStats, SessionCacheStats, InterruptStats, MonthlyForecast, GoldStandardSession } from '../../src/analyzer'
+import { summarizeProjects, globalToolStats, activityByHour, sessionDepthStats, taskBreakdown, trendStats, bashAntiPatterns, bashCommandBreakdown, skillUsageStats, skillGaps, agentBreakdown, hotFiles, multiFileSessions, thrashingSessions, totalUsage, usageByModel, dailyCost, toolErrorRates, activityHeatmap, slowestToolCalls, mcpUsageStats, contextWindowHotspots, costByTaskType, thinkingStats, sessionCacheRanking, interruptStats, monthlyCostForecast, goldStandardSessions, costOfUsage, classifySession, sessionCostUSD, qualityTrendByWeek, cacheMissProfiles, compactionFrequency } from '../../src/analyzer'
+import type { SessionType, BashAntiPattern, BashCategory, SkillUsage, SkillGap, AgentTypeUsage, HotFile, MultiFileSession, ThrashSession, TotalUsage, ModelUsageRow, ToolErrorStats, HeatmapCell, SlowToolCall, McpServerUsage, ContextHotspotStats, CostByTaskRow, ThinkingStats, SessionCacheStats, InterruptStats, MonthlyForecast, GoldStandardSession, QualityWeek, SessionCacheProfile, CompactionSummary } from '../../src/analyzer'
 import { aggregateRecommendations, recommendationTrend, projectHealth, recentRegressions, type RecAggregate, type RecCategory, type RecSeverity, type RecTrend, type RuleTrend, type RuleTrendDirection, type ProjectHealth, type RegressionReport, type Regression } from '../../src/recommendations'
 import { userHabitsTrend, type HabitWithTrend, type HabitStatus, type HabitTrendDirection } from '../../src/habits'
 import { taskTypePlaybook, type PlaybookReport, type TaskTypePlaybook, type PlaybookTip } from '../../src/playbook'
@@ -4023,6 +4023,168 @@ function AccordionSection({ id, title, badge, open, onToggle, children }: {
   )
 }
 
+// ── Quality trend by week ─────────────────────────────────────────────────────
+
+function QualityTrendWeeklyCard({ weeks }: { weeks: QualityWeek[] }) {
+  if (weeks.length < 2) return null
+  const max = Math.max(...weeks.map(w => w.avgScore))
+  const anomalies = weeks.filter(w => w.isAnomaly)
+  return (
+    <Card>
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Quality Trend — Week by Week</h3>
+        {anomalies.length > 0 && (
+          <span className="text-[10px] text-rose-500 font-medium">{anomalies.length} low week{anomalies.length > 1 ? 's' : ''} detected</span>
+        )}
+      </div>
+      <div className="flex items-end gap-1 h-20">
+        {weeks.map(w => {
+          const pct = max > 0 ? (w.avgScore / max) * 100 : 0
+          return (
+            <div key={w.week} className="flex-1 flex flex-col items-center gap-0.5 group relative" title={`${w.week}: avg ${w.avgScore.toFixed(0)}/100 (${w.sessionCount} sessions)${w.isAnomaly ? ' ⚠ below average' : ''}`}>
+              <div className="w-full flex items-end" style={{ height: '72px' }}>
+                <div
+                  className={`w-full rounded-t transition-colors ${w.isAnomaly ? 'bg-rose-400 dark:bg-rose-500' : 'bg-indigo-400 dark:bg-indigo-500 group-hover:bg-indigo-500 dark:group-hover:bg-indigo-400'}`}
+                  style={{ height: `${Math.max(4, pct * 0.72)}px` }}
+                />
+              </div>
+            </div>
+          )
+        })}
+      </div>
+      <div className="flex justify-between mt-1 text-[9px] text-gray-400 dark:text-gray-600">
+        <span>{weeks[0]?.week}</span>
+        <span>{weeks[weeks.length - 1]?.week}</span>
+      </div>
+      {anomalies.length > 0 && (
+        <p className="text-[11px] text-rose-500 dark:text-rose-400 mt-2">
+          Weeks below your average: {anomalies.map(w => w.week).join(', ')}. Check those sessions for regression patterns.
+        </p>
+      )}
+    </Card>
+  )
+}
+
+// ── Cache miss cost card ──────────────────────────────────────────────────────
+
+function CacheMissCostCard({ profiles }: { profiles: SessionCacheProfile[] }) {
+  if (profiles.length === 0) return null
+  const expensive = profiles.filter(p => p.isExpensiveColdStart)
+  const totalColdCost = profiles.reduce((s, p) => s + p.coldStartCostUSD, 0)
+  const top5 = profiles.slice(0, 5)
+  return (
+    <Card>
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Cache Miss Cost</h3>
+        {expensive.length > 0 && (
+          <span className="text-[10px] text-rose-500 font-medium">{expensive.length} cold-start heavy</span>
+        )}
+      </div>
+      <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+        Total cache-creation overhead: <span className="font-semibold text-gray-900 dark:text-gray-100">{fmtUSD(totalColdCost)}</span>
+        {' '}— sessions where Claude rebuilt context from scratch instead of reading cache.
+      </p>
+      <div className="flex flex-col gap-2">
+        {top5.map(p => (
+          <div key={p.sessionId} className="flex items-center gap-3">
+            <div className="flex-1 min-w-0">
+              <p className="text-xs text-gray-700 dark:text-gray-300 truncate">{p.project.split('/').filter(Boolean).slice(-1)[0]}</p>
+              <p className="text-[10px] text-gray-400 dark:text-gray-600">{fmt(p.startedAt)} · hit rate {(p.cacheHitRate * 100).toFixed(0)}%</p>
+            </div>
+            <span className={`text-xs tabular-nums font-medium shrink-0 ${p.isExpensiveColdStart ? 'text-rose-500' : 'text-gray-600 dark:text-gray-400'}`}>
+              {fmtUSD(p.coldStartCostUSD)} cold
+            </span>
+          </div>
+        ))}
+      </div>
+    </Card>
+  )
+}
+
+// ── Compaction card ───────────────────────────────────────────────────────────
+
+function CompactionCard({ summary, onOpenSession }: { summary: CompactionSummary; onOpenSession: (id: string) => void }) {
+  if (summary.totalCompactions === 0) return (
+    <Card>
+      <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">Context Compaction</h3>
+      <p className="text-xs text-gray-400 dark:text-gray-600">No compaction events detected in this range.</p>
+    </Card>
+  )
+  return (
+    <Card>
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Context Compaction</h3>
+        <span className="text-[10px] text-gray-400 dark:text-gray-600">{summary.totalCompactions} events total</span>
+      </div>
+      <div className="grid grid-cols-3 gap-4 mb-4">
+        <div>
+          <p className="text-[10px] text-gray-400 dark:text-gray-600 uppercase tracking-wide">Auto-compacted</p>
+          <p className="text-lg font-bold text-rose-500 tabular-nums">{summary.sessionsWithAutoCompact}</p>
+          <p className="text-[10px] text-gray-500 dark:text-gray-500">sessions</p>
+        </div>
+        <div>
+          <p className="text-[10px] text-gray-400 dark:text-gray-600 uppercase tracking-wide">Manual /compact</p>
+          <p className="text-lg font-bold text-amber-500 tabular-nums">{summary.sessionsWithManualCompact}</p>
+          <p className="text-[10px] text-gray-500 dark:text-gray-500">sessions</p>
+        </div>
+        <div>
+          <p className="text-[10px] text-gray-400 dark:text-gray-600 uppercase tracking-wide">Avg pre-tokens</p>
+          <p className="text-lg font-bold text-gray-900 dark:text-gray-100 tabular-nums">{fmtTokenCount(summary.avgPreTokens)}</p>
+          <p className="text-[10px] text-gray-500 dark:text-gray-500">at compaction</p>
+        </div>
+      </div>
+      {summary.topSessions.length > 0 && (
+        <div className="flex flex-col gap-1.5">
+          <p className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-gray-600">Most compacted sessions</p>
+          {summary.topSessions.map(s => (
+            <button key={s.sessionId} onClick={() => onOpenSession(s.sessionId)}
+              className="flex items-center gap-2 text-left text-xs hover:text-indigo-500 transition-colors">
+              <span className="flex-1 truncate text-gray-700 dark:text-gray-300">{s.project.split('/').filter(Boolean).slice(-1)[0]}</span>
+              <span className="text-gray-400 dark:text-gray-600 shrink-0">{fmtTokenCount(s.avgPreTokens)} avg</span>
+              <span className="text-rose-500 shrink-0 font-medium">{s.count}×</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </Card>
+  )
+}
+
+// ── Over-editing risk card ────────────────────────────────────────────────────
+
+function OverEditingRiskCard({ data, onOpenSession }: { data: { riskyCount: number; totalSessions: number; avgRatio: number; topRisky: import('../../src/types').Session[] }; onOpenSession: (id: string) => void }) {
+  if (data.totalSessions === 0) return null
+  const riskPct = Math.round((data.riskyCount / data.totalSessions) * 100)
+  return (
+    <Card>
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Over-editing Risk</h3>
+        <span className={`text-[10px] font-medium ${riskPct > 30 ? 'text-rose-500' : riskPct > 15 ? 'text-amber-500' : 'text-emerald-500'}`}>
+          {riskPct}% of sessions flagged
+        </span>
+      </div>
+      <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+        Sessions where Claude edited without first reading (edit-first pattern) or iterated 3+ times on the same file rapidly. Avg edit:read ratio <span className="font-semibold text-gray-900 dark:text-gray-100">{data.avgRatio.toFixed(1)}×</span>.
+      </p>
+      {data.topRisky.length > 0 && (
+        <div className="flex flex-col gap-1.5">
+          <p className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-gray-600">Highest risk sessions</p>
+          {data.topRisky.map(s => (
+            <button key={s.id} onClick={() => onOpenSession(s.id)}
+              className="flex items-center gap-2 text-left text-xs hover:text-indigo-500 transition-colors">
+              <span className="flex-1 truncate text-gray-700 dark:text-gray-300">{s.project.split('/').filter(Boolean).slice(-1)[0]}</span>
+              {s.stats.overEditing.rapidIterationFiles > 0 && (
+                <span className="text-[9px] px-1 py-0.5 rounded bg-rose-100 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400 shrink-0">{s.stats.overEditing.rapidIterationFiles} thrash</span>
+              )}
+              <span className="text-amber-500 shrink-0 font-medium tabular-nums">{s.stats.overEditing.editToReadRatio.toFixed(1)}× e/r</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </Card>
+  )
+}
+
 export function InsightsTab({ sessions, onOpenSession, onOpenSearch }: { sessions: Session[]; onOpenSession: (id: string, turnId?: string) => void; onOpenSearch: () => void }) {
   const [range, setRange] = useState<DateRange>('all')
   const [deepDiveTool, setDeepDiveTool] = useState<string | null>(null)
@@ -4108,6 +4270,18 @@ export function InsightsTab({ sessions, onOpenSession, onOpenSearch }: { session
 
   const hasHourQuality = qualityByHour.some(h => h.avg !== null)
   const hasDowQuality  = qualityByDow.some(d => d.avg !== null)
+
+  const qualityTrend = React.useMemo(() => qualityTrendByWeek(filtered), [filtered])
+  const cacheProfiles = React.useMemo(() => cacheMissProfiles(filtered), [filtered])
+  const compaction = React.useMemo(() => compactionFrequency(filtered), [filtered])
+  const overEditingRisk = React.useMemo(() => {
+    const risky = filtered.filter(s =>
+      s.stats.overEditing.editToReadRatio > 1.5 || s.stats.overEditing.rapidIterationFiles > 0
+    )
+    const avgRatio = filtered.length === 0 ? 0
+      : filtered.reduce((sum, s) => sum + s.stats.overEditing.editToReadRatio, 0) / filtered.length
+    return { riskyCount: risky.length, totalSessions: filtered.length, avgRatio, topRisky: risky.sort((a, b) => b.stats.overEditing.editToReadRatio - a.stats.overEditing.editToReadRatio).slice(0, 5) }
+  }, [filtered])
 
   const [insightTab, setInsightTab] = useState<'home' | 'analytics' | 'projects'>('home')
   const [analyticsOpen, setAnalyticsOpen] = useState(() => new Set(['cost', 'quality']))
@@ -4261,11 +4435,13 @@ export function InsightsTab({ sessions, onOpenSession, onOpenSearch }: { session
             <ModelMixTrendCard sessions={filtered} />
             <CostPerTurnTrendCard sessions={filtered} />
             <CacheEfficiencyCard rows={cacheRanking} onOpenSession={id => onOpenSession(id)} />
+            <CacheMissCostCard profiles={cacheProfiles} />
           </AccordionSection>
 
           <AccordionSection id="quality" title="Quality" open={analyticsOpen.has('quality')} onToggle={() => toggleAnalytics('quality')}>
             <QualityDistributionCard sessions={filtered} />
             <QualityTrendCard sessions={filtered} />
+            <QualityTrendWeeklyCard weeks={qualityTrend} />
             <ContextHotspotsCard stats={contextHotspots} onOpenSession={onOpenSession} />
           </AccordionSection>
 
@@ -4277,6 +4453,8 @@ export function InsightsTab({ sessions, onOpenSession, onOpenSearch }: { session
             <ThinkingDepthCard stats={thinking} onOpenSession={onOpenSession} />
             <InterruptCard stats={interrupts} onOpenSession={id => onOpenSession(id)} />
             <ThrashCard sessions={thrashSess} onOpenSession={id => onOpenSession(id)} />
+            <CompactionCard summary={compaction} onOpenSession={id => onOpenSession(id)} />
+            <OverEditingRiskCard data={overEditingRisk} onOpenSession={id => onOpenSession(id)} />
           </AccordionSection>
 
           <AccordionSection id="patterns" title="Patterns" open={analyticsOpen.has('patterns')} onToggle={() => toggleAnalytics('patterns')}>

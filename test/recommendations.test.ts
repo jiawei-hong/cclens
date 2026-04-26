@@ -49,6 +49,8 @@ function makeSession(overrides: SessionOverrides): Session {
       contextLimit: 200_000,
       contextSeries: [],
       totalThinkingBlocks: 0,
+      compactionEvents: [],
+      overEditing: { editWithoutReadCount: 0, rapidIterationFiles: 0, editToReadRatio: 0 },
       ...(overrides.stats ?? {}),
     },
   }

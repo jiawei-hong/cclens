@@ -49,8 +49,10 @@ export function SearchModal({ sessions, open, onClose, onOpenSession }: {
   const [results, setResults] = useState<SearchResult[]>([])
   const [mounted, setMounted] = useState(false)
   const [visible, setVisible] = useState(false)
+  const [selectedIdx, setSelectedIdx] = useState(-1)
   const inputRef = useRef<HTMLInputElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
+  const resultsRef = useRef<HTMLDivElement>(null)
 
   const allProjects = useMemo(
     () => [...new Set(sessions.map(s => s.project))].sort(),
@@ -101,6 +103,7 @@ export function SearchModal({ sessions, open, onClose, onOpenSession }: {
       }
       setRegexError(false)
       setResults(searchSessions(sessions, query, { regex: regexMode }))
+      setSelectedIdx(-1)
     }, 200)
     return () => clearTimeout(t)
   }, [query, sessions, regexMode])
@@ -125,6 +128,32 @@ export function SearchModal({ sessions, open, onClose, onOpenSession }: {
     }
     return [...map.entries()].map(([id, v]) => ({ id, ...v }))
   }, [filtered, sessions])
+
+  // Scroll selected result into view
+  useEffect(() => {
+    if (selectedIdx < 0 || !resultsRef.current) return
+    const el = resultsRef.current.querySelector(`[data-result-idx="${selectedIdx}"]`)
+    el?.scrollIntoView({ block: 'nearest' })
+  }, [selectedIdx])
+
+  // Arrow / j/k nav + Enter to open
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowDown' || e.key === 'j') {
+        e.preventDefault()
+        setSelectedIdx(i => Math.min(i + 1, grouped.length - 1))
+      } else if (e.key === 'ArrowUp' || e.key === 'k') {
+        e.preventDefault()
+        setSelectedIdx(i => Math.max(i - 1, -1))
+      } else if (e.key === 'Enter' && selectedIdx >= 0) {
+        const g = grouped[selectedIdx]
+        if (g) { onOpenSession(g.id); handleClose() }
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [open, grouped, selectedIdx, onOpenSession])
 
   const filterBtn = <T extends string>(value: T, current: T, set: (v: T) => void, label: string) => (
     <button
@@ -217,15 +246,15 @@ export function SearchModal({ sessions, open, onClose, onOpenSession }: {
         </div>
 
         {/* Results */}
-        <div className="overflow-y-auto flex-1 px-4 py-3 flex flex-col gap-3">
+        <div ref={resultsRef} className="overflow-y-auto flex-1 px-4 py-3 flex flex-col gap-3">
           {!query && (
             <p className="text-sm text-gray-400 dark:text-gray-600 text-center py-8">Type to search across all session text</p>
           )}
           {query && !regexError && grouped.length === 0 && (
             <p className="text-sm text-gray-500 dark:text-gray-600 text-center py-8">No results for "{query}"</p>
           )}
-          {grouped.map(({ id, project, startedAt, snippets }) => (
-            <div key={id} className="flex flex-col gap-2 p-3 rounded-xl bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-800">
+          {grouped.map(({ id, project, startedAt, snippets }, gIdx) => (
+            <div key={id} data-result-idx={gIdx} className={`flex flex-col gap-2 p-3 rounded-xl border transition-colors ${selectedIdx === gIdx ? 'bg-indigo-50 dark:bg-indigo-950/30 border-indigo-200 dark:border-indigo-800' : 'bg-gray-50 dark:bg-gray-800/50 border-gray-100 dark:border-gray-800'}`}>
               <button
                 onClick={() => { onOpenSession(id); handleClose() }}
                 className={`flex items-center gap-2 text-left w-full group rounded-lg ${focusRing}`}

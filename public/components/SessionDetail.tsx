@@ -817,6 +817,26 @@ export function SessionDetailView({ session, allSessions, scrollToTurnId }: { se
         </div>
       </Card>
 
+      {session.stats.compactionEvents.length > 0 && (
+        <div className="flex items-center gap-2 flex-wrap text-xs">
+          {session.stats.compactionEvents.some(e => e.trigger === 'auto') && (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300 font-medium">
+              ⚡ Auto-compacted ×{session.stats.compactionEvents.filter(e => e.trigger === 'auto').length}
+            </span>
+          )}
+          {session.stats.compactionEvents.some(e => e.trigger === 'manual') && (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300 font-medium">
+              /compact ×{session.stats.compactionEvents.filter(e => e.trigger === 'manual').length}
+            </span>
+          )}
+          {session.stats.overEditing.editToReadRatio > 1.5 && (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-rose-100 dark:bg-rose-500/20 text-rose-700 dark:text-rose-300 font-medium">
+              ⚠ Edit-heavy ({session.stats.overEditing.editToReadRatio.toFixed(1)}× e/r)
+            </span>
+          )}
+        </div>
+      )}
+
       <SessionPostmortem session={session} allSessions={allSessions} />
       <RecommendationsPanel session={session} />
       <SessionTimeline session={session} />
@@ -831,6 +851,11 @@ export function SessionDetailView({ session, allSessions, scrollToTurnId }: { se
 
       {detailTab === 'conversation' && (() => {
         let lastDate = ''
+        let lastTurnTs = ''
+        // Pre-sort compaction events ascending for insertion
+        const sortedCompactions = [...session.stats.compactionEvents].sort((a, b) => a.timestamp.localeCompare(b.timestamp))
+        let compactionIdx = 0
+
         return session.turns.flatMap(turn => {
           const dateKey = new Date(turn.timestamp).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
           const showDate = dateKey !== lastDate
@@ -839,7 +864,28 @@ export function SessionDetailView({ session, allSessions, scrollToTurnId }: { se
             && turn.toolCalls.length === 0
             && parseTurnContent(turn.text).length === 0
 
+          // Inject any compaction markers that fall between lastTurnTs and this turn
+          const markers: React.ReactNode[] = []
+          while (compactionIdx < sortedCompactions.length) {
+            const ev = sortedCompactions[compactionIdx]!
+            if (ev.timestamp > turn.timestamp) break
+            if (!lastTurnTs || ev.timestamp > lastTurnTs) {
+              markers.push(
+                <div key={`compact-${ev.timestamp}`} className="flex items-center gap-3 py-2">
+                  <div className="flex-1 h-px bg-amber-300 dark:bg-amber-600/50" />
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300 font-medium whitespace-nowrap">
+                    ⚡ Context {ev.trigger === 'auto' ? 'auto-compacted' : 'compacted'} at {(ev.preTokens / 1000).toFixed(0)}K tokens
+                  </span>
+                  <div className="flex-1 h-px bg-amber-300 dark:bg-amber-600/50" />
+                </div>
+              )
+            }
+            compactionIdx++
+          }
+          lastTurnTs = turn.timestamp
+
           return [
+            ...markers,
             !userPartsEmpty && showDate && (
               <div key={`date-${dateKey}`} className="flex items-center gap-3 py-1">
                 <div className="flex-1 h-px bg-gray-200 dark:bg-gray-800" />
