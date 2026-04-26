@@ -3914,6 +3914,17 @@ function ThisWeekCard({ sessions, onViewProject }: { sessions: Session[]; onView
   const topProject = [...projectCounts.entries()].sort((a, b) => b[1] - a[1])[0]
   const topProjectName = topProject ? topProject[0].split('/').filter(Boolean).slice(-1)[0] ?? topProject[0] : null
 
+  // dominant model family this week (by cost)
+  const familyCosts = new Map<string, number>()
+  for (const s of thisWeek) {
+    const fam = dominantModelFamily(s)
+    const sCost = sessionCostUSD(s)
+    familyCosts.set(fam, (familyCosts.get(fam) ?? 0) + sCost)
+  }
+  const topFamily = [...familyCosts.entries()].sort((a, b) => b[1] - a[1])[0]
+  const topFamilyName = topFamily?.[0] ?? null
+  const opusCostPct = thisCost > 0 ? Math.round((familyCosts.get('opus') ?? 0) / thisCost * 100) : 0
+
   function Delta({ curr, prev, lowerBetter = false }: { curr: number; prev: number; lowerBetter?: boolean }) {
     if (prev === 0) return null
     const pct = Math.round(((curr - prev) / prev) * 100)
@@ -3970,6 +3981,18 @@ function ThisWeekCard({ sessions, onViewProject }: { sessions: Session[]; onView
           {avgScore !== null && <span className="text-[10px] text-gray-400 dark:text-gray-600">avg {Math.round(avgScore)}</span>}
         </div>
       </div>
+      {topFamilyName && (
+        <div className="flex items-center gap-1.5 mt-3 pt-3 border-t border-gray-100 dark:border-gray-800 text-[10px] text-gray-400 dark:text-gray-600">
+          <span>Dominant model:</span>
+          <span className={`font-semibold capitalize ${topFamilyName === 'opus' ? 'text-purple-500 dark:text-purple-400' : topFamilyName === 'sonnet' ? 'text-indigo-500 dark:text-indigo-400' : 'text-sky-500 dark:text-sky-400'}`}>{topFamilyName}</span>
+          {opusCostPct > 0 && topFamilyName !== 'opus' && (
+            <span className="ml-2 text-gray-400 dark:text-gray-600">{opusCostPct}% of spend on Opus</span>
+          )}
+          {opusCostPct >= 50 && (
+            <span className="text-amber-500 dark:text-amber-400 font-medium">— consider Sonnet for routine tasks</span>
+          )}
+        </div>
+      )}
     </Card>
   )
 }
