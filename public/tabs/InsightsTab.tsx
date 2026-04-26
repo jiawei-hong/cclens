@@ -3443,6 +3443,122 @@ function HomeRecommendationsCard({ agg, onViewAll }: { agg: RecAggregate; onView
   )
 }
 
+function WeeklyDigestCard({ sessions, topTools, recAgg, regressions }: {
+  sessions: Session[]
+  topTools: { name: string; count: number }[]
+  recAgg: RecAggregate
+  regressions: RegressionReport
+}) {
+  const now = Date.now()
+  const DAY = 86_400_000
+  const thisWeek = sessions.filter(s => now - new Date(s.startedAt).getTime() < 7 * DAY)
+  const priorWeek = sessions.filter(s => {
+    const age = now - new Date(s.startedAt).getTime()
+    return age >= 7 * DAY && age < 14 * DAY
+  })
+  if (thisWeek.length === 0) return null
+
+  const activeDays = new Set(thisWeek.map(s => s.startedAt.slice(0, 10))).size
+  const thisCost = thisWeek.reduce((s, x) => s + sessionCostUSD(x), 0)
+  const priorCost = priorWeek.reduce((s, x) => s + sessionCostUSD(x), 0)
+  const costDelta = priorCost > 0 ? Math.round(((thisCost - priorCost) / priorCost) * 100) : null
+  const sessionDelta = priorWeek.length > 0 ? Math.round(((thisWeek.length - priorWeek.length) / priorWeek.length) * 100) : null
+
+  const projectCounts = new Map<string, number>()
+  for (const s of thisWeek) projectCounts.set(s.project, (projectCounts.get(s.project) ?? 0) + 1)
+  const topProject = [...projectCounts.entries()].sort((a, b) => b[1] - a[1])[0]
+  const topProjectName = topProject ? topProject[0].split('/').filter(Boolean).slice(-1)[0] ?? topProject[0] : null
+
+  const weekTools = globalToolStats(thisWeek)
+  const topTool = weekTools[0]
+
+  const qualScores = thisWeek.map(s => sessionQualityScore(s)).filter(q => q.rated)
+  const avgQuality = qualScores.length > 0 ? qualScores.reduce((s, q) => s + q.score, 0) / qualScores.length : null
+
+  const startOfWeek = new Date(now - 6 * DAY)
+  const dateRange = `${startOfWeek.toLocaleDateString('en', { month: 'short', day: 'numeric' })}–${new Date().toLocaleDateString('en', { month: 'short', day: 'numeric' })}`
+
+  function DeltaChip({ val, lowerBetter = false }: { val: number | null; lowerBetter?: boolean }) {
+    if (val === null || val === 0) return null
+    const up = val > 0
+    const good = lowerBetter ? !up : up
+    return (
+      <span className={`text-[10px] font-semibold ${good ? 'text-emerald-500' : 'text-rose-400'}`}>
+        {up ? '↑' : '↓'}{Math.abs(val)}%
+      </span>
+    )
+  }
+
+  return (
+    <Card>
+      <div className="flex items-center justify-between mb-2.5">
+        <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Weekly Digest</h3>
+        <span className="text-[10px] text-gray-400 dark:text-gray-600">{dateRange}</span>
+      </div>
+      <div className="flex flex-col gap-2">
+        {/* Row 1: sessions, days, cost */}
+        <div className="flex items-center gap-1.5 flex-wrap text-sm text-gray-700 dark:text-gray-300">
+          <span className="font-semibold text-gray-900 dark:text-gray-100">{thisWeek.length}</span>
+          <span className="text-gray-500">sessions</span>
+          <DeltaChip val={sessionDelta} />
+          <span className="text-gray-300 dark:text-gray-700 mx-1">·</span>
+          <span className="font-semibold text-gray-900 dark:text-gray-100">{activeDays}</span>
+          <span className="text-gray-500">active day{activeDays !== 1 ? 's' : ''}</span>
+          <span className="text-gray-300 dark:text-gray-700 mx-1">·</span>
+          <span className="font-semibold text-gray-900 dark:text-gray-100 tabular-nums">{fmtUSD(thisCost)}</span>
+          <span className="text-gray-500">est. cost</span>
+          <DeltaChip val={costDelta} lowerBetter />
+        </div>
+        {/* Row 2: project, tool, quality */}
+        <div className="flex items-center gap-1.5 flex-wrap text-xs text-gray-500 dark:text-gray-400">
+          {topProjectName && (
+            <>
+              <span>Most active:</span>
+              <span className="font-medium text-gray-700 dark:text-gray-300">{topProjectName}</span>
+              <span className="text-gray-400">({topProject![1]} sess)</span>
+              <span className="text-gray-300 dark:text-gray-700 mx-1">·</span>
+            </>
+          )}
+          {topTool && (
+            <>
+              <span>Top tool:</span>
+              <span className="font-mono font-medium text-gray-700 dark:text-gray-300">{topTool.name}</span>
+              <span className="text-gray-400">({topTool.count}×)</span>
+            </>
+          )}
+          {avgQuality !== null && (
+            <>
+              <span className="text-gray-300 dark:text-gray-700 mx-1">·</span>
+              <span>Avg quality:</span>
+              <span className="font-medium text-gray-700 dark:text-gray-300">{scoreToGrade(avgQuality)}</span>
+              <span className="text-gray-400">({Math.round(avgQuality)})</span>
+            </>
+          )}
+        </div>
+        {/* Row 3: recs / regression callout */}
+        {(recAgg.sessionCount > 0 || regressions.regressions.length > 0) && (
+          <div className="flex items-center gap-1.5 flex-wrap text-xs">
+            {regressions.regressions.length > 0 && (
+              <span className="text-rose-500 dark:text-rose-400 font-medium">
+                ⚠ {regressions.regressions.length} regression{regressions.regressions.length !== 1 ? 's' : ''} detected
+              </span>
+            )}
+            {regressions.regressions.length > 0 && recAgg.sessionCount > 0 && (
+              <span className="text-gray-300 dark:text-gray-700 mx-1">·</span>
+            )}
+            {recAgg.sessionCount > 0 && (
+              <span className="text-amber-600 dark:text-amber-400">
+                {recAgg.sessionCount} session{recAgg.sessionCount !== 1 ? 's' : ''} with optimization opportunities
+                {recAgg.totalSavingsUSD > 0.01 && ` (save ${fmtUSD(recAgg.totalSavingsUSD)})`}
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+    </Card>
+  )
+}
+
 const BUDGET_KEY = 'cclens_monthly_budget'
 
 function BudgetAlertCard({ forecast }: { forecast: MonthlyForecast }) {
@@ -4017,6 +4133,7 @@ export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; 
       {/* ── Home ── */}
       {insightTab === 'home' && (
         <div className="flex flex-col gap-5">
+          <WeeklyDigestCard sessions={sessions} topTools={topTools} recAgg={recAgg} regressions={regressions} />
           <BudgetAlertCard forecast={forecast} />
           <div className="grid grid-cols-2 gap-5">
             <ThisWeekCard sessions={sessions} onViewProject={p => { setSelectedProject(p); setInsightTab('projects') }} />
