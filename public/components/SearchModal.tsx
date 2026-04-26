@@ -84,7 +84,7 @@ export function SearchModal({ sessions, open, onClose, onOpenSession }: {
 
   // Close on Esc
   useEffect(() => {
-    if (!mounted) return
+    if (!open) return
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') { e.preventDefault(); handleClose() }
     }
