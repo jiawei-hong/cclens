@@ -3419,6 +3419,90 @@ function HomeRecommendationsCard({ agg, onViewAll }: { agg: RecAggregate; onView
   )
 }
 
+function ThisWeekCard({ sessions, onViewProject }: { sessions: Session[]; onViewProject?: (p: string) => void }) {
+  const now = Date.now()
+  const DAY = 86_400_000
+  const thisWeek  = sessions.filter(s => now - new Date(s.startedAt).getTime() <  7 * DAY)
+  const priorWeek = sessions.filter(s => {
+    const age = now - new Date(s.startedAt).getTime()
+    return age >= 7 * DAY && age < 14 * DAY
+  })
+  if (thisWeek.length === 0) return null
+
+  const thisActiveDays  = new Set(thisWeek.map(s  => s.startedAt.slice(0, 10))).size
+  const priorActiveDays = new Set(priorWeek.map(s => s.startedAt.slice(0, 10))).size
+  const thisCost  = thisWeek.reduce((s, x) => s + sessionCostUSD(x), 0)
+  const priorCost = priorWeek.reduce((s, x) => s + sessionCostUSD(x), 0)
+
+  const qualGrades = thisWeek.map(s => sessionQualityScore(s)).filter(q => q.rated)
+  const avgScore = qualGrades.length > 0 ? qualGrades.reduce((s, q) => s + q.score, 0) / qualGrades.length : null
+  const bestGrade = qualGrades.length > 0 ? qualGrades.reduce((best, q) => q.score > best.score ? q : best).grade : null
+
+  const projectCounts = new Map<string, number>()
+  for (const s of thisWeek) projectCounts.set(s.project, (projectCounts.get(s.project) ?? 0) + 1)
+  const topProject = [...projectCounts.entries()].sort((a, b) => b[1] - a[1])[0]
+  const topProjectName = topProject ? topProject[0].split('/').filter(Boolean).slice(-1)[0] ?? topProject[0] : null
+
+  function Delta({ curr, prev, lowerBetter = false }: { curr: number; prev: number; lowerBetter?: boolean }) {
+    if (prev === 0) return null
+    const pct = Math.round(((curr - prev) / prev) * 100)
+    if (pct === 0) return null
+    const up = pct > 0
+    const good = lowerBetter ? !up : up
+    return (
+      <span className={`text-[10px] font-medium ${good ? 'text-emerald-500' : 'text-rose-400'}`}>
+        {up ? '↑' : '↓'}{Math.abs(pct)}%
+      </span>
+    )
+  }
+
+  const gradeColor: Record<string, string> = {
+    A: 'text-emerald-600 dark:text-emerald-400',
+    B: 'text-sky-600 dark:text-sky-400',
+    C: 'text-amber-600 dark:text-amber-400',
+    D: 'text-orange-600 dark:text-orange-400',
+    F: 'text-rose-600 dark:text-rose-400',
+  }
+
+  return (
+    <Card>
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">This Week</h3>
+        {topProject && onViewProject && (
+          <button onClick={() => onViewProject(topProject[0])} className="text-[10px] text-indigo-500 hover:text-indigo-400 shrink-0">
+            {topProjectName} ({topProject[1]} sess) →
+          </button>
+        )}
+      </div>
+      <div className="grid grid-cols-4 gap-4">
+        <div className="flex flex-col gap-0.5">
+          <p className="text-[10px] text-gray-400 dark:text-gray-600 uppercase tracking-wide">Sessions</p>
+          <p className="text-xl font-bold text-gray-900 dark:text-gray-100 tabular-nums leading-tight">{thisWeek.length}</p>
+          <Delta curr={thisWeek.length} prev={priorWeek.length} />
+        </div>
+        <div className="flex flex-col gap-0.5">
+          <p className="text-[10px] text-gray-400 dark:text-gray-600 uppercase tracking-wide">Active Days</p>
+          <p className="text-xl font-bold text-gray-900 dark:text-gray-100 tabular-nums leading-tight">{thisActiveDays}</p>
+          <Delta curr={thisActiveDays} prev={priorActiveDays} />
+        </div>
+        <div className="flex flex-col gap-0.5">
+          <p className="text-[10px] text-gray-400 dark:text-gray-600 uppercase tracking-wide">Est. Cost</p>
+          <p className="text-xl font-bold text-gray-900 dark:text-gray-100 tabular-nums leading-tight">{fmtUSD(thisCost)}</p>
+          <Delta curr={thisCost} prev={priorCost} lowerBetter />
+        </div>
+        <div className="flex flex-col gap-0.5">
+          <p className="text-[10px] text-gray-400 dark:text-gray-600 uppercase tracking-wide">Best Grade</p>
+          {bestGrade
+            ? <p className={`text-xl font-bold tabular-nums leading-tight ${gradeColor[bestGrade] ?? 'text-gray-500'}`}>{bestGrade}</p>
+            : <p className="text-xl font-bold text-gray-400 dark:text-gray-600 leading-tight">—</p>
+          }
+          {avgScore !== null && <span className="text-[10px] text-gray-400 dark:text-gray-600">avg {Math.round(avgScore)}</span>}
+        </div>
+      </div>
+    </Card>
+  )
+}
+
 function SnippetHighlight({ snippet, query, isRegex }: { snippet: string; query: string; isRegex: boolean }) {
   let re: RegExp | null = null
   try { re = new RegExp(isRegex ? query : query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi') } catch { re = null }
@@ -3748,6 +3832,7 @@ export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; 
       {/* ── Home ── */}
       {insightTab === 'home' && (
         <div className="flex flex-col gap-5">
+          <ThisWeekCard sessions={sessions} onViewProject={p => { setSelectedProject(p); setInsightTab('projects') }} />
           <RegressionAlertCard report={regressions} />
           <ProgressDashboardCard sessions={filtered} />
           <LastSessionPill session={sessions[0] ?? null} onOpen={onOpenSession} />
