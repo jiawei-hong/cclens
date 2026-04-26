@@ -450,15 +450,19 @@ function App() {
         {memory.length > 0 && (
           <NavTab label="Memory" active={tab === 'memory'} onClick={() => setTab('memory')} />
         )}
+
+        {/* Wide search bar */}
+        <button
+          onClick={() => setSearchOpen(true)}
+          title="Search sessions (⌘K or /)"
+          className="flex-1 max-w-sm flex items-center gap-2 px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/60 hover:border-indigo-300 dark:hover:border-indigo-600 hover:bg-white dark:hover:bg-gray-800 transition-colors text-left"
+        >
+          <span className="text-gray-400 dark:text-gray-600 shrink-0">⌕</span>
+          <span className="flex-1 text-sm text-gray-400 dark:text-gray-600 truncate">Search sessions…</span>
+          <kbd className="shrink-0 text-[10px] font-mono text-gray-400 dark:text-gray-600 border border-gray-200 dark:border-gray-700 rounded px-1 py-0.5 bg-white dark:bg-gray-900">⌘K</kbd>
+        </button>
+
         <div className="ml-auto flex items-center gap-3">
-          <button
-            onClick={() => setSearchOpen(true)}
-            title="Search sessions (⌘K or /)"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 border border-gray-200 dark:border-gray-700 transition-colors"
-          >
-            <span>⌕</span>
-            <span className="text-[10px] font-mono text-gray-400 dark:text-gray-600">⌘K</span>
-          </button>
           <button
             onClick={() => setHelpOpen(true)}
             title="Keyboard shortcuts (?)"
