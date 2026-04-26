@@ -4191,6 +4191,46 @@ export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; 
     return next
   })
 
+  const TAB_ORDER: Array<'home' | 'analytics' | 'projects' | 'search'> = ['home', 'analytics', 'projects', 'search']
+
+  React.useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      const tag = (e.target as HTMLElement).tagName
+      // Ignore when typing in an input/textarea/select
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+      if (e.metaKey || e.ctrlKey || e.altKey) return
+
+      if (e.key === '/') {
+        e.preventDefault()
+        setInsightTab('search')
+        return
+      }
+      if (e.key === 'Escape') {
+        if (deepDiveTool) { setDeepDiveTool(null); return }
+        if (selectedProject) { setSelectedProject(null); return }
+        return
+      }
+      if (e.key === 'ArrowRight' || e.key === ']') {
+        e.preventDefault()
+        setInsightTab(t => {
+          const idx = TAB_ORDER.indexOf(t)
+          return TAB_ORDER[(idx + 1) % TAB_ORDER.length]!
+        })
+        return
+      }
+      if (e.key === 'ArrowLeft' || e.key === '[') {
+        e.preventDefault()
+        setInsightTab(t => {
+          const idx = TAB_ORDER.indexOf(t)
+          return TAB_ORDER[(idx - 1 + TAB_ORDER.length) % TAB_ORDER.length]!
+        })
+        return
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [deepDiveTool, selectedProject])
+
   return (
     <div className="flex flex-col gap-5">
 
