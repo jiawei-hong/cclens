@@ -3104,6 +3104,23 @@ function ProjectDetailView({ project, sessions, onBack, onOpenSession }: {
   const projectFiles = React.useMemo(() => hotFiles(projectSessions), [projectSessions])
   const projectTools = React.useMemo(() => globalToolStats(projectSessions).slice(0, 6), [projectSessions])
   const projectRecs = React.useMemo(() => aggregateRecommendations(projectSessions), [projectSessions])
+
+  const weeklyBreakdown = React.useMemo(() => {
+    const map = new Map<string, { sessions: number; cost: number; label: string }>()
+    for (const { session: s, cost } of sessionMetrics) {
+      const d = new Date(s.startedAt)
+      const key = getWeekKey(d)
+      const label = d.toLocaleDateString('en', { month: 'short', day: 'numeric' })
+      const e = map.get(key) ?? { sessions: 0, cost: 0, label }
+      e.sessions++
+      e.cost += cost
+      map.set(key, e)
+    }
+    return [...map.entries()]
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .slice(-12)
+      .map(([, v]) => v)
+  }, [sessionMetrics])
   const totalCost = sessionMetrics.reduce((sum, m) => sum + m.cost, 0)
   const rated = sessionMetrics.filter(m => m.quality.rated)
   const avgQuality = rated.length === 0 ? 0 : rated.reduce((sum, m) => sum + m.quality.score, 0) / rated.length
@@ -3154,6 +3171,37 @@ function ProjectDetailView({ project, sessions, onBack, onOpenSession }: {
           </div>
         )}
       </Card>
+
+      {weeklyBreakdown.length >= 2 && (
+        <Card>
+          <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">Activity by Week</h3>
+          <div className="flex items-end gap-1.5" style={{ height: '56px' }}>
+            {(() => {
+              const maxSess = Math.max(...weeklyBreakdown.map(w => w.sessions), 1)
+              const maxCost = Math.max(...weeklyBreakdown.map(w => w.cost), 0.0001)
+              return weeklyBreakdown.map((w, i) => (
+                <div key={i} className="group relative flex-1 flex items-end gap-px" style={{ height: '56px' }}>
+                  <div className="flex-1 bg-indigo-400 dark:bg-indigo-500 rounded-sm hover:bg-indigo-500 transition-colors cursor-default"
+                    style={{ height: `${Math.max(3, Math.round((w.sessions / maxSess) * 56))}px` }} />
+                  <div className="flex-1 bg-emerald-400 dark:bg-emerald-500 rounded-sm hover:bg-emerald-500 transition-colors cursor-default"
+                    style={{ height: `${Math.max(3, Math.round((w.cost / maxCost) * 56))}px` }} />
+                  <div className="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 shadow-sm text-xs text-gray-700 dark:text-gray-300 px-2 py-1 rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-10">
+                    {w.label} · {w.sessions} sess · {fmtUSD(w.cost)}
+                  </div>
+                </div>
+              ))
+            })()}
+          </div>
+          <div className="flex items-center gap-4 mt-2">
+            <div className="flex items-center gap-1.5 text-[10px] text-gray-400 dark:text-gray-600">
+              <span className="w-2.5 h-2.5 rounded-sm bg-indigo-400 dark:bg-indigo-500 shrink-0" />Sessions
+            </div>
+            <div className="flex items-center gap-1.5 text-[10px] text-gray-400 dark:text-gray-600">
+              <span className="w-2.5 h-2.5 rounded-sm bg-emerald-400 dark:bg-emerald-500 shrink-0" />Est. Cost
+            </div>
+          </div>
+        </Card>
+      )}
 
       {projectRecs.byRule.length > 0 && (
         <Card>
