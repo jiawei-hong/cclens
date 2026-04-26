@@ -31,6 +31,14 @@ const SECTIONS: { title: string; items: Shortcut[] }[] = [
     ],
   },
   {
+    title: 'Search modal',
+    items: [
+      { keys: ['↑'], label: 'Previous result' },
+      { keys: ['↓'], label: 'Next result' },
+      { keys: ['Enter'], label: 'Open selected session' },
+    ],
+  },
+  {
     title: 'Overlay',
     items: [
       { keys: ['?'], label: 'Show / hide this help' },

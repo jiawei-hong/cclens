@@ -1407,3 +1407,65 @@ export function compactionFrequency(sessions: Session[]): CompactionSummary {
     topSessions: perSession.sort((a, b) => b.count - a.count).slice(0, 5),
   }
 }
+
+export type OverlapGroup = {
+  sessions: { id: string; project: string; startedAt: string; endedAt: string; durationMs: number }[]
+  overlapStart: string
+  overlapEnd: string
+  overlapMs: number
+}
+
+export type ParallelOverlapStats = {
+  totalOverlapGroups: number
+  totalOverlapMs: number
+  groups: OverlapGroup[]
+}
+
+export function parallelSessionOverlap(sessions: Session[], limit = 10): ParallelOverlapStats {
+  // Sort by start time
+  const sorted = [...sessions]
+    .filter(s => s.endedAt)
+    .sort((a, b) => new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime())
+
+  const groups: OverlapGroup[] = []
+
+  for (let i = 0; i < sorted.length; i++) {
+    const a = sorted[i]!
+    const aStart = new Date(a.startedAt).getTime()
+    const aEnd = new Date(a.endedAt!).getTime()
+    if (aEnd <= aStart) continue
+
+    for (let j = i + 1; j < sorted.length; j++) {
+      const b = sorted[j]!
+      const bStart = new Date(b.startedAt).getTime()
+      const bEnd = new Date(b.endedAt!).getTime()
+
+      // No overlap possible if b starts after a ends
+      if (bStart >= aEnd) break
+
+      const overlapStart = Math.max(aStart, bStart)
+      const overlapEnd = Math.min(aEnd, bEnd)
+      const overlapMs = overlapEnd - overlapStart
+      if (overlapMs <= 0) continue
+
+      groups.push({
+        sessions: [
+          { id: a.id, project: a.project, startedAt: a.startedAt, endedAt: a.endedAt!, durationMs: a.durationMs },
+          { id: b.id, project: b.project, startedAt: b.startedAt, endedAt: b.endedAt!, durationMs: b.durationMs },
+        ],
+        overlapStart: new Date(overlapStart).toISOString(),
+        overlapEnd: new Date(overlapEnd).toISOString(),
+        overlapMs,
+      })
+    }
+  }
+
+  groups.sort((a, b) => b.overlapMs - a.overlapMs)
+  const totalOverlapMs = groups.reduce((sum, g) => sum + g.overlapMs, 0)
+
+  return {
+    totalOverlapGroups: groups.length,
+    totalOverlapMs,
+    groups: groups.slice(0, limit),
+  }
+}

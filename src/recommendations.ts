@@ -393,6 +393,47 @@ function ruleSkillGapCreatePR(s: Session): Recommendation | null {
   }
 }
 
+// ── Rule: over-editing ────────────────────────────────────────────────────────
+// Edit:read ratio > 2 — editing without researching first. Research shows this
+// pattern correlates with duplicate/broken code and multiple re-edits.
+
+function ruleOverEditing(s: Session): Recommendation | null {
+  const { editToReadRatio, editWithoutReadCount, rapidIterationFiles } = s.stats.overEditing
+  if (editToReadRatio < 2 && rapidIterationFiles === 0) return null
+  const issues: string[] = []
+  if (editToReadRatio >= 2) issues.push(`edit:read ratio ${editToReadRatio.toFixed(1)}× (ideal < 1.5×)`)
+  if (editWithoutReadCount > 0) issues.push(`${editWithoutReadCount} edit${editWithoutReadCount > 1 ? 's' : ''} to unread files`)
+  if (rapidIterationFiles > 0) issues.push(`${rapidIterationFiles} file${rapidIterationFiles > 1 ? 's' : ''} edited 3+ times within 5 min`)
+  return {
+    id: 'over-editing',
+    category: 'workflow',
+    severity: editToReadRatio >= 3 || rapidIterationFiles >= 2 ? 'high' : 'medium',
+    title: 'Over-editing pattern detected',
+    evidence: issues.join('; '),
+    savings: { kind: 'count', amount: editWithoutReadCount + rapidIterationFiles, detail: 'blind edits + rapid iteration files' },
+    actionHint: 'Ask Claude to read and grep relevant files before making changes. Add "research first, then edit" to your CLAUDE.md.',
+  }
+}
+
+// ── Rule: frequent compaction ─────────────────────────────────────────────────
+// Auto-compacted 2+ times — session outgrew context repeatedly. Lossy compaction
+// can cause Claude to forget rules/decisions made earlier.
+
+function ruleFrequentCompaction(s: Session): Recommendation | null {
+  const autoEvents = s.stats.compactionEvents.filter(e => e.trigger === 'auto')
+  if (autoEvents.length < 2) return null
+  const avgPre = autoEvents.reduce((sum, e) => sum + e.preTokens, 0) / autoEvents.length
+  return {
+    id: 'frequent-compaction',
+    category: 'context',
+    severity: autoEvents.length >= 3 ? 'high' : 'medium',
+    title: `Auto-compacted ${autoEvents.length}× — context overflow`,
+    evidence: `Session triggered auto-compaction ${autoEvents.length} times (avg ${Math.round(avgPre / 1000)}k tokens at trigger). Each compaction loses ~70% of context detail.`,
+    savings: { kind: 'tokens', amount: Math.round(avgPre * autoEvents.length * 0.7), detail: 'tokens lost to lossy compaction' },
+    actionHint: 'Run `/compact` manually when context reaches ~60% to produce a cleaner summary, or split long sessions into focused sub-tasks.',
+  }
+}
+
 // ── Ordering ──────────────────────────────────────────────────────────────────
 
 const SEVERITY_ORDER: Record<RecSeverity, number> = { high: 0, medium: 1, low: 2 }
@@ -421,6 +462,8 @@ const RULES: ((s: Session) => Recommendation | null)[] = [
   ruleHighErrorRate,
   ruleSkillGapCommit,
   ruleSkillGapCreatePR,
+  ruleOverEditing,
+  ruleFrequentCompaction,
 ]
 
 export function sessionRecommendations(s: Session): SessionRecommendations {

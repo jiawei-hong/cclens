@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
-import { summarizeProjects, globalToolStats, activityByHour, sessionDepthStats, taskBreakdown, trendStats, bashAntiPatterns, bashCommandBreakdown, skillUsageStats, skillGaps, agentBreakdown, hotFiles, multiFileSessions, thrashingSessions, totalUsage, usageByModel, dailyCost, toolErrorRates, activityHeatmap, slowestToolCalls, mcpUsageStats, contextWindowHotspots, costByTaskType, thinkingStats, sessionCacheRanking, interruptStats, monthlyCostForecast, goldStandardSessions, costOfUsage, classifySession, sessionCostUSD, qualityTrendByWeek, cacheMissProfiles, compactionFrequency } from '../../src/analyzer'
-import type { SessionType, BashAntiPattern, BashCategory, SkillUsage, SkillGap, AgentTypeUsage, HotFile, MultiFileSession, ThrashSession, TotalUsage, ModelUsageRow, ToolErrorStats, HeatmapCell, SlowToolCall, McpServerUsage, ContextHotspotStats, CostByTaskRow, ThinkingStats, SessionCacheStats, InterruptStats, MonthlyForecast, GoldStandardSession, QualityWeek, SessionCacheProfile, CompactionSummary } from '../../src/analyzer'
+import { summarizeProjects, globalToolStats, activityByHour, sessionDepthStats, taskBreakdown, trendStats, bashAntiPatterns, bashCommandBreakdown, skillUsageStats, skillGaps, agentBreakdown, hotFiles, multiFileSessions, thrashingSessions, totalUsage, usageByModel, dailyCost, toolErrorRates, activityHeatmap, slowestToolCalls, mcpUsageStats, contextWindowHotspots, costByTaskType, thinkingStats, sessionCacheRanking, interruptStats, monthlyCostForecast, goldStandardSessions, costOfUsage, classifySession, sessionCostUSD, qualityTrendByWeek, cacheMissProfiles, compactionFrequency, parallelSessionOverlap } from '../../src/analyzer'
+import type { SessionType, BashAntiPattern, BashCategory, SkillUsage, SkillGap, AgentTypeUsage, HotFile, MultiFileSession, ThrashSession, TotalUsage, ModelUsageRow, ToolErrorStats, HeatmapCell, SlowToolCall, McpServerUsage, ContextHotspotStats, CostByTaskRow, ThinkingStats, SessionCacheStats, InterruptStats, MonthlyForecast, GoldStandardSession, QualityWeek, SessionCacheProfile, CompactionSummary, ParallelOverlapStats } from '../../src/analyzer'
 import { aggregateRecommendations, recommendationTrend, projectHealth, recentRegressions, type RecAggregate, type RecCategory, type RecSeverity, type RecTrend, type RuleTrend, type RuleTrendDirection, type ProjectHealth, type RegressionReport, type Regression } from '../../src/recommendations'
 import { userHabitsTrend, type HabitWithTrend, type HabitStatus, type HabitTrendDirection } from '../../src/habits'
 import { taskTypePlaybook, type PlaybookReport, type TaskTypePlaybook, type PlaybookTip } from '../../src/playbook'
@@ -3488,6 +3488,56 @@ function RangePicker({ range, setRange }: { range: DateRange; setRange: (r: Date
 
 // ── Accordion Section ─────────────────────────────────────────────────────────
 
+function ResumeCard({ sessions, onOpen }: { sessions: Session[]; onOpen: (id: string) => void }) {
+  const recent = sessions.slice(0, 5)
+  if (recent.length === 0) return null
+
+  return (
+    <Card>
+      <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">Pick Up Where You Left Off</h3>
+      <div className="flex flex-col gap-2">
+        {recent.map((s, i) => {
+          const lastUserMsg = [...s.turns].reverse().find(t => t.role === 'user')?.text ?? ''
+          const intent = lastUserMsg.replace(/<[^>]+>[\s\S]*?<\/[^>]+>/g, '').trim().slice(0, 80)
+          const filesEdited = new Set<string>()
+          for (const turn of s.turns) {
+            for (const tc of turn.toolCalls) {
+              const fp = tc.input['file_path']
+              if (typeof fp === 'string' && fp) filesEdited.add(fp.split('/').pop() ?? fp)
+            }
+          }
+          const topFiles = [...filesEdited].slice(0, 3)
+          const ago = Date.now() - new Date(s.startedAt).getTime()
+          const agoLabel = ago < 3_600_000 ? `${Math.round(ago / 60_000)}m ago`
+            : ago < 86_400_000 ? `${Math.round(ago / 3_600_000)}h ago`
+            : `${Math.round(ago / 86_400_000)}d ago`
+          const projectName = s.project.split('/').filter(Boolean).slice(-1)[0] ?? s.project
+          return (
+            <button key={s.id} onClick={() => onOpen(s.id)}
+              className={`flex items-start gap-3 p-2.5 rounded-xl text-left hover:bg-indigo-50 dark:hover:bg-indigo-950/30 transition-colors group ${i === 0 ? 'ring-1 ring-indigo-200 dark:ring-indigo-800 bg-indigo-50/50 dark:bg-indigo-950/20' : 'hover:bg-gray-50 dark:hover:bg-gray-800/50'}`}>
+              <div className="flex flex-col items-center gap-0.5 shrink-0 pt-0.5 w-8">
+                <span className="text-[10px] text-gray-400 dark:text-gray-600 tabular-nums leading-none">{agoLabel}</span>
+                {i === 0 && <span className="text-[8px] text-indigo-500 font-semibold uppercase tracking-wide">latest</span>}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-1.5 mb-0.5">
+                  <span className="text-xs font-medium text-gray-700 dark:text-gray-300 truncate">{projectName}</span>
+                  {s.gitBranch && <span className="text-[9px] font-mono text-gray-400 dark:text-gray-600 truncate max-w-[100px]">{s.gitBranch}</span>}
+                </div>
+                {intent && <p className="text-xs text-gray-500 dark:text-gray-400 truncate italic">"{intent}"</p>}
+                {topFiles.length > 0 && (
+                  <p className="text-[10px] font-mono text-gray-400 dark:text-gray-600 truncate mt-0.5">{topFiles.join(' · ')}</p>
+                )}
+              </div>
+              <span className="text-gray-300 dark:text-gray-700 group-hover:text-indigo-400 transition-colors text-xs shrink-0 pt-0.5">→</span>
+            </button>
+          )
+        })}
+      </div>
+    </Card>
+  )
+}
+
 function LastSessionPill({ session, onOpen }: { session: Session | null; onOpen: (id: string) => void }) {
   if (!session) return null
   const cost = sessionCostUSD(session)
@@ -4185,6 +4235,49 @@ function OverEditingRiskCard({ data, onOpenSession }: { data: { riskyCount: numb
   )
 }
 
+function ParallelOverlapCard({ stats, onOpenSession }: { stats: ParallelOverlapStats; onOpenSession: (id: string) => void }) {
+  if (stats.totalOverlapGroups === 0) return (
+    <Card>
+      <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">Parallel Sessions</h3>
+      <p className="text-xs text-gray-400 dark:text-gray-600">No overlapping sessions detected.</p>
+    </Card>
+  )
+  const totalOverlapMin = Math.round(stats.totalOverlapMs / 60_000)
+  return (
+    <Card>
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Parallel Sessions</h3>
+        <span className="text-[10px] text-gray-400 dark:text-gray-600">{stats.totalOverlapGroups} overlap pairs · {totalOverlapMin}m total</span>
+      </div>
+      <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+        Sessions that ran simultaneously — context was split across multiple conversations. Each pair compounds cache misses and context fragmentation.
+      </p>
+      <div className="flex flex-col gap-2">
+        {stats.groups.map((g, i) => {
+          const overlapMin = Math.round(g.overlapMs / 60_000)
+          const projects = [...new Set(g.sessions.map(s => s.project.split('/').filter(Boolean).slice(-1)[0]))].join(' + ')
+          return (
+            <div key={i} className="flex flex-col gap-1 border-l-2 border-amber-300 dark:border-amber-700 pl-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium text-gray-700 dark:text-gray-300 truncate">{projects}</span>
+                <span className="text-[10px] text-amber-600 dark:text-amber-400 shrink-0 font-medium">{overlapMin}m overlap</span>
+              </div>
+              <div className="flex gap-1">
+                {g.sessions.map(s => (
+                  <button key={s.id} onClick={() => onOpenSession(s.id)}
+                    className="text-[9px] font-mono text-indigo-500 hover:text-indigo-400 truncate max-w-[120px]">
+                    {s.id.slice(0, 8)}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </Card>
+  )
+}
+
 export function InsightsTab({ sessions, onOpenSession, onOpenSearch }: { sessions: Session[]; onOpenSession: (id: string, turnId?: string) => void; onOpenSearch: () => void }) {
   const [range, setRange] = useState<DateRange>('all')
   const [deepDiveTool, setDeepDiveTool] = useState<string | null>(null)
@@ -4274,6 +4367,7 @@ export function InsightsTab({ sessions, onOpenSession, onOpenSearch }: { session
   const qualityTrend = React.useMemo(() => qualityTrendByWeek(filtered), [filtered])
   const cacheProfiles = React.useMemo(() => cacheMissProfiles(filtered), [filtered])
   const compaction = React.useMemo(() => compactionFrequency(filtered), [filtered])
+  const overlapStats = React.useMemo(() => parallelSessionOverlap(filtered), [filtered])
   const overEditingRisk = React.useMemo(() => {
     const risky = filtered.filter(s =>
       s.stats.overEditing.editToReadRatio > 1.5 || s.stats.overEditing.rapidIterationFiles > 0
@@ -4402,8 +4496,47 @@ export function InsightsTab({ sessions, onOpenSession, onOpenSearch }: { session
             <StreakCard sessions={sessions} />
           </div>
           <RegressionAlertCard report={regressions} />
+          {(() => {
+            const DAY = 86_400_000
+            const thisWeekSessions = sessions.filter(s => Date.now() - new Date(s.startedAt).getTime() < 7 * DAY)
+            const autoCompacts = thisWeekSessions.reduce((n, s) => n + s.stats.compactionEvents.filter(e => e.trigger === 'auto').length, 0)
+            if (autoCompacts < 2) return null
+            return (
+              <Card className="border-amber-200 dark:border-amber-700/50 bg-amber-50 dark:bg-amber-900/10">
+                <div className="flex items-start gap-3">
+                  <span className="text-amber-500 text-lg shrink-0">⚡</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">Context overflowing — {autoCompacts} auto-compactions this week</p>
+                    <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">Each auto-compaction loses ~70% of session context. Run <code className="font-mono bg-amber-100 dark:bg-amber-800/40 px-1 rounded">/compact</code> manually at ~60% context to preserve more detail, or split long sessions into focused sub-tasks.</p>
+                  </div>
+                  <button onClick={() => { setInsightTab('analytics'); setAnalyticsOpen(prev => { const n = new Set(prev); n.add('workflow'); return n }) }}
+                    className="text-xs text-amber-600 dark:text-amber-400 hover:text-amber-800 shrink-0 whitespace-nowrap">View →</button>
+                </div>
+              </Card>
+            )
+          })()}
+          {(() => {
+            const anomalyWeeks = qualityTrend.filter(w => w.isAnomaly)
+            if (anomalyWeeks.length === 0) return null
+            const latest = anomalyWeeks[anomalyWeeks.length - 1]!
+            const isRecent = qualityTrend.length > 0 && qualityTrend[qualityTrend.length - 1]?.isAnomaly
+            if (!isRecent) return null
+            return (
+              <Card className="border-rose-200 dark:border-rose-700/50 bg-rose-50 dark:bg-rose-900/10">
+                <div className="flex items-start gap-3">
+                  <span className="text-rose-500 text-lg shrink-0">📉</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-rose-800 dark:text-rose-300">Quality dip this week ({latest.week})</p>
+                    <p className="text-xs text-rose-700 dark:text-rose-400 mt-0.5">Avg session quality score {latest.avgScore.toFixed(0)}/100 — below your usual average. Check for sessions with high error rates or over-editing.</p>
+                  </div>
+                  <button onClick={() => { setInsightTab('analytics'); setAnalyticsOpen(prev => { const n = new Set(prev); n.add('quality'); return n }) }}
+                    className="text-xs text-rose-600 dark:text-rose-400 hover:text-rose-800 shrink-0 whitespace-nowrap">View →</button>
+                </div>
+              </Card>
+            )
+          })()}
           <ProgressDashboardCard sessions={filtered} />
-          <LastSessionPill session={sessions[0] ?? null} onOpen={onOpenSession} />
+          <ResumeCard sessions={sessions.slice(0, 5)} onOpen={onOpenSession} />
           <HomeRecommendationsCard agg={recAgg} onViewAll={() => setInsightTab('analytics')} />
           <UsagePersonaCard sessions={filtered} tasks={tasks} skillUsage={skillUsage} modelRows={modelRows} />
           <YourHabitsCard sessions={filtered} />
@@ -4455,6 +4588,7 @@ export function InsightsTab({ sessions, onOpenSession, onOpenSearch }: { session
             <ThrashCard sessions={thrashSess} onOpenSession={id => onOpenSession(id)} />
             <CompactionCard summary={compaction} onOpenSession={id => onOpenSession(id)} />
             <OverEditingRiskCard data={overEditingRisk} onOpenSession={id => onOpenSession(id)} />
+            <ParallelOverlapCard stats={overlapStats} onOpenSession={id => onOpenSession(id)} />
           </AccordionSection>
 
           <AccordionSection id="patterns" title="Patterns" open={analyticsOpen.has('patterns')} onToggle={() => toggleAnalytics('patterns')}>
