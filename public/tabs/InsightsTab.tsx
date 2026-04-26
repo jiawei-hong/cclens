@@ -443,6 +443,77 @@ function ModelMixTrendCard({ sessions }: { sessions: Session[] }) {
   )
 }
 
+function CostPerTurnTrendCard({ sessions }: { sessions: Session[] }) {
+  const weeks = React.useMemo(() => {
+    const map = new Map<string, { key: string; label: string; cost: number; turns: number }>()
+    for (const s of sessions) {
+      const cost = sessionCostUSD(s)
+      if (cost === 0) continue
+      const turns = s.stats.userTurns + s.stats.assistantTurns
+      if (turns === 0) continue
+      const date = new Date(s.startedAt)
+      const key = getWeekKey(date)
+      const b = map.get(key) ?? { key, label: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), cost: 0, turns: 0 }
+      b.cost += cost
+      b.turns += turns
+      map.set(key, b)
+    }
+    return [...map.values()]
+      .sort((a, b) => a.key.localeCompare(b.key))
+      .slice(-12)
+      .map(w => ({ ...w, cpt: w.turns > 0 ? w.cost / w.turns : 0 }))
+  }, [sessions])
+
+  if (weeks.length < 3) return null
+  const maxCpt = Math.max(...weeks.map(w => w.cpt), 0.0001)
+
+  // trend: compare first half vs second half
+  const mid = Math.floor(weeks.length / 2)
+  const firstHalf = weeks.slice(0, mid)
+  const secondHalf = weeks.slice(mid)
+  const avgFirst  = firstHalf.reduce((s, w) => s + w.cpt, 0) / firstHalf.length
+  const avgRecent = secondHalf.reduce((s, w) => s + w.cpt, 0) / secondHalf.length
+  const trendDown = avgRecent < avgFirst * 0.95
+  const trendUp   = avgRecent > avgFirst * 1.05
+
+  return (
+    <Card>
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Cost per Turn — Weekly Trend</h3>
+        <span className={`text-xs font-medium ${trendDown ? 'text-emerald-500' : trendUp ? 'text-rose-400' : 'text-gray-400'}`}>
+          {trendDown ? '↓ Improving efficiency' : trendUp ? '↑ Rising cost/turn' : '→ Stable'}
+        </span>
+      </div>
+      <div className="flex items-end gap-[3px] h-14">
+        {weeks.map((w, i) => {
+          const heightPct = w.cpt / maxCpt
+          const isRecent = i >= mid
+          return (
+            <div key={w.key} className="group relative flex-1 flex flex-col justify-end" style={{ height: '56px' }}>
+              <div
+                className={`w-full rounded-sm cursor-default transition-colors ${
+                  isRecent
+                    ? trendDown ? 'bg-emerald-400 dark:bg-emerald-500 hover:bg-emerald-500' : trendUp ? 'bg-rose-400 dark:bg-rose-500 hover:bg-rose-500' : 'bg-indigo-400 dark:bg-indigo-500'
+                    : 'bg-gray-300 dark:bg-gray-600 hover:bg-gray-400'
+                }`}
+                style={{ height: `${Math.max(3, heightPct * 56)}px` }}
+              />
+              <div className="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 shadow-sm text-[10px] text-gray-700 dark:text-gray-300 px-2 py-1 rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-10">
+                {w.label} · {fmtUSD(w.cpt)}/turn · {w.turns} turns
+              </div>
+            </div>
+          )
+        })}
+      </div>
+      <div className="flex justify-between mt-1">
+        <span className="text-[10px] text-gray-400 dark:text-gray-700">{weeks[0]!.label}</span>
+        <span className="text-[10px] text-gray-400 dark:text-gray-700">{weeks[weeks.length - 1]!.label}</span>
+      </div>
+      <p className="text-[10px] text-gray-400 dark:text-gray-600 mt-2">Grey bars = prior weeks. Coloured bars = recent half. Lower cost/turn = more efficient.</p>
+    </Card>
+  )
+}
+
 const CLAUDE_MD_RULES: Record<string, string> = {
   grep:       'NEVER use `bash grep` or `bash rg` to search file contents — use the Grep tool instead.',
   find:       'NEVER use `bash find` to locate files — use the Glob tool instead.',
@@ -4207,6 +4278,7 @@ export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; 
           <AccordionSection id="cost" title="Cost" open={analyticsOpen.has('cost')} onToggle={() => toggleAnalytics('cost')}>
             <CostPanel usage={usage} modelRows={modelRows} dailySeries={dailyCostSeries} maxDailyCost={maxDailyCost} hasData={hasUsageData} dailySeriesDays={costSeriesDays} costByTask={costByTask} thinking={thinking} sessions={filtered} forecast={forecast} />
             <ModelMixTrendCard sessions={filtered} />
+            <CostPerTurnTrendCard sessions={filtered} />
             <CacheEfficiencyCard rows={cacheRanking} onOpenSession={id => onOpenSession(id)} />
           </AccordionSection>
 
