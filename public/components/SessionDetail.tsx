@@ -817,7 +817,7 @@ export function SessionDetailView({ session, allSessions, scrollToTurnId }: { se
         </div>
       </Card>
 
-      {session.stats.compactionEvents.length > 0 && (
+      {(session.stats.compactionEvents.length > 0 || session.stats.overEditing.editToReadRatio > 1.5) && (
         <div className="flex items-center gap-2 flex-wrap text-xs">
           {session.stats.compactionEvents.some(e => e.trigger === 'auto') && (
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300 font-medium">
