@@ -4378,6 +4378,18 @@ export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; 
           <HomeRecommendationsCard agg={recAgg} onViewAll={() => setInsightTab('analytics')} />
           <UsagePersonaCard sessions={filtered} tasks={tasks} skillUsage={skillUsage} modelRows={modelRows} />
           <YourHabitsCard sessions={filtered} />
+          {gold.length > 0 && (
+            <div>
+              <GoldStandardCard sessions={gold.slice(0, 3)} onOpenSession={id => onOpenSession(id)} />
+              {gold.length > 3 && (
+                <div className="mt-2 text-center">
+                  <button onClick={() => { setInsightTab('analytics'); setAnalyticsOpen(prev => { const n = new Set(prev); n.add('opportunities'); return n }) }} className="text-xs text-indigo-500 hover:text-indigo-400 transition-colors">
+                    +{gold.length - 3} more gold sessions in Analytics →
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
