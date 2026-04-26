@@ -6,8 +6,6 @@ import { userHabitsTrend, type HabitWithTrend, type HabitStatus, type HabitTrend
 import { taskTypePlaybook, type PlaybookReport, type TaskTypePlaybook, type PlaybookTip } from '../../src/playbook'
 import { sessionQualityScore } from '../../src/quality'
 import { generateProjectClaudeMd, claudeMdRules, claudeMdDiff, claudeMdViolations, CLAUDE_MD_SECTION_ORDER, type ClaudeMdRule, type ClaudeMdViolationReport } from '../../src/claudeMd'
-import { search } from '../../src/searcher'
-import type { SearchResult } from '../../src/types'
 import type { Session, ProjectSummary } from '../../src/types'
 import { fmt, fmtDuration, fmtPace, fmtToolDuration, fmtTokenCount, fmtUSD, fmtChars, fmtTokensFromChars } from '../lib/format'
 import { toolColor, toolTickColor, taskTypeColor, taskTypeBar, TASK_DESCRIPTIONS } from '../lib/colors'
@@ -3997,149 +3995,7 @@ function ThisWeekCard({ sessions, onViewProject }: { sessions: Session[]; onView
   )
 }
 
-function SnippetHighlight({ snippet, query, isRegex }: { snippet: string; query: string; isRegex: boolean }) {
-  let re: RegExp | null = null
-  try { re = new RegExp(isRegex ? query : query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi') } catch { re = null }
-  if (!re) return <span className="font-mono text-xs text-gray-600 dark:text-gray-400">{snippet}</span>
 
-  const parts: { text: string; match: boolean }[] = []
-  let last = 0
-  re.lastIndex = 0
-  let m: RegExpExecArray | null
-  while ((m = re.exec(snippet)) !== null) {
-    if (m.index > last) parts.push({ text: snippet.slice(last, m.index), match: false })
-    parts.push({ text: m[0], match: true })
-    last = m.index + m[0].length
-  }
-  if (last < snippet.length) parts.push({ text: snippet.slice(last), match: false })
-
-  return (
-    <span className="font-mono text-xs text-gray-600 dark:text-gray-400 leading-relaxed break-words">
-      {parts.map((p, i) => p.match
-        ? <mark key={i} className="bg-amber-200 dark:bg-amber-500/40 text-amber-900 dark:text-amber-100 not-italic rounded px-0.5">{p.text}</mark>
-        : <span key={i}>{p.text}</span>
-      )}
-    </span>
-  )
-}
-
-function SearchView({ sessions, onOpenSession }: {
-  sessions: Session[]
-  onOpenSession: (id: string, turnId?: string) => void
-}) {
-  const [query, setQuery] = useState('')
-  const [useRegex, setUseRegex] = useState(false)
-  const [debouncedQuery, setDebouncedQuery] = useState('')
-
-  React.useEffect(() => {
-    const t = setTimeout(() => setDebouncedQuery(query), 300)
-    return () => clearTimeout(t)
-  }, [query])
-
-  const results = React.useMemo(
-    () => debouncedQuery.trim() ? search(sessions, debouncedQuery, { regex: useRegex }) : [],
-    [sessions, debouncedQuery, useRegex]
-  )
-
-  const bySession = React.useMemo(() => {
-    const map = new Map<string, SearchResult[]>()
-    for (const r of results) {
-      const arr = map.get(r.sessionId) ?? []
-      arr.push(r)
-      map.set(r.sessionId, arr)
-    }
-    return [...map.entries()].map(([id, hits]) => ({
-      sessionId: id,
-      project: hits[0]!.project,
-      firstTs: hits[0]!.timestamp,
-      hits,
-    }))
-  }, [results])
-
-  return (
-    <div className="flex flex-col gap-4">
-      <Card padding="none" className="px-4 py-3">
-        <div className="flex items-center gap-3">
-          <span className="text-lg text-gray-400 dark:text-gray-600 leading-none">⌕</span>
-          <input
-            type="text"
-            value={query}
-            onChange={e => setQuery(e.target.value)}
-            placeholder="Search all session text…"
-            className="flex-1 bg-transparent text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-600 outline-none"
-            autoFocus
-          />
-          {query && (
-            <button onClick={() => { setQuery(''); setDebouncedQuery('') }} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-lg leading-none">×</button>
-          )}
-          <label className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 cursor-pointer select-none shrink-0">
-            <input type="checkbox" checked={useRegex} onChange={e => setUseRegex(e.target.checked)} className="rounded" />
-            Regex
-          </label>
-        </div>
-      </Card>
-
-      {!debouncedQuery && (
-        <EmptyState title="Search session text" description="Searches user and assistant turns across all sessions. Supports plain text or regex." />
-      )}
-
-      {debouncedQuery && results.length === 0 && (
-        <EmptyState title="No matches" description={`Nothing matched "${debouncedQuery}"`} />
-      )}
-
-      {results.length > 0 && (
-        <p className="text-xs text-gray-500 dark:text-gray-400">
-          {results.length} hit{results.length === 1 ? '' : 's'} across {bySession.length} session{bySession.length === 1 ? '' : 's'}
-          {results.length === 200 && ' (capped at 200 — refine query for more precise results)'}
-        </p>
-      )}
-
-      <div className="flex flex-col gap-3">
-        {bySession.map(({ sessionId, project, hits }) => (
-          <Card key={sessionId}>
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex flex-col gap-0.5 min-w-0">
-                <span className="text-xs font-medium text-gray-700 dark:text-gray-300 truncate">
-                  {project.split('/').filter(Boolean).slice(-2).join('/')}
-                </span>
-                <span className="text-[10px] text-gray-400 dark:text-gray-600">{fmt(hits[0]!.timestamp)}</span>
-              </div>
-              <button
-                onClick={() => onOpenSession(sessionId)}
-                className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline shrink-0 ml-4"
-              >
-                Open session →
-              </button>
-            </div>
-            <div className="flex flex-col gap-2">
-              {hits.slice(0, 5).map(hit => (
-                <button
-                  key={hit.turnUuid}
-                  onClick={() => onOpenSession(hit.sessionId, hit.turnUuid)}
-                  className="text-left p-2.5 rounded-lg bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-                >
-                  <div className="flex items-center gap-2 mb-1.5">
-                    <Badge tone={hit.role === 'user' ? 'primary' : 'neutral'} size="sm">{hit.role}</Badge>
-                    <span className="text-[10px] text-gray-400 dark:text-gray-600">{fmt(hit.timestamp)}</span>
-                  </div>
-                  <SnippetHighlight snippet={hit.snippet} query={debouncedQuery} isRegex={useRegex} />
-                </button>
-              ))}
-              {hits.length > 5 && (
-                <button
-                  onClick={() => onOpenSession(sessionId)}
-                  className="text-xs text-gray-400 dark:text-gray-600 hover:text-indigo-500 dark:hover:text-indigo-400 text-center py-1"
-                >
-                  +{hits.length - 5} more in this session →
-                </button>
-              )}
-            </div>
-          </Card>
-        ))}
-      </div>
-    </div>
-  )
-}
 
 function AccordionSection({ id, title, badge, open, onToggle, children }: {
   id: string; title: string; badge?: number; open: boolean; onToggle: () => void; children: React.ReactNode
@@ -4167,7 +4023,7 @@ function AccordionSection({ id, title, badge, open, onToggle, children }: {
   )
 }
 
-export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; onOpenSession: (id: string, turnId?: string) => void }) {
+export function InsightsTab({ sessions, onOpenSession, onOpenSearch }: { sessions: Session[]; onOpenSession: (id: string, turnId?: string) => void; onOpenSearch: () => void }) {
   const [range, setRange] = useState<DateRange>('all')
   const [deepDiveTool, setDeepDiveTool] = useState<string | null>(null)
   const filtered = React.useMemo(() => filterByRange(sessions, range), [sessions, range])
@@ -4253,7 +4109,7 @@ export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; 
   const hasHourQuality = qualityByHour.some(h => h.avg !== null)
   const hasDowQuality  = qualityByDow.some(d => d.avg !== null)
 
-  const [insightTab, setInsightTab] = useState<'home' | 'analytics' | 'projects' | 'search'>('home')
+  const [insightTab, setInsightTab] = useState<'home' | 'analytics' | 'projects'>('home')
   const [analyticsOpen, setAnalyticsOpen] = useState(() => new Set(['cost', 'quality']))
   const [selectedProject, setSelectedProject] = useState<string | null>(null)
   const [hourMode, setHourMode] = useState<'count' | 'quality'>('count')
@@ -4265,7 +4121,7 @@ export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; 
     return next
   })
 
-  const TAB_ORDER: Array<'home' | 'analytics' | 'projects' | 'search'> = ['home', 'analytics', 'projects', 'search']
+  const TAB_ORDER: Array<'home' | 'analytics' | 'projects'> = ['home', 'analytics', 'projects']
 
   React.useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -4276,7 +4132,7 @@ export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; 
 
       if (e.key === '/') {
         e.preventDefault()
-        setInsightTab('search')
+        onOpenSearch()
         return
       }
       if (e.key === 'Escape') {
@@ -4327,7 +4183,6 @@ export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; 
           <Tab value="home">Home</Tab>
           <Tab value="analytics" badge={recAgg.sessionCount > 0 ? recAgg.sessionCount : undefined}>Analytics</Tab>
           <Tab value="projects">Projects</Tab>
-          <Tab value="search">Search</Tab>
         </TabGroup>
         <div className="flex items-center gap-2">
           <Button
@@ -4612,11 +4467,6 @@ export function InsightsTab({ sessions, onOpenSession }: { sessions: Session[]; 
             </Card>
           </div>
         )
-      )}
-
-      {/* ── Search ── */}
-      {insightTab === 'search' && (
-        <SearchView sessions={sessions} onOpenSession={onOpenSession} />
       )}
 
       {deepDiveTool && (

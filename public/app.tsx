@@ -7,11 +7,11 @@ import type { Session, MemoryEntry } from '../src/types'
 import { walkFolder } from './lib/walkDir'
 import { loadRootHandle, saveRootHandle, clearRootHandle, queryHandlePermission, requestHandlePermission } from './lib/db'
 import { InsightsTab } from './tabs/InsightsTab'
-import { SearchTab } from './tabs/SearchTab'
 import { MemoryTab } from './tabs/MemoryTab'
 import { SessionsTab } from './tabs/SessionsTab'
 import { SettingsModal } from './components/SettingsModal'
 import { ShortcutsHelp } from './components/ShortcutsHelp'
+import { SearchModal } from './components/SearchModal'
 
 // ── Theme ─────────────────────────────────────────────────────────────────────
 
@@ -278,9 +278,9 @@ function NavTab({ label, active, onClick }: { label: string; active: boolean; on
 
 // ── App ───────────────────────────────────────────────────────────────────────
 
-type Tab = 'insights' | 'sessions' | 'search' | 'memory'
+type Tab = 'insights' | 'sessions' | 'memory'
 
-const TABS: Tab[] = ['insights', 'sessions', 'search', 'memory']
+const TABS: Tab[] = ['insights', 'sessions', 'memory']
 
 type HashState = { tab: Tab; sessionId: string | null; turnId: string | null }
 
@@ -350,6 +350,7 @@ function App() {
   )
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
 
   // Sync state → hash (replaceState so nav doesn't spam history). Only writes
   // once sessions are loaded, so a deep-link hash doesn't get clobbered during
@@ -391,23 +392,26 @@ function App() {
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      // Cmd+K / Ctrl+K — open search modal from anywhere
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault()
+        setSearchOpen(v => !v)
+        return
+      }
+
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
       if (e.metaKey || e.ctrlKey || e.altKey) return
 
-      // `?` toggles help even while the help modal itself is open. Any other
-      // modal being open suppresses global shortcuts so they don't fire
-      // behind the dialog.
       if (e.key === '?') {
         e.preventDefault()
         setHelpOpen(v => !v)
         return
       }
-      if (settingsOpen || helpOpen) return
+      if (settingsOpen || helpOpen || searchOpen) return
 
       if (e.key === '/') {
         e.preventDefault()
-        setTab('search')
-        setTimeout(() => document.querySelector<HTMLInputElement>('input[placeholder*="Search"]')?.focus(), 50)
+        setSearchOpen(true)
         return
       }
 
@@ -420,16 +424,11 @@ function App() {
 
       if (e.key === '1') { setTab('insights'); return }
       if (e.key === '2') { setTab('sessions'); return }
-      if (e.key === '3') {
-        setTab('search')
-        setTimeout(() => document.querySelector<HTMLInputElement>('input[placeholder*="Search"]')?.focus(), 50)
-        return
-      }
-      if (e.key === '4' && memory.length > 0) { setTab('memory'); return }
+      if (e.key === '3' && memory.length > 0) { setTab('memory'); return }
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [tab, selectedSessionId, memory.length, settingsOpen, helpOpen])
+  }, [tab, selectedSessionId, memory.length, settingsOpen, helpOpen, searchOpen])
 
   const openSession = (id: string, turnId?: string) => {
     setSelectedSessionId(id)
@@ -448,11 +447,18 @@ function App() {
         </div>
         <NavTab label="Insights" active={tab === 'insights'} onClick={() => setTab('insights')} />
         <NavTab label="Sessions" active={tab === 'sessions'} onClick={() => setTab('sessions')} />
-        <NavTab label="Search" active={tab === 'search'} onClick={() => setTab('search')} />
         {memory.length > 0 && (
           <NavTab label="Memory" active={tab === 'memory'} onClick={() => setTab('memory')} />
         )}
         <div className="ml-auto flex items-center gap-3">
+          <button
+            onClick={() => setSearchOpen(true)}
+            title="Search sessions (⌘K or /)"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 border border-gray-200 dark:border-gray-700 transition-colors"
+          >
+            <span>⌕</span>
+            <span className="text-[10px] font-mono text-gray-400 dark:text-gray-600">⌘K</span>
+          </button>
           <button
             onClick={() => setHelpOpen(true)}
             title="Keyboard shortcuts (?)"
@@ -477,17 +483,17 @@ function App() {
       </header>
 
       <main className="flex-1 px-6 py-6 max-w-6xl w-full mx-auto">
-        {tab === 'insights' && <InsightsTab sessions={sessions} onOpenSession={openSession} />}
+        {tab === 'insights' && <InsightsTab sessions={sessions} onOpenSession={openSession} onOpenSearch={() => setSearchOpen(true)} />}
         {tab === 'sessions' && <SessionsTab
           sessions={sessions}
           initialSessionId={selectedSessionId}
           scrollToTurnId={selectedTurnId}
           onSessionSelect={id => { setSelectedSessionId(id); setSelectedTurnId(null) }}
         />}
-        {tab === 'search' && <SearchTab sessions={sessions} onOpenSession={openSession} />}
         {tab === 'memory' && <MemoryTab memory={memory} />}
       </main>
       <ScrollToTopButton />
+      <SearchModal sessions={sessions} open={searchOpen} onClose={() => setSearchOpen(false)} onOpenSession={openSession} />
       <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       <ShortcutsHelp open={helpOpen} onClose={() => setHelpOpen(false)} />
     </div>

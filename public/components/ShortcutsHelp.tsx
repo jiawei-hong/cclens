@@ -9,9 +9,10 @@ const SECTIONS: { title: string; items: Shortcut[] }[] = [
     items: [
       { keys: ['1'], label: 'Go to Insights' },
       { keys: ['2'], label: 'Go to Sessions' },
-      { keys: ['3'], label: 'Go to Search (and focus input)' },
-      { keys: ['4'], label: 'Go to Memory (when available)' },
-      { keys: ['/'], label: 'Focus search' },
+      { keys: ['3'], label: 'Go to Memory (when available)' },
+      { keys: ['⌘', 'K'], label: 'Open search' },
+      { keys: ['/'], label: 'Open search' },
+      { keys: ['←', '→'], label: 'Cycle Insights sub-tabs' },
     ],
   },
   {
