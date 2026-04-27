@@ -4223,10 +4223,10 @@ function OverEditingRiskCard({ data, onOpenSession }: { data: { riskyCount: numb
             <button key={s.id} onClick={() => onOpenSession(s.id)}
               className="flex items-center gap-2 text-left text-xs hover:text-indigo-500 transition-colors">
               <span className="flex-1 truncate text-gray-700 dark:text-gray-300">{s.project.split('/').filter(Boolean).slice(-1)[0]}</span>
-              {s.stats.overEditing.rapidIterationFiles > 0 && (
-                <span className="text-[9px] px-1 py-0.5 rounded bg-rose-100 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400 shrink-0">{s.stats.overEditing.rapidIterationFiles} thrash</span>
+              {(s.stats.overEditing?.rapidIterationFiles ?? 0) > 0 && (
+                <span className="text-[9px] px-1 py-0.5 rounded bg-rose-100 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400 shrink-0">{s.stats.overEditing!.rapidIterationFiles} thrash</span>
               )}
-              <span className="text-amber-500 shrink-0 font-medium tabular-nums">{s.stats.overEditing.editToReadRatio.toFixed(1)}× e/r</span>
+              <span className="text-amber-500 shrink-0 font-medium tabular-nums">{(s.stats.overEditing?.editToReadRatio ?? 0).toFixed(1)}× e/r</span>
             </button>
           ))}
         </div>
@@ -4370,11 +4370,11 @@ export function InsightsTab({ sessions, onOpenSession, onOpenSearch }: { session
   const overlapStats = React.useMemo(() => parallelSessionOverlap(filtered), [filtered])
   const overEditingRisk = React.useMemo(() => {
     const risky = filtered.filter(s =>
-      s.stats.overEditing.editToReadRatio > 1.5 || s.stats.overEditing.rapidIterationFiles > 0
+      (s.stats.overEditing?.editToReadRatio ?? 0) > 1.5 || (s.stats.overEditing?.rapidIterationFiles ?? 0) > 0
     )
     const avgRatio = filtered.length === 0 ? 0
-      : filtered.reduce((sum, s) => sum + s.stats.overEditing.editToReadRatio, 0) / filtered.length
-    return { riskyCount: risky.length, totalSessions: filtered.length, avgRatio, topRisky: risky.sort((a, b) => b.stats.overEditing.editToReadRatio - a.stats.overEditing.editToReadRatio).slice(0, 5) }
+      : filtered.reduce((sum, s) => sum + (s.stats.overEditing?.editToReadRatio ?? 0), 0) / filtered.length
+    return { riskyCount: risky.length, totalSessions: filtered.length, avgRatio, topRisky: risky.sort((a, b) => (b.stats.overEditing?.editToReadRatio ?? 0) - (a.stats.overEditing?.editToReadRatio ?? 0)).slice(0, 5) }
   }, [filtered])
 
   const [insightTab, setInsightTab] = useState<'home' | 'analytics' | 'projects'>('home')

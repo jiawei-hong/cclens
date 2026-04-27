@@ -817,21 +817,21 @@ export function SessionDetailView({ session, allSessions, scrollToTurnId }: { se
         </div>
       </Card>
 
-      {(session.stats.compactionEvents.length > 0 || session.stats.overEditing.editToReadRatio > 1.5) && (
+      {((session.stats.compactionEvents ?? []).length > 0 || (session.stats.overEditing?.editToReadRatio ?? 0) > 1.5) && (
         <div className="flex items-center gap-2 flex-wrap text-xs">
-          {session.stats.compactionEvents.some(e => e.trigger === 'auto') && (
+          {(session.stats.compactionEvents ?? []).some(e => e.trigger === 'auto') && (
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300 font-medium">
-              ⚡ Auto-compacted ×{session.stats.compactionEvents.filter(e => e.trigger === 'auto').length}
+              ⚡ Auto-compacted ×{(session.stats.compactionEvents ?? []).filter(e => e.trigger === 'auto').length}
             </span>
           )}
-          {session.stats.compactionEvents.some(e => e.trigger === 'manual') && (
+          {(session.stats.compactionEvents ?? []).some(e => e.trigger === 'manual') && (
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300 font-medium">
-              /compact ×{session.stats.compactionEvents.filter(e => e.trigger === 'manual').length}
+              /compact ×{(session.stats.compactionEvents ?? []).filter(e => e.trigger === 'manual').length}
             </span>
           )}
-          {session.stats.overEditing.editToReadRatio > 1.5 && (
+          {(session.stats.overEditing?.editToReadRatio ?? 0) > 1.5 && (
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-rose-100 dark:bg-rose-500/20 text-rose-700 dark:text-rose-300 font-medium">
-              ⚠ Edit-heavy ({session.stats.overEditing.editToReadRatio.toFixed(1)}× e/r)
+              ⚠ Edit-heavy ({session.stats.overEditing!.editToReadRatio.toFixed(1)}× e/r)
             </span>
           )}
         </div>
