@@ -398,6 +398,7 @@ function ruleSkillGapCreatePR(s: Session): Recommendation | null {
 // pattern correlates with duplicate/broken code and multiple re-edits.
 
 function ruleOverEditing(s: Session): Recommendation | null {
+  if (!s.stats.overEditing) return null
   const { editToReadRatio, editWithoutReadCount, rapidIterationFiles } = s.stats.overEditing
   if (editToReadRatio < 2 && rapidIterationFiles === 0) return null
   const issues: string[] = []
