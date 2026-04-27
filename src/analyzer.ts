@@ -1387,7 +1387,7 @@ export function compactionFrequency(sessions: Session[]): CompactionSummary {
   const perSession: { sessionId: string; project: string; startedAt: string; count: number; avgPreTokens: number }[] = []
 
   for (const s of sessions) {
-    const events = s.stats.compactionEvents
+    const events = s.stats.compactionEvents ?? []
     if (events.length === 0) continue
     const hasAuto = events.some(e => e.trigger === 'auto')
     const hasManual = events.some(e => e.trigger === 'manual')
