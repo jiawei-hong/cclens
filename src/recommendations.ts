@@ -421,7 +421,7 @@ function ruleOverEditing(s: Session): Recommendation | null {
 // can cause Claude to forget rules/decisions made earlier.
 
 function ruleFrequentCompaction(s: Session): Recommendation | null {
-  const autoEvents = s.stats.compactionEvents.filter(e => e.trigger === 'auto')
+  const autoEvents = (s.stats.compactionEvents ?? []).filter(e => e.trigger === 'auto')
   if (autoEvents.length < 2) return null
   const avgPre = autoEvents.reduce((sum, e) => sum + e.preTokens, 0) / autoEvents.length
   return {
