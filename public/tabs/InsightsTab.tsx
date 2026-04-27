@@ -4499,7 +4499,7 @@ export function InsightsTab({ sessions, onOpenSession, onOpenSearch }: { session
           {(() => {
             const DAY = 86_400_000
             const thisWeekSessions = sessions.filter(s => Date.now() - new Date(s.startedAt).getTime() < 7 * DAY)
-            const autoCompacts = thisWeekSessions.reduce((n, s) => n + s.stats.compactionEvents.filter(e => e.trigger === 'auto').length, 0)
+            const autoCompacts = thisWeekSessions.reduce((n, s) => n + (s.stats.compactionEvents ?? []).filter(e => e.trigger === 'auto').length, 0)
             if (autoCompacts < 2) return null
             return (
               <Card className="border-amber-200 dark:border-amber-700/50 bg-amber-50 dark:bg-amber-900/10">
