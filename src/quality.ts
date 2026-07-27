@@ -88,7 +88,7 @@ export function sessionQualityScore(s: Session): SessionQuality {
     label: 'Cost efficiency',
     points: costPts,
     maxPoints: 25,
-    displayValue: costPerTurn < 0.1 ? `$${costPerTurn.toFixed(3)}/turn` : `$${costPerTurn.toFixed(2)}/turn`,
+    displayValue: costPerTurn < 0.1 ? `$${costPerTurn.toFixed(3)}/turn` : `$${costPerTurn.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/turn`,
     tone: toneFromRatio(costPts / 25),
   })
 

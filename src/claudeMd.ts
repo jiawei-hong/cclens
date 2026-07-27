@@ -81,7 +81,7 @@ type RuleMap = Map<string, { count: number; savingsUSD: number }>
 
 function fmtEvidence(count: number, savingsUSD: number): string {
   const parts: string[] = [`${count} session${count === 1 ? '' : 's'}`]
-  if (savingsUSD >= 0.01) parts.push(`$${savingsUSD.toFixed(2)} potential savings`)
+  if (savingsUSD >= 0.01) parts.push(`$${savingsUSD.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} potential savings`)
   return parts.join(' · ')
 }
 

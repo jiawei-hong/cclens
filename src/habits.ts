@@ -114,7 +114,7 @@ function modelDiscipline(sessions: Session[]): Habit {
     if (!entry || entry.total === 0) continue
     const p = entry.opus / entry.total
     const label = `${tt[0]!.toUpperCase()}${tt.slice(1)}`
-    const penaltyStr = entry.penalty >= 0.01 ? ` · ~$${entry.penalty.toFixed(2)} penalty` : ''
+    const penaltyStr = entry.penalty >= 0.01 ? ` · ~$${entry.penalty.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} penalty` : ''
     breakdown.push({
       label,
       value: `Premium model in ${entry.opus}/${entry.total} (${pctStr(entry.opus, entry.total)})${penaltyStr}`,

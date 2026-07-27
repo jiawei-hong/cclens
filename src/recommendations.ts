@@ -76,7 +76,7 @@ function ruleWrongModel(s: Session): Recommendation | null {
     category: 'cost',
     severity: savings > 1 ? 'high' : savings > 0.25 ? 'medium' : 'low',
     title: `${famLabel} ran a ${taskType} task — Sonnet would have sufficed`,
-    evidence: `Session cost $${current.toFixed(2)} on ${famLabel}. Same token mix on Sonnet: $${sonnetCost.toFixed(2)}. ${taskType} tasks rarely need ${famLabel}-level reasoning.`,
+    evidence: `Session cost $${current.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} on ${famLabel}. Same token mix on Sonnet: $${sonnetCost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}. ${taskType} tasks rarely need ${famLabel}-level reasoning.`,
     savings: { kind: 'usd', amount: savings, detail: 'vs Sonnet at current token mix' },
     actionHint: 'Run /model sonnet before starting similar sessions.',
   }

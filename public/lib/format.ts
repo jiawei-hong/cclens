@@ -40,7 +40,7 @@ export function fmtTokenCount(n: number): string {
 }
 
 export function fmtUSD(n: number): string {
-  if (n >= 1000) return `$${n.toFixed(0)}`
+  if (n >= 1000) return `$${n.toLocaleString('en-US', { maximumFractionDigits: 0 })}`
   if (n >= 10)   return `$${n.toFixed(1)}`
   if (n >= 0.01) return `$${n.toFixed(2)}`
   if (n > 0)     return `<$0.01`

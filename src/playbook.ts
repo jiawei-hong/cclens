@@ -30,7 +30,7 @@ type MetricDef = {
 }
 
 const fmtPct     = (v: number) => `${Math.round(v * 100)}%`
-const fmtUSD4    = (v: number) => v >= 0.1 ? `$${v.toFixed(2)}` : `$${v.toFixed(3)}`
+const fmtUSD4    = (v: number) => v >= 0.1 ? `$${v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : `$${v.toFixed(3)}`
 const fmtCalls   = (v: number) => v.toFixed(1)
 
 const METRICS: MetricDef[] = [
