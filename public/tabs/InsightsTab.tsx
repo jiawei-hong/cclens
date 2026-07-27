@@ -77,10 +77,12 @@ function CostByTaskCard({ rows }: { rows: CostByTaskRow[] }) {
 }
 
 const MODEL_BADGE: Record<string, string> = {
-  opus:   'bg-purple-100 text-purple-700 dark:bg-purple-500/20 dark:text-purple-300',
-  sonnet: 'bg-sky-100 text-sky-700 dark:bg-sky-500/20 dark:text-sky-300',
-  haiku:  'bg-teal-100 text-teal-700 dark:bg-teal-500/20 dark:text-teal-300',
-  other:  'bg-gray-100 text-gray-700 dark:bg-gray-500/20 dark:text-gray-300',
+  Fable:  'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300',
+  Mythos: 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300',
+  Opus:   'bg-purple-100 text-purple-700 dark:bg-purple-500/20 dark:text-purple-300',
+  Sonnet: 'bg-sky-100 text-sky-700 dark:bg-sky-500/20 dark:text-sky-300',
+  Haiku:  'bg-teal-100 text-teal-700 dark:bg-teal-500/20 dark:text-teal-300',
+  Other:  'bg-gray-100 text-gray-700 dark:bg-gray-500/20 dark:text-gray-300',
 }
 
 function CacheEfficiencyCard({ rows, onOpenSession }: { rows: SessionCacheStats[]; onOpenSession: (id: string) => void }) {
@@ -281,7 +283,7 @@ function CostPanel({ usage, modelRows, dailySeries, maxDailyCost, hasData, daily
           <div className="flex flex-col gap-2.5">
             {modelRows.map(m => (
               <div key={m.model} className="flex items-center gap-3">
-                <span title={m.model} className={`text-[11px] px-2 py-0.5 rounded font-mono w-24 text-center shrink-0 truncate ${MODEL_BADGE[m.shortLabel] ?? MODEL_BADGE.other}`}>{m.versionLabel}</span>
+                <span title={m.model} className={`text-[11px] px-2 py-0.5 rounded font-mono w-24 text-center shrink-0 truncate ${MODEL_BADGE[m.shortLabel] ?? MODEL_BADGE.Other}`}>{m.versionLabel}</span>
                 <div className="flex-1 bg-gray-100 dark:bg-gray-800 rounded-full h-1.5">
                   <div className="bg-indigo-500 h-1.5 rounded-full" style={{ width: `${(m.costUSD / topModelCost) * 100}%` }} />
                 </div>
@@ -291,7 +293,7 @@ function CostPanel({ usage, modelRows, dailySeries, maxDailyCost, hasData, daily
             ))}
           </div>
           <p className="text-[10px] text-gray-400 dark:text-gray-600 mt-4 leading-relaxed">
-            Estimates use public list prices per 1M tokens. Actual billing may differ (subscriptions, volume discounts, cache-write TTL, fast mode — Opus 4.6 fast-mode calls bill 6× standard and aren't distinguishable in the JSONL).
+            Estimates use public list prices per 1M tokens. Actual billing may differ (subscriptions, volume discounts, cache-write TTL, Sonnet 5 intro pricing, fast mode — Opus 5 / 4.8 fast-mode calls bill 2× standard and aren't distinguishable in the JSONL).
           </p>
         </Card>
       </div>
@@ -348,21 +350,25 @@ function CostProjectionCard({ dailySeries, dailySeriesDays }: { dailySeries: { d
 // ── Model Mix Trend Card ──────────────────────────────────────────────────────
 
 const MODEL_BAR_COLOR: Record<string, string> = {
+  fable:  'bg-amber-500',
   opus:   'bg-purple-500',
   sonnet: 'bg-sky-500',
   haiku:  'bg-teal-500',
   other:  'bg-gray-400',
 }
 const MODEL_TEXT_COLOR: Record<string, string> = {
+  fable:  'text-amber-600 dark:text-amber-400',
   opus:   'text-purple-600 dark:text-purple-400',
   sonnet: 'text-sky-600 dark:text-sky-400',
   haiku:  'text-teal-600 dark:text-teal-400',
   other:  'text-gray-500 dark:text-gray-400',
 }
-const FAMILY_ORDER = ['opus', 'sonnet', 'haiku', 'other'] as const
+const FAMILY_ORDER = ['fable', 'opus', 'sonnet', 'haiku', 'other'] as const
 
 function modelFamily(model: string): string {
   const m = model.toLowerCase()
+  // Fable 5 and Mythos 5 share the frontier tier & price — one bucket.
+  if (m.includes('fable') || m.includes('mythos')) return 'fable'
   if (m.includes('opus'))   return 'opus'
   if (m.includes('haiku'))  return 'haiku'
   if (m.includes('sonnet')) return 'sonnet'
@@ -371,15 +377,15 @@ function modelFamily(model: string): string {
 
 function ModelMixTrendCard({ sessions }: { sessions: Session[] }) {
   const weeks = React.useMemo(() => {
-    type Bucket = { key: string; label: string; opus: number; sonnet: number; haiku: number; other: number }
+    type Bucket = { key: string; label: string; fable: number; opus: number; sonnet: number; haiku: number; other: number }
     const map = new Map<string, Bucket>()
     for (const s of sessions) {
       const date = new Date(s.startedAt)
       const key = getWeekKey(date)
-      const b = map.get(key) ?? { key, label: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), opus: 0, sonnet: 0, haiku: 0, other: 0 }
+      const b = map.get(key) ?? { key, label: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), fable: 0, opus: 0, sonnet: 0, haiku: 0, other: 0 }
       for (const [model, usage] of Object.entries(s.stats.modelUsage)) {
         const cost = costOfUsage(usage, model)
-        const fam = modelFamily(model) as 'opus' | 'sonnet' | 'haiku' | 'other'
+        const fam = modelFamily(model) as 'fable' | 'opus' | 'sonnet' | 'haiku' | 'other'
         b[fam] += cost
       }
       map.set(key, b)
@@ -1812,7 +1818,7 @@ function ProgressDashboardCard({ sessions }: { sessions: Session[] }) {
         label: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
         qualityTotal: 0, qualityCount: 0,
         cacheIn: 0, cacheRead: 0,
-        modelCost: { opus: 0, sonnet: 0, haiku: 0, other: 0 },
+        modelCost: { fable: 0, opus: 0, sonnet: 0, haiku: 0, other: 0 },
         skillTotal: 0, sessCount: 0,
       }
 
@@ -1824,7 +1830,7 @@ function ProgressDashboardCard({ sessions }: { sessions: Session[] }) {
       b.cacheRead += u.cacheReadTokens
 
       for (const [model, u] of Object.entries(s.stats.modelUsage)) {
-        const fam = modelFamily(model) as 'opus' | 'sonnet' | 'haiku' | 'other'
+        const fam = modelFamily(model) as 'fable' | 'opus' | 'sonnet' | 'haiku' | 'other'
         b.modelCost[fam] = (b.modelCost[fam] ?? 0) + costOfUsage(u, model)
       }
 
@@ -1865,20 +1871,23 @@ function ProgressDashboardCard({ sessions }: { sessions: Session[] }) {
       .filter(b => b.cacheIn > 0)
       .map(b => ({ label: b.label, value: (b.cacheRead / b.cacheIn) * 100 }))
     // Per-model cost share (%) per week
-    const modelLines: ProgressLine[] = (['opus', 'sonnet', 'haiku'] as const)
+    const modelLines: ProgressLine[] = (['fable', 'opus', 'sonnet', 'haiku'] as const)
       .filter(f => weeks.some(b => (b.modelCost[f] ?? 0) > 0))
       .map(f => ({
         key: f,
-        color: f === 'opus' ? '#a855f7' : f === 'sonnet' ? '#0ea5e9' : '#14b8a6',
+        color: f === 'fable' ? '#f59e0b' : f === 'opus' ? '#a855f7' : f === 'sonnet' ? '#0ea5e9' : '#14b8a6',
         points: weeks.map(b => {
           const total = Object.values(b.modelCost).reduce((s, v) => s + v, 0)
           return { label: b.label, value: total > 0 ? ((b.modelCost[f] ?? 0) / total) * 100 : 0 }
         }),
       }))
 
-    // For trend: is Opus share going down? (good)
-    const opusLine = modelLines.find(l => l.key === 'opus')
-    const modelPts = opusLine?.points ?? []
+    // For trend: is premium-tier (Fable/Opus) cost share going down? (good)
+    const modelPts = weeks.map(b => {
+      const total = Object.values(b.modelCost).reduce((s, v) => s + v, 0)
+      const premium = (b.modelCost.fable ?? 0) + (b.modelCost.opus ?? 0)
+      return { label: b.label, value: total > 0 ? (premium / total) * 100 : 0 }
+    })
     const skillPts = weeks
       .map(b => ({ label: b.label, value: b.sessCount > 0 ? b.skillTotal / b.sessCount : 0 }))
 
@@ -1896,8 +1905,8 @@ function ProgressDashboardCard({ sessions }: { sessions: Session[] }) {
           .join(' · ')
       : null
 
-    // Suppress Opus trend when it's negligible (<3% consistently)
-    const opusMaxPct = opusLine ? Math.max(...opusLine.points.map(p => p.value)) : 0
+    // Suppress premium trend when it's negligible (<3% consistently)
+    const premiumMaxPct = modelPts.length > 0 ? Math.max(...modelPts.map(p => p.value)) : 0
     const lastS = skillPts.at(-1)
 
     const qTrend = trendDir(qualityPts.map(p => p.value), true)
@@ -1919,8 +1928,8 @@ function ProgressDashboardCard({ sessions }: { sessions: Session[] }) {
       {
         id: 'model', title: 'Model mix', points: modelPts, lines: modelLines, higherIsBetter: false,
         currentLabel: lastM ?? '—',
-        trend: opusMaxPct < 3 ? 'insufficient' : mTrend,
-        trendLabel: opusMaxPct < 3 ? 'No Opus' : `Opus ${trendLabel(mTrend)}`,
+        trend: premiumMaxPct < 3 ? 'insufficient' : mTrend,
+        trendLabel: premiumMaxPct < 3 ? 'No premium models' : `Premium ${trendLabel(mTrend)}`,
       },
       {
         id: 'skills', title: 'Skills / session', points: skillPts, higherIsBetter: true,

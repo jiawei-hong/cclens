@@ -53,13 +53,15 @@ function totalWorkTokens(s: Session): number {
 }
 
 // ── Rule: wrong-model-for-task ────────────────────────────────────────────────
-// Opus used for conversation/exploration/research — Sonnet would have sufficed.
+// A premium model (Opus / Fable / Mythos) used for conversation/exploration/
+// research — Sonnet would have sufficed.
 
 function ruleWrongModel(s: Session): Recommendation | null {
   const taskType = classifySession(s)
   if (taskType !== 'conversation' && taskType !== 'exploration' && taskType !== 'research') return null
   const dom = dominantModel(s)
-  if (!dom || !/opus/i.test(dom)) return null
+  if (!dom || !/opus|fable|mythos/i.test(dom)) return null
+  const famLabel = /fable/i.test(dom) ? 'Fable' : /mythos/i.test(dom) ? 'Mythos' : 'Opus'
 
   const current = sessionCostUSD(s)
   let sonnetCost = 0
@@ -73,8 +75,8 @@ function ruleWrongModel(s: Session): Recommendation | null {
     id: 'wrong-model-for-task',
     category: 'cost',
     severity: savings > 1 ? 'high' : savings > 0.25 ? 'medium' : 'low',
-    title: `Opus ran a ${taskType} task — Sonnet would have sufficed`,
-    evidence: `Session cost $${current.toFixed(2)} on Opus. Same token mix on Sonnet: $${sonnetCost.toFixed(2)}. ${taskType} tasks rarely need Opus-level reasoning.`,
+    title: `${famLabel} ran a ${taskType} task — Sonnet would have sufficed`,
+    evidence: `Session cost $${current.toFixed(2)} on ${famLabel}. Same token mix on Sonnet: $${sonnetCost.toFixed(2)}. ${taskType} tasks rarely need ${famLabel}-level reasoning.`,
     savings: { kind: 'usd', amount: savings, detail: 'vs Sonnet at current token mix' },
     actionHint: 'Run /model sonnet before starting similar sessions.',
   }

@@ -90,6 +90,34 @@ describe('wrong-model-for-task', () => {
     expect(totalSavingsUSD).toBeGreaterThan(0)
   })
 
+  it('fires when Fable runs an exploration-flavored session', () => {
+    const turns: Turn[] = []
+    for (let i = 0; i < 12; i++) {
+      turns.push(makeTurn({
+        uuid: `t${i}`, role: 'assistant',
+        toolCalls: [makeToolCall({ name: 'Read', input: { file_path: `/p/f${i}.ts` } })],
+      }))
+    }
+    const s = makeSession({
+      id: 's1',
+      turns,
+      stats: {
+        toolBreakdown: { Read: 12 },
+        toolCallCount: 12,
+        modelUsage: {
+          'claude-fable-5': {
+            inputTokens: 200_000, outputTokens: 20_000,
+            cacheCreateTokens: 0, cacheCreate1hTokens: 0, cacheReadTokens: 0,
+          },
+        },
+      },
+    })
+    const { recommendations } = sessionRecommendations(s)
+    const rec = recommendations.find(r => r.id === 'wrong-model-for-task')
+    expect(rec).toBeDefined()
+    expect(rec!.title).toContain('Fable')
+  })
+
   it('does not fire when task type is coding', () => {
     const turns: Turn[] = []
     for (let i = 0; i < 10; i++) {

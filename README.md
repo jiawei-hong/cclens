@@ -9,7 +9,7 @@ Insights & search across your [Claude Code](https://claude.ai/code) sessions —
 - **Daily & hourly activity charts + 14-week heatmap** — see when you code and how busy each day was
 - **Session depth stats** — avg duration, avg tool calls, avg turns, longest/deepest session
 - **Top tools breakdown** — ranked bar chart of all tools used across sessions
-- **Cost & token panel** — version-aware pricing (Opus 4.5+ / 4.1, Haiku 4.5 / 3.5), per-model breakdown, daily cost curve, cache-hit rate
+- **Cost & token panel** — version-aware pricing (Fable/Mythos 5, Opus 5 / 4.5+ / legacy, Sonnet 5–3.7, Haiku 4.5 / 3.5), per-model breakdown, daily cost curve, cache-hit rate
 - **Cost by task type** — how much of your spend goes to coding vs. debugging vs. research vs. exploration vs. conversation (avg cost/session + share of total)
 - **Context window hotspots** — surfaces sessions closest to the auto-compact threshold (200k standard, 1M for `[1m]` variants)
 - **Tool error rate & slowest tool calls** — click a slow call to jump to the exact turn

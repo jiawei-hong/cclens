@@ -92,7 +92,7 @@ function modelDiscipline(sessions: Session[]): Habit {
     const entry = perType.get(tt) ?? { total: 0, opus: 0, penalty: 0 }
     entry.total++
     const dom = dominantModel(s)
-    if (dom && /opus/i.test(dom)) {
+    if (dom && /opus|fable|mythos/i.test(dom)) {
       entry.opus++
       opusCount++
       const current = sessionCostUSD(s)
@@ -117,7 +117,7 @@ function modelDiscipline(sessions: Session[]): Habit {
     const penaltyStr = entry.penalty >= 0.01 ? ` · ~$${entry.penalty.toFixed(2)} penalty` : ''
     breakdown.push({
       label,
-      value: `Opus in ${entry.opus}/${entry.total} (${pctStr(entry.opus, entry.total)})${penaltyStr}`,
+      value: `Premium model in ${entry.opus}/${entry.total} (${pctStr(entry.opus, entry.total)})${penaltyStr}`,
       tone: p >= 0.5 ? 'danger' : p >= 0.25 ? 'warning' : 'neutral',
     })
   }
@@ -129,8 +129,8 @@ function modelDiscipline(sessions: Session[]): Habit {
       ? 'No soft-task sessions yet'
       : opusCount === 0
         ? `You picked the right model size for all ${eligible.length} soft-task sessions`
-        : `Opus on ${opusCount}/${eligible.length} soft-task sessions (${pctStr(opusCount, eligible.length)})`,
-    actionHint: 'Run /model sonnet before conversation, exploration, or research sessions — Opus reasoning is overkill there.',
+        : `Premium model (Opus/Fable) on ${opusCount}/${eligible.length} soft-task sessions (${pctStr(opusCount, eligible.length)})`,
+    actionHint: 'Run /model sonnet before conversation, exploration, or research sessions — Opus/Fable reasoning is overkill there.',
     badRate,
     sampleSize: eligible.length,
     status: statusFromRate(badRate, eligible.length),
