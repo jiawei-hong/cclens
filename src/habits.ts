@@ -8,7 +8,7 @@ import { sessionRecommendations } from './recommendations'
 // Each habit is a clear rate (badRate = 0..1) plus a one-line action hint,
 // so the UI can render a traffic-light row per habit.
 
-const SONNET_MODEL_ID = 'claude-sonnet-4-6'
+const SONNET_MODEL_ID = 'claude-sonnet-5'
 const SOFT_TASK_TYPES: SessionType[] = ['conversation', 'exploration', 'research']
 
 export type HabitStatus = 'good' | 'ok' | 'bad'

@@ -34,7 +34,7 @@ export type SessionRecommendations = {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-const SONNET_MODEL_ID = 'claude-sonnet-4-6'
+const SONNET_MODEL_ID = 'claude-sonnet-5'
 const MIN_USD_SAVINGS = 0.02  // hide sub-two-cent suggestions as noise
 const MIN_SESSION_TOKENS = 20_000  // skip cache/cost analysis on tiny sessions
 

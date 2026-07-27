@@ -44,11 +44,19 @@ describe('priceFor', () => {
     expect(priceFor('claude-opus-4-7')).toEqual({ input: 5, output: 25, cacheCreate: 6.25, cacheCreate1h: 10, cacheRead: 0.5 })
     expect(priceFor('claude-opus-4-6')).toEqual({ input: 5, output: 25, cacheCreate: 6.25, cacheCreate1h: 10, cacheRead: 0.5 })
     expect(priceFor('claude-opus-4-5')).toEqual({ input: 5, output: 25, cacheCreate: 6.25, cacheCreate1h: 10, cacheRead: 0.5 })
+    expect(priceFor('claude-opus-4-8')).toEqual({ input: 5, output: 25, cacheCreate: 6.25, cacheCreate1h: 10, cacheRead: 0.5 })
+    expect(priceFor('claude-opus-5')).toEqual({ input: 5, output: 25, cacheCreate: 6.25, cacheCreate1h: 10, cacheRead: 0.5 })
+  })
+
+  it('applies frontier pricing for Fable 5 / Mythos 5', () => {
+    expect(priceFor('claude-fable-5')).toEqual({ input: 10, output: 50, cacheCreate: 12.5, cacheCreate1h: 20, cacheRead: 1 })
+    expect(priceFor('claude-mythos-5')).toEqual({ input: 10, output: 50, cacheCreate: 12.5, cacheCreate1h: 20, cacheRead: 1 })
   })
 
   it('treats [1m] context tag as standard pricing (no surcharge)', () => {
     // Opus 4.5+ includes 1M context at standard rates.
     expect(priceFor('claude-opus-4-7[1m]')).toEqual(priceFor('claude-opus-4-7'))
+    expect(priceFor('claude-opus-5[1m]')).toEqual(priceFor('claude-opus-5'))
   })
 
   it('keeps legacy Opus pricing for 4 / 4.1', () => {
@@ -62,6 +70,7 @@ describe('priceFor', () => {
   })
 
   it('returns Sonnet pricing regardless of version', () => {
+    expect(priceFor('claude-sonnet-5')).toEqual({ input: 3, output: 15, cacheCreate: 3.75, cacheCreate1h: 6, cacheRead: 0.3 })
     expect(priceFor('claude-sonnet-4-6')).toEqual({ input: 3, output: 15, cacheCreate: 3.75, cacheCreate1h: 6, cacheRead: 0.3 })
     expect(priceFor('claude-sonnet-3-7')).toEqual({ input: 3, output: 15, cacheCreate: 3.75, cacheCreate1h: 6, cacheRead: 0.3 })
   })
@@ -89,9 +98,16 @@ describe('costOfUsage', () => {
 
 describe('modelVersionLabel', () => {
   it('extracts version digits', () => {
-    expect(modelVersionLabel('claude-opus-4-7')).toBe('opus 4.7')
-    expect(modelVersionLabel('claude-sonnet-4-6-20260101')).toBe('sonnet 4.6')
-    expect(modelVersionLabel('claude-opus-4-7[1m]')).toBe('opus 4.7')
+    expect(modelVersionLabel('claude-opus-4-7')).toBe('Opus 4.7')
+    expect(modelVersionLabel('claude-sonnet-4-6-20260101')).toBe('Sonnet 4.6')
+    expect(modelVersionLabel('claude-opus-4-7[1m]')).toBe('Opus 4.7')
+  })
+
+  it('handles single-digit model versions', () => {
+    expect(modelVersionLabel('claude-opus-5')).toBe('Opus 5')
+    expect(modelVersionLabel('claude-opus-5[1m]')).toBe('Opus 5')
+    expect(modelVersionLabel('claude-fable-5')).toBe('Fable 5')
+    expect(modelVersionLabel('claude-sonnet-5-20260101')).toBe('Sonnet 5')
   })
 })
 

@@ -664,16 +664,18 @@ export function multiFileSessions(sessions: Session[], limit = 15): MultiFileSes
 
 // ── Cost & token usage ────────────────────────────────────────────────────────
 // Public list prices per 1M tokens. Cache write (5m) = 1.25× input, cache read = 0.1× input.
-// Prices are version-aware: Opus 4.5+ dropped to $5/$25 (from $15/$75 for Opus 4/4.1);
-// Haiku 4.5 rose to $1/$5 (from $0.80/$4 for 3.5). 1M context on Opus 4.5+ and
-// Sonnet 4.6 is billed at standard rates — no surcharge applied for `[1m]` model IDs.
-// Displayed $ is an estimate, not the billed amount.
+// Prices are version-aware: Opus 4.5+ (incl. Opus 5) is $5/$25 (from $15/$75 for Opus 4/4.1);
+// Haiku 4.5 rose to $1/$5 (from $0.80/$4 for 3.5). Fable 5 / Mythos 5 are $10/$50.
+// Sonnet 5 lists at $3/$15 (intro $2/$10 through 2026-08-31 — estimate uses list price).
+// 1M context on Opus 4.5+ and Sonnet 4.6+ is billed at standard rates — no surcharge
+// applied for `[1m]` model IDs. Displayed $ is an estimate, not the billed amount.
 // cacheCreate5m = input × 1.25 (default TTL); cacheCreate1h = input × 2.
 export type ModelPrice = { input: number; output: number; cacheCreate: number; cacheCreate1h: number; cacheRead: number }
 
-const PRICE_OPUS_NEW: ModelPrice     = { input: 5,    output: 25,  cacheCreate: 6.25,  cacheCreate1h: 10,   cacheRead: 0.5  }  // Opus 4.5 / 4.6 / 4.7
+const PRICE_FRONTIER: ModelPrice     = { input: 10,   output: 50,  cacheCreate: 12.5,  cacheCreate1h: 20,   cacheRead: 1    }  // Fable 5 / Mythos 5
+const PRICE_OPUS_NEW: ModelPrice     = { input: 5,    output: 25,  cacheCreate: 6.25,  cacheCreate1h: 10,   cacheRead: 0.5  }  // Opus 4.5 – 4.8 / Opus 5
 const PRICE_OPUS_LEGACY: ModelPrice  = { input: 15,   output: 75,  cacheCreate: 18.75, cacheCreate1h: 30,   cacheRead: 1.5  }  // Opus 3 / 4 / 4.1
-const PRICE_SONNET: ModelPrice       = { input: 3,    output: 15,  cacheCreate: 3.75,  cacheCreate1h: 6,    cacheRead: 0.3  }  // Sonnet 3.7 – 4.6
+const PRICE_SONNET: ModelPrice       = { input: 3,    output: 15,  cacheCreate: 3.75,  cacheCreate1h: 6,    cacheRead: 0.3  }  // Sonnet 3.7 – 5
 const PRICE_HAIKU_NEW: ModelPrice    = { input: 1,    output: 5,   cacheCreate: 1.25,  cacheCreate1h: 2,    cacheRead: 0.1  }  // Haiku 4.5
 const PRICE_HAIKU_LEGACY: ModelPrice = { input: 0.8,  output: 4,   cacheCreate: 1.0,   cacheCreate1h: 1.6,  cacheRead: 0.08 }  // Haiku 3 / 3.5
 
@@ -686,6 +688,7 @@ export const PRICING = {
 
 export function priceFor(model: string): ModelPrice {
   const m = model.toLowerCase()
+  if (m.includes('fable') || m.includes('mythos')) return PRICE_FRONTIER
   const opusMatch = m.match(/opus-(\d+)(?:-(\d+))?/)
   if (opusMatch) {
     const major = parseInt(opusMatch[1]!, 10)
@@ -866,7 +869,7 @@ export function goldStandardSessions(sessions: Session[], limit = 8): GoldStanda
 
 export type ModelUsageRow = {
   model: string
-  shortLabel: string   // opus / sonnet / haiku / other — for color mapping
+  shortLabel: string   // Opus / Sonnet / Haiku / Fable / Mythos / Other — for color mapping
   versionLabel: string // e.g. "opus 4.7", "sonnet 4.5" — for display
   inputTokens: number
   outputTokens: number
@@ -878,19 +881,26 @@ export type ModelUsageRow = {
 
 function shortModelLabel(model: string): string {
   const m = model.toLowerCase()
-  if (m.includes('opus'))   return 'opus'
-  if (m.includes('haiku'))  return 'haiku'
-  if (m.includes('sonnet')) return 'sonnet'
-  return 'other'
+  if (m.includes('fable'))  return 'Fable'
+  if (m.includes('mythos')) return 'Mythos'
+  if (m.includes('opus'))   return 'Opus'
+  if (m.includes('haiku'))  return 'Haiku'
+  if (m.includes('sonnet')) return 'Sonnet'
+  return 'Other'
 }
 
 // Parses model IDs like "claude-opus-4-7", "claude-sonnet-4-5-20250219",
-// "claude-opus-4-7[1m]" → "opus 4.7", "sonnet 4.5", "opus 4.7".
+// "claude-opus-5", "claude-opus-4-7[1m]" → "Opus 4.7", "Sonnet 4.5", "Opus 5", "Opus 4.7".
+// The minor version is optional (single-digit IDs like opus-5 / fable-5 have none);
+// it is capped at 2 digits so date suffixes aren't mistaken for a minor version.
 // Falls back to shortModelLabel when no version digits are present.
 export function modelVersionLabel(model: string): string {
   const m = model.toLowerCase()
-  const match = m.match(/(opus|sonnet|haiku)-(\d+)-(\d+)/)
-  if (match) return `${match[1]} ${match[2]}.${match[3]}`
+  const match = m.match(/(opus|sonnet|haiku|fable|mythos)-(\d+)(?:-(\d{1,2})(?!\d))?/)
+  if (match) {
+    const family = match[1]![0]!.toUpperCase() + match[1]!.slice(1)
+    return match[3] ? `${family} ${match[2]}.${match[3]}` : `${family} ${match[2]}`
+  }
   return shortModelLabel(model)
 }
 
