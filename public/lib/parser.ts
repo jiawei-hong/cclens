@@ -1,8 +1,8 @@
 import type { Session, MemoryEntry, MemoryEntryType } from '../../src/types'
-import { parseRawJsonl } from '../../src/parseCore'
+import { parseRawJsonl, attachSubagents, subagentParentId } from '../../src/parseCore'
 import {
   readSessionCache, writeSessionCache, readMemoryCache, writeMemoryCache,
-  type CachedSession, type CachedMemory,
+  PARSER_VERSION, type CachedSession, type CachedMemory,
 } from './db'
 import { parseInWorker, workerAvailable } from './workerClient'
 
@@ -13,7 +13,10 @@ export async function parseSessionFile(file: File): Promise<Session | null> {
 }
 
 export async function parseSessionFiles(files: FileList | File[]): Promise<Session[]> {
-  const arr = Array.from(files).filter(f => f.name.endsWith('.jsonl'))
+  // Bare file drops carry no directory structure, so subagent transcripts
+  // (agent-*.jsonl) can't be attached to their parent — skip them rather than
+  // presenting them as fake sessions. Folder mode handles them properly.
+  const arr = Array.from(files).filter(f => f.name.endsWith('.jsonl') && !f.name.startsWith('agent-'))
   const results = await Promise.all(arr.map(f => parseSessionFile(f).catch(() => null)))
   return results
     .filter((s): s is Session => s !== null)
@@ -37,7 +40,7 @@ export async function parseSessionFilesCached(
 
   const keepPaths = new Set(jsonl.map(t => t.path))
   const toWrite: CachedSession[] = []
-  const sessions: Session[] = []
+  const pairs: { path: string; session: Session }[] = []
   const total = jsonl.length
   let done = 0
   let fromCache = 0
@@ -49,10 +52,11 @@ export async function parseSessionFilesCached(
   // Cheap pass: harvest cache hits on the main thread, queue misses for the worker.
   for (const t of jsonl) {
     const cached = cache.get(t.path)
-    if (cached && cached.lastModified === t.file.lastModified && cached.size === t.file.size) {
+    if (cached && cached.lastModified === t.file.lastModified && cached.size === t.file.size
+        && cached.parserVersion === PARSER_VERSION) {
       fromCache++
       done++
-      sessions.push(cached.session)
+      pairs.push({ path: t.path, session: cached.session })
     } else {
       misses.push({ path: t.path, file: t.file, lastModified: t.file.lastModified, size: t.file.size })
     }
@@ -69,8 +73,8 @@ export async function parseSessionFilesCached(
         for (const r of out) {
           if (r.session) {
             reparsed++
-            sessions.push(r.session)
-            toWrite.push({ path: r.path, lastModified: r.lastModified, size: r.size, session: r.session })
+            pairs.push({ path: r.path, session: r.session })
+            toWrite.push({ path: r.path, lastModified: r.lastModified, size: r.size, parserVersion: PARSER_VERSION, session: r.session })
           }
         }
         done = fromCache + misses.length
@@ -89,8 +93,8 @@ export async function parseSessionFilesCached(
         const session = await parseSessionFile(m.file)
         if (session) {
           reparsed++
-          sessions.push(session)
-          toWrite.push({ path: m.path, lastModified: m.lastModified, size: m.size, session })
+          pairs.push({ path: m.path, session })
+          toWrite.push({ path: m.path, lastModified: m.lastModified, size: m.size, parserVersion: PARSER_VERSION, session })
         }
       } catch { /* skip */ }
       done++
@@ -98,10 +102,33 @@ export async function parseSessionFilesCached(
     }
   }
 
-  // Best-effort cache write; don't block UI on quota errors.
-  writeSessionCache(toWrite, keepPaths).catch(() => { /* quota / corruption */ })
+  // Best-effort cache write; don't block UI on quota errors. Sessions are
+  // cached WITHOUT the subagents aggregate — attachment is recomputed per load.
+  writeSessionCache(
+    toWrite.map(c => ({ ...c, session: { ...c.session, subagents: undefined } })),
+    keepPaths,
+  ).catch(() => { /* quota / corruption */ })
 
-  const items = sessions.sort((a, b) => b.startedAt.localeCompare(a.startedAt))
+  // Fold subagent transcripts (<sessionId>/subagents/agent-*.jsonl) into their
+  // parent sessions; they are not sessions of their own.
+  const childrenByParent = new Map<string, Session[]>()
+  const parents: Session[] = []
+  for (const { path, session } of pairs) {
+    const parentId = subagentParentId(path)
+    if (parentId) {
+      const list = childrenByParent.get(parentId) ?? []
+      list.push(session)
+      childrenByParent.set(parentId, list)
+    } else {
+      parents.push(session)
+    }
+  }
+  for (const p of parents) {
+    p.subagents = undefined  // recompute — a stale cached value must not survive
+    attachSubagents(p, childrenByParent.get(p.id) ?? [])
+  }
+
+  const items = parents.sort((a, b) => b.startedAt.localeCompare(a.startedAt))
   return { items, fromCache, reparsed }
 }
 

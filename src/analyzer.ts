@@ -688,6 +688,11 @@ export const PRICING = {
 
 export function priceFor(model: string): ModelPrice {
   const m = model.toLowerCase()
+  // Fast-mode usage is keyed as `<model>[fast]` by the parser and bills 2× standard.
+  if (m.includes('[fast]')) {
+    const p = priceFor(model.replace(/\[fast\]/gi, ''))
+    return { input: p.input * 2, output: p.output * 2, cacheCreate: p.cacheCreate * 2, cacheCreate1h: p.cacheCreate1h * 2, cacheRead: p.cacheRead * 2 }
+  }
   if (m.includes('fable') || m.includes('mythos')) return PRICE_FRONTIER
   const opusMatch = m.match(/opus-(\d+)(?:-(\d+))?/)
   if (opusMatch) {
@@ -723,6 +728,10 @@ export function costOfUsage(u: AggregatedUsage, model: string): number {
 export function sessionCostUSD(s: Session): number {
   let total = 0
   for (const [model, u] of Object.entries(s.stats.modelUsage)) total += costOfUsage(u, model)
+  // Subagent transcripts are separate API traffic billed to the same account.
+  if (s.subagents) {
+    for (const [model, u] of Object.entries(s.subagents.modelUsage)) total += costOfUsage(u, model)
+  }
   return total
 }
 
@@ -743,6 +752,12 @@ export function totalUsage(sessions: Session[]): TotalUsage {
     output += s.stats.usage.outputTokens
     cc     += s.stats.usage.cacheCreateTokens
     cr     += s.stats.usage.cacheReadTokens
+    if (s.subagents) {
+      input  += s.subagents.usage.inputTokens
+      output += s.subagents.usage.outputTokens
+      cc     += s.subagents.usage.cacheCreateTokens
+      cr     += s.subagents.usage.cacheReadTokens
+    }
     cost   += sessionCostUSD(s)
   }
   const denom = cr + cc + input
@@ -896,26 +911,29 @@ function shortModelLabel(model: string): string {
 // Falls back to shortModelLabel when no version digits are present.
 export function modelVersionLabel(model: string): string {
   const m = model.toLowerCase()
+  const fast = m.includes('[fast]') ? ' fast' : ''
   const match = m.match(/(opus|sonnet|haiku|fable|mythos)-(\d+)(?:-(\d{1,2})(?!\d))?/)
   if (match) {
     const family = match[1]![0]!.toUpperCase() + match[1]!.slice(1)
-    return match[3] ? `${family} ${match[2]}.${match[3]}` : `${family} ${match[2]}`
+    return (match[3] ? `${family} ${match[2]}.${match[3]}` : `${family} ${match[2]}`) + fast
   }
-  return shortModelLabel(model)
+  return shortModelLabel(model) + fast
 }
 
 export function usageByModel(sessions: Session[]): ModelUsageRow[] {
   const map = new Map<string, AggregatedUsage>()
+  const add = (model: string, u: AggregatedUsage) => {
+    const acc = map.get(model) ?? { inputTokens: 0, outputTokens: 0, cacheCreateTokens: 0, cacheCreate1hTokens: 0, cacheReadTokens: 0 }
+    acc.inputTokens         += u.inputTokens
+    acc.outputTokens        += u.outputTokens
+    acc.cacheCreateTokens   += u.cacheCreateTokens
+    acc.cacheCreate1hTokens += u.cacheCreate1hTokens
+    acc.cacheReadTokens     += u.cacheReadTokens
+    map.set(model, acc)
+  }
   for (const s of sessions) {
-    for (const [model, u] of Object.entries(s.stats.modelUsage)) {
-      const acc = map.get(model) ?? { inputTokens: 0, outputTokens: 0, cacheCreateTokens: 0, cacheCreate1hTokens: 0, cacheReadTokens: 0 }
-      acc.inputTokens         += u.inputTokens
-      acc.outputTokens        += u.outputTokens
-      acc.cacheCreateTokens   += u.cacheCreateTokens
-      acc.cacheCreate1hTokens += u.cacheCreate1hTokens
-      acc.cacheReadTokens     += u.cacheReadTokens
-      map.set(model, acc)
-    }
+    for (const [model, u] of Object.entries(s.stats.modelUsage)) add(model, u)
+    if (s.subagents) for (const [model, u] of Object.entries(s.subagents.modelUsage)) add(model, u)
   }
   return [...map.entries()]
     .map(([model, u]) => ({

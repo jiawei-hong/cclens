@@ -1,7 +1,7 @@
 import { readdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Session } from './types'
-import { parseRawJsonl, projectNameFromPath } from './parseCore'
+import { parseRawJsonl, attachSubagents, projectNameFromPath } from './parseCore'
 
 const CLAUDE_DIR = join(process.env.HOME ?? '~', '.claude', 'projects')
 
@@ -18,7 +18,26 @@ export async function parseSession(projectDir: string, filename: string): Promis
   const raw = await readFile(filePath, 'utf-8')
   const sessionId = filename.replace('.jsonl', '')
   const fallbackPath = projectPathFromDir(projectDir)
-  return parseRawJsonl(raw, sessionId, fallbackPath)
+  const session = parseRawJsonl(raw, sessionId, fallbackPath)
+  if (session) await loadSubagents(session, join(CLAUDE_DIR, projectDir, sessionId), fallbackPath)
+  return session
+}
+
+// Subagent transcripts live at <projectDir>/<sessionId>/subagents/agent-*.jsonl.
+async function loadSubagents(parent: Session, sessionDir: string, fallbackPath: string): Promise<void> {
+  let files: string[]
+  try { files = await readdir(join(sessionDir, 'subagents')) } catch { return }
+  const children: Session[] = []
+  await Promise.all(
+    files.filter(f => f.endsWith('.jsonl')).map(async f => {
+      try {
+        const raw = await readFile(join(sessionDir, 'subagents', f), 'utf-8')
+        const child = parseRawJsonl(raw, f.replace('.jsonl', ''), fallbackPath)
+        if (child) children.push(child)
+      } catch { /* skip unreadable transcript */ }
+    })
+  )
+  attachSubagents(parent, children)
 }
 
 export async function loadAllSessions(): Promise<Session[]> {

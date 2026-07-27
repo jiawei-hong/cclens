@@ -1,4 +1,7 @@
-import type { RawEntry, Session, Turn, ToolCall, ContentBlock, AggregatedUsage, CompactionEvent, OverEditingStats } from './types'
+import type {
+  RawEntry, Session, Turn, ToolCall, ContentBlock, AggregatedUsage,
+  CompactionEvent, OverEditingStats, SubagentStats,
+} from './types'
 
 // ── Content helpers ───────────────────────────────────────────────────────────
 
@@ -101,8 +104,15 @@ export function parseRawJsonl(rawText: string, sessionId: string, projectPath: s
     try { entries.push(JSON.parse(line)) } catch { /* skip malformed */ }
   }
 
-  // Capture compaction boundary events before filtering to message-only entries
+  // Capture sidecar + system events before filtering to message-only entries
   const compactionEvents: CompactionEvent[] = []
+  let title: string | undefined
+  let agentName: string | undefined
+  let sessionKind: string | undefined
+  const prLinks: { number: number; url: string; repository: string }[] = []
+  let apiDurationMsTotal = 0
+  let hasApiDuration = false
+  let modelFallbackCount = 0
   for (const e of entries) {
     if (e.type === 'system' && e.subtype === 'compact_boundary' && e.compactMetadata) {
       compactionEvents.push({
@@ -111,6 +121,19 @@ export function parseRawJsonl(rawText: string, sessionId: string, projectPath: s
         preTokens: e.compactMetadata.preTokens,
       })
     }
+    if (e.type === 'system' && e.subtype === 'turn_duration' && typeof e.durationMs === 'number') {
+      apiDurationMsTotal += e.durationMs
+      hasApiDuration = true
+    }
+    if (e.type === 'system' && e.subtype?.startsWith('model_') && e.subtype.endsWith('_fallback')) {
+      modelFallbackCount++
+    }
+    if (e.type === 'ai-title' && e.aiTitle) title = e.aiTitle
+    if (e.type === 'agent-name' && e.agentName) agentName = e.agentName
+    if (e.type === 'pr-link' && e.prUrl) {
+      prLinks.push({ number: e.prNumber ?? 0, url: e.prUrl, repository: e.prRepository ?? '' })
+    }
+    if (e.sessionKind && !sessionKind) sessionKind = e.sessionKind
   }
 
   const messageEntries = entries.filter(e => e.type === 'user' || e.type === 'assistant')
@@ -131,6 +154,9 @@ export function parseRawJsonl(rawText: string, sessionId: string, projectPath: s
 
   // Build turns
   const turns: Turn[] = []
+  let interruptCount = 0
+  let toolDenialCount = 0
+  let apiErrorCount = 0
   for (const entry of messageEntries) {
     if (!entry.message) continue
     const { role, content } = entry.message
@@ -148,8 +174,23 @@ export function parseRawJsonl(rawText: string, sessionId: string, projectPath: s
       }
     }
 
+    if (entry.interruptedMessageId) interruptCount++
+    if (entry.toolDenialKind) toolDenialCount++
+    if (entry.isApiErrorMessage) apiErrorCount++
+
     if (!text && toolCalls.length === 0) continue
-    turns.push({ uuid: entry.uuid, role, timestamp: entry.timestamp, text: text.slice(0, 2000), toolCalls, thinkingBlocks })
+    const turn: Turn = { uuid: entry.uuid, role, timestamp: entry.timestamp, text: text.slice(0, 2000), toolCalls, thinkingBlocks }
+    if (role === 'assistant') {
+      if (entry.message.model) turn.model = entry.message.model
+      if (entry.effort) turn.effort = entry.effort
+      if (entry.message.stop_reason) turn.stopReason = entry.message.stop_reason
+      if (entry.isApiErrorMessage) turn.apiError = true
+    } else {
+      if (entry.promptSource) turn.promptSource = entry.promptSource
+      if (entry.isMeta) turn.isMeta = true
+      if (entry.interruptedMessageId) turn.interrupted = true
+    }
+    turns.push(turn)
   }
 
   if (turns.length === 0) return null
@@ -179,17 +220,30 @@ export function parseRawJsonl(rawText: string, sessionId: string, projectPath: s
   // Over-editing metrics
   const overEditing = computeOverEditing(turns)
 
-  // Usage + context series
+  // Usage + context series.
+  // One API response is written as MULTIPLE assistant entries (one per content
+  // block group), each repeating the same message.id and the SAME usage object.
+  // Aggregate usage once per unique message.id or every number roughly doubles.
   const usage: AggregatedUsage = { inputTokens: 0, outputTokens: 0, cacheCreateTokens: 0, cacheCreate1hTokens: 0, cacheReadTokens: 0 }
   const modelUsage: Record<string, AggregatedUsage> = {}
+  const effortCounts: Record<string, number> = {}
+  let apiTurns = 0
   let peakContextTokens = 0
   let has1MContext = false
   const contextSeries: { ts: string; tokens: number }[] = []
+  const seenMessageIds = new Set<string>()
 
   for (const entry of messageEntries) {
     if (entry.type !== 'assistant') continue
     const u = entry.message?.usage
     if (!u) continue
+    const msgId = entry.message?.id
+    if (msgId) {
+      if (seenMessageIds.has(msgId)) continue
+      seenMessageIds.add(msgId)
+    }
+    apiTurns++
+    if (entry.effort) effortCounts[entry.effort] = (effortCounts[entry.effort] ?? 0) + 1
     const input = u.input_tokens ?? 0
     const output = u.output_tokens ?? 0
     const ccIn = u.cache_creation_input_tokens ?? 0
@@ -200,8 +254,9 @@ export function parseRawJsonl(rawText: string, sessionId: string, projectPath: s
     usage.cacheCreateTokens   += ccIn
     usage.cacheCreate1hTokens += cc1h
     usage.cacheReadTokens     += crIn
-    const model = entry.message?.model ?? 'unknown'
+    let model = entry.message?.model ?? 'unknown'
     if (model.includes('[1m]')) has1MContext = true
+    if (u.speed === 'fast') model += '[fast]'  // fast mode bills 2× — keep it a separate bucket
     const m = modelUsage[model] ?? (modelUsage[model] = { inputTokens: 0, outputTokens: 0, cacheCreateTokens: 0, cacheCreate1hTokens: 0, cacheReadTokens: 0 })
     m.inputTokens         += input
     m.outputTokens        += output
@@ -212,12 +267,24 @@ export function parseRawJsonl(rawText: string, sessionId: string, projectPath: s
     if (ctx > peakContextTokens) peakContextTokens = ctx
     contextSeries.push({ ts: entry.timestamp, tokens: ctx })
   }
+  // JSONL model ids carry no [1m] tag on current versions — if observed context
+  // exceeds the 200K default, the session was on a 1M window.
+  if (peakContextTokens > 200_000) has1MContext = true
+
+  // Old-format files have no interruptedMessageId — fall back to the text marker.
+  if (interruptCount === 0) {
+    interruptCount = turns.filter(t => t.role === 'user' && t.text.includes('[Request interrupted by user')).length
+  }
 
   return {
     id: sessionId,
     project: projectNameFromPath(resolvedPath),
     projectPath: resolvedPath,
     gitBranch,
+    title,
+    agentName,
+    sessionKind,
+    prLinks: prLinks.length > 0 ? prLinks : undefined,
     startedAt,
     endedAt,
     durationMs,
@@ -225,6 +292,7 @@ export function parseRawJsonl(rawText: string, sessionId: string, projectPath: s
     stats: {
       userTurns: turns.filter(t => t.role === 'user').length,
       assistantTurns: turns.filter(t => t.role === 'assistant').length,
+      apiTurns,
       toolCallCount,
       toolBreakdown,
       totalTextLength,
@@ -236,6 +304,53 @@ export function parseRawJsonl(rawText: string, sessionId: string, projectPath: s
       totalThinkingBlocks: turns.reduce((sum, t) => sum + t.thinkingBlocks, 0),
       compactionEvents,
       overEditing,
+      effortCounts: Object.keys(effortCounts).length > 0 ? effortCounts : undefined,
+      apiErrorCount,
+      interruptCount,
+      toolDenialCount,
+      apiDurationMsTotal: hasApiDuration ? apiDurationMsTotal : undefined,
+      modelFallbackCount,
     },
   }
+}
+
+// ── Subagent attachment ───────────────────────────────────────────────────────
+// Subagent transcripts live at <project>/<sessionId>/subagents/agent-*.jsonl.
+// They are parsed with parseRawJsonl like any session, then folded into the
+// parent session here — they are not sessions of their own.
+
+export function attachSubagents(parent: Session, children: Session[]): void {
+  if (children.length === 0) return
+  const agg: SubagentStats = {
+    count: children.length,
+    toolCallCount: 0,
+    usage: { inputTokens: 0, outputTokens: 0, cacheCreateTokens: 0, cacheCreate1hTokens: 0, cacheReadTokens: 0 },
+    modelUsage: {},
+  }
+  for (const c of children) {
+    agg.toolCallCount += c.stats.toolCallCount
+    const u = c.stats.usage
+    agg.usage.inputTokens         += u.inputTokens
+    agg.usage.outputTokens        += u.outputTokens
+    agg.usage.cacheCreateTokens   += u.cacheCreateTokens
+    agg.usage.cacheCreate1hTokens += u.cacheCreate1hTokens
+    agg.usage.cacheReadTokens     += u.cacheReadTokens
+    for (const [model, mu] of Object.entries(c.stats.modelUsage)) {
+      const m = agg.modelUsage[model] ?? (agg.modelUsage[model] = { inputTokens: 0, outputTokens: 0, cacheCreateTokens: 0, cacheCreate1hTokens: 0, cacheReadTokens: 0 })
+      m.inputTokens         += mu.inputTokens
+      m.outputTokens        += mu.outputTokens
+      m.cacheCreateTokens   += mu.cacheCreateTokens
+      m.cacheCreate1hTokens += mu.cacheCreate1hTokens
+      m.cacheReadTokens     += mu.cacheReadTokens
+    }
+  }
+  parent.subagents = agg
+}
+
+// Path helper shared by the node and browser loaders: returns the parent
+// session id for a subagent transcript path, or null when the path is a
+// regular session file. Matches ".../<sessionId>/subagents/<file>.jsonl".
+export function subagentParentId(path: string): string | null {
+  const m = path.match(/(?:^|\/)([^/]+)\/subagents\/[^/]+\.jsonl$/)
+  return m ? m[1]! : null
 }

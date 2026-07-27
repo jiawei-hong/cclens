@@ -1,10 +1,14 @@
-export type EntryType = 'user' | 'assistant' | 'system' | 'permission-mode' | 'file-history-snapshot' | 'attachment'
+export type EntryType =
+  | 'user' | 'assistant' | 'system' | 'permission-mode' | 'file-history-snapshot' | 'attachment'
+  | 'last-prompt' | 'mode' | 'ai-title' | 'queue-operation' | 'pr-link' | 'agent-name'
+  | 'frame-link' | 'file-history-delta'
 
 export type ContentBlock =
   | { type: 'text'; text: string }
   | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
   | { type: 'tool_result'; tool_use_id: string; content: string | ContentBlock[]; is_error?: boolean }
   | { type: 'thinking'; thinking: string }
+  | { type: 'fallback'; from?: { model?: string }; to?: { model?: string } }
 
 export type TokenUsage = {
   input_tokens: number
@@ -15,7 +19,11 @@ export type TokenUsage = {
     ephemeral_5m_input_tokens?: number
     ephemeral_1h_input_tokens?: number
   }
+  speed?: string          // 'standard' | 'fast' — fast mode bills 2×
+  service_tier?: string
 }
+
+export type PromptSource = 'typed' | 'system' | 'sdk' | 'suggestion_accepted' | 'queued'
 
 export type RawEntry = {
   uuid: string
@@ -24,15 +32,45 @@ export type RawEntry = {
   subtype?: string
   timestamp: string
   sessionId: string
+  sessionKind?: string    // e.g. 'bg' for background sessions
   cwd?: string
   gitBranch?: string
   version?: string
+  isSidechain?: boolean
+  requestId?: string
+  effort?: string         // assistant entries: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+  // user-entry provenance
+  promptId?: string
+  promptSource?: PromptSource
+  origin?: { kind?: string }
+  isMeta?: boolean
+  interruptedMessageId?: string   // present when this user entry interrupted a running turn
+  toolDenialKind?: string         // 'user-rejected' | 'permission-rule' | 'automode-blocked'
+  // assistant-entry flags
+  isApiErrorMessage?: boolean
+  isAbortedMidStream?: boolean
+  attributionSkill?: string
+  attributionMcpServer?: string
+  attributionPlugin?: string
+  // system-entry payloads
+  durationMs?: number      // subtype 'turn_duration'
+  messageCount?: number
   compactMetadata?: { trigger: 'auto' | 'manual'; preTokens: number }
+  // sidecar entry payloads
+  aiTitle?: string         // type 'ai-title'
+  lastPrompt?: string      // type 'last-prompt'
+  agentName?: string       // type 'agent-name'
+  prNumber?: number        // type 'pr-link'
+  prUrl?: string
+  prRepository?: string
+  permissionMode?: string  // type 'permission-mode' entries and user entries
   message?: {
     role: 'user' | 'assistant'
+    id?: string            // API message id — repeats across entries of one response; dedupe usage on it
     model?: string
     content: string | ContentBlock[]
     usage?: TokenUsage
+    stop_reason?: string | null
     isCompactSummary?: boolean
   }
 }
@@ -55,6 +93,24 @@ export type Turn = {
   text: string
   toolCalls: ToolCall[]
   thinkingBlocks: number
+  // assistant-turn extras (optional — absent on sessions parsed by older versions)
+  model?: string
+  effort?: string
+  stopReason?: string
+  apiError?: boolean
+  // user-turn extras
+  promptSource?: PromptSource
+  isMeta?: boolean
+  interrupted?: boolean    // this user turn interrupted a running assistant turn
+}
+
+// Aggregated stats for the subagent transcripts under
+// <project>/<sessionId>/subagents/agent-*.jsonl — attached to the parent session.
+export type SubagentStats = {
+  count: number            // number of subagent transcripts
+  toolCallCount: number
+  usage: AggregatedUsage
+  modelUsage: Record<string, AggregatedUsage>
 }
 
 export type Session = {
@@ -62,11 +118,16 @@ export type Session = {
   project: string
   projectPath: string
   gitBranch?: string
+  title?: string           // from 'ai-title' sidecar entry
+  agentName?: string       // from 'agent-name' sidecar entry
+  sessionKind?: string     // e.g. 'bg' for background sessions
+  prLinks?: { number: number; url: string; repository: string }[]
   startedAt: string
   endedAt: string
   durationMs: number
   turns: Turn[]
   stats: SessionStats
+  subagents?: SubagentStats
 }
 
 export type AggregatedUsage = {
@@ -92,17 +153,25 @@ export type OverEditingStats = {
 export type SessionStats = {
   userTurns: number
   assistantTurns: number
+  apiTurns?: number           // unique API responses (deduped by message.id) — assistantTurns counts JSONL entries
   toolCallCount: number
   toolBreakdown: Record<string, number>  // tool name → count
   totalTextLength: number
   usage: AggregatedUsage
-  modelUsage: Record<string, AggregatedUsage>  // model name → usage
+  modelUsage: Record<string, AggregatedUsage>  // model name → usage; fast-mode usage keyed as `<model>[fast]`
   peakContextTokens: number   // max (input + cache_read + cache_create) across assistant turns
-  contextLimit: number        // 1_000_000 if any turn used a [1m] model, else 200_000
-  contextSeries: { ts: string; tokens: number }[]  // per-assistant-turn context size
+  contextLimit: number        // 1M if a [1m] model was used or observed context exceeded 200K, else 200K
+  contextSeries: { ts: string; tokens: number }[]  // per-API-response context size (deduped)
   totalThinkingBlocks: number // sum of thinkingBlocks across all assistant turns
   compactionEvents: CompactionEvent[]
   overEditing: OverEditingStats
+  // optional — absent on sessions parsed by older versions
+  effortCounts?: Record<string, number>  // effort level → unique API responses at that level
+  apiErrorCount?: number      // assistant entries flagged isApiErrorMessage
+  interruptCount?: number     // user entries with interruptedMessageId (plus legacy text markers)
+  toolDenialCount?: number    // user entries with toolDenialKind
+  apiDurationMsTotal?: number // sum of system/turn_duration durationMs
+  modelFallbackCount?: number // system model_*fallback events
 }
 
 export type ProjectSummary = {

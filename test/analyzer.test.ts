@@ -2,6 +2,7 @@ import { describe, it, expect } from 'bun:test'
 import {
   priceFor,
   costOfUsage,
+  sessionCostUSD,
   classifySession,
   bashAntiPatterns,
   contextWindowHotspots,
@@ -77,6 +78,20 @@ describe('priceFor', () => {
 
   it('falls back to Sonnet pricing for unknown models', () => {
     expect(priceFor('claude-mystery-99')).toEqual({ input: 3, output: 15, cacheCreate: 3.75, cacheCreate1h: 6, cacheRead: 0.3 })
+  })
+
+  it('bills [fast] usage at 2× the base model rates', () => {
+    expect(priceFor('claude-opus-5[fast]')).toEqual({ input: 10, output: 50, cacheCreate: 12.5, cacheCreate1h: 20, cacheRead: 1 })
+  })
+})
+
+describe('sessionCostUSD with subagents', () => {
+  it('includes subagent modelUsage in the session total', () => {
+    const u = { inputTokens: 1_000_000, outputTokens: 0, cacheCreateTokens: 0, cacheCreate1hTokens: 0, cacheReadTokens: 0 }
+    const s = makeSession({ id: 's1', stats: { modelUsage: { 'claude-opus-5': u } } })
+    const base = sessionCostUSD(s)  // $5
+    s.subagents = { count: 1, toolCallCount: 0, usage: u, modelUsage: { 'claude-sonnet-5': u } }
+    expect(sessionCostUSD(s)).toBeCloseTo(base + 3, 5)  // + $3 Sonnet subagent input
   })
 })
 

@@ -10,10 +10,15 @@ const SESSIONS_STORE = 'sessions'
 const MEMORY_STORE = 'memory'
 const META_STORE = 'meta'
 
+// Bump when parseRawJsonl output changes shape or semantics — cached sessions
+// from older parser versions are treated as misses and re-parsed.
+export const PARSER_VERSION = 2
+
 export type CachedSession = {
   path: string
   lastModified: number
   size: number
+  parserVersion?: number
   session: Session
 }
 
